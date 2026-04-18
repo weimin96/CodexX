@@ -2,7 +2,6 @@ use chrono::Utc;
 use serde::Deserialize;
 
 use crate::account::{CodexAccountProfile, CodexUsageWindow};
-use crate::error::{AppError, AppResult};
 
 const CODEX_USAGE_URLS: [&str; 2] = [
     "https://chatgpt.com/backend-api/wham/usage",
@@ -38,11 +37,12 @@ pub async fn fetch_codex_account_profile(
     access_token: &str,
     account_id: &str,
     fallback_plan_type: Option<String>,
-) -> AppResult<CodexAccountProfile> {
+) -> Result<CodexAccountProfile, String> {
     let client = reqwest::Client::builder()
         .user_agent("codex-manager/0.1.0")
         .timeout(std::time::Duration::from_secs(18))
-        .build()?;
+        .build()
+        .map_err(|error| format!("创建资料请求客户端失败: {error}"))?;
     let mut errors = Vec::new();
 
     for usage_url in CODEX_USAGE_URLS {
@@ -56,7 +56,7 @@ pub async fn fetch_codex_account_profile(
         {
             Ok(response) => response,
             Err(error) => {
-                errors.push(format!("{usage_url} -> {error}"));
+                errors.push(CodexUsageFailure::transport(usage_url, &error.to_string()));
                 continue;
             }
         };
@@ -64,22 +64,25 @@ pub async fn fetch_codex_account_profile(
         let status = response.status();
         if !status.is_success() {
             let body = response.text().await.unwrap_or_default();
-            errors.push(format!(
-                "{usage_url} -> {}: {}",
+            errors.push(CodexUsageFailure::http(
+                usage_url,
                 status.as_u16(),
-                truncate_error_body(&body, 180)
+                &truncate_error_body(&body, 180),
             ));
             continue;
         }
 
-        let payload: CodexUsageApiResponse = response.json().await?;
+        let payload: CodexUsageApiResponse = match response.json().await {
+            Ok(payload) => payload,
+            Err(error) => {
+                errors.push(CodexUsageFailure::parse(usage_url, &error.to_string()));
+                continue;
+            }
+        };
         return Ok(map_usage_payload(payload, fallback_plan_type));
     }
 
-    Err(AppError::AuthFailed(format!(
-        "请求 Codex 用量接口失败: {}",
-        summarize_errors(&errors)
-    )))
+    Err(summarize_failures(&errors))
 }
 
 fn map_usage_payload(
@@ -132,22 +135,40 @@ fn pick_nearest_window(
         })
 }
 
-fn summarize_errors(errors: &[String]) -> String {
+fn summarize_failures(errors: &[CodexUsageFailure]) -> String {
     if errors.is_empty() {
-        return "未命中任何候选地址".to_string();
+        return "Codex 资料接口暂不可用，可稍后重试".to_string();
     }
 
-    let preview = errors
+    if errors
         .iter()
-        .take(2)
-        .map(String::as_str)
-        .collect::<Vec<_>>()
-        .join(" | ");
-    if errors.len() > 2 {
-        format!("{preview} | 另有 {} 个候选地址失败", errors.len() - 2)
-    } else {
-        preview
+        .any(|error| matches!(error.status_code(), Some(401 | 403)))
+    {
+        return "登录信息已失效，请重新同步本地账号".to_string();
     }
+
+    if errors
+        .iter()
+        .any(|error| matches!(error.status_code(), Some(status) if status >= 500))
+    {
+        return "Codex 资料接口暂时不可用，可稍后重试".to_string();
+    }
+
+    if errors
+        .iter()
+        .all(|error| matches!(error.kind, CodexUsageFailureKind::Transport))
+    {
+        return "Codex 资料接口暂不可达，可稍后重试".to_string();
+    }
+
+    if errors
+        .iter()
+        .any(|error| matches!(error.kind, CodexUsageFailureKind::Parse))
+    {
+        return "Codex 资料接口返回格式暂不兼容".to_string();
+    }
+
+    "Codex 资料接口返回异常，可稍后重试".to_string()
 }
 
 fn truncate_error_body(value: &str, max_chars: usize) -> String {
@@ -158,4 +179,44 @@ fn truncate_error_body(value: &str, max_chars: usize) -> String {
 
     let prefix = trimmed.chars().take(max_chars).collect::<String>();
     format!("{prefix}...")
+}
+
+#[derive(Debug)]
+struct CodexUsageFailure {
+    kind: CodexUsageFailureKind,
+    status_code: Option<u16>,
+}
+
+impl CodexUsageFailure {
+    fn transport(_url: &str, _detail: &str) -> Self {
+        Self {
+            kind: CodexUsageFailureKind::Transport,
+            status_code: None,
+        }
+    }
+
+    fn http(_url: &str, status_code: u16, _detail: &str) -> Self {
+        Self {
+            kind: CodexUsageFailureKind::Http,
+            status_code: Some(status_code),
+        }
+    }
+
+    fn parse(_url: &str, _detail: &str) -> Self {
+        Self {
+            kind: CodexUsageFailureKind::Parse,
+            status_code: None,
+        }
+    }
+
+    fn status_code(&self) -> Option<u16> {
+        self.status_code
+    }
+}
+
+#[derive(Debug)]
+enum CodexUsageFailureKind {
+    Transport,
+    Http,
+    Parse,
 }

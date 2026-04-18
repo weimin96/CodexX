@@ -50,6 +50,14 @@ pub struct CompletedOAuthLogin {
     pub auth_json: Value,
     pub account_id: String,
     pub email: Option<String>,
+    pub name: Option<String>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct ResolvedCredentialIdentity {
+    pub name: Option<String>,
+    pub email: Option<String>,
+    pub organization: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -322,6 +330,32 @@ impl Default for AuthService {
     }
 }
 
+pub async fn resolve_credential_identity(
+    auth_type: &AuthType,
+    credential: &str,
+) -> AppResult<ResolvedCredentialIdentity> {
+    match auth_type {
+        AuthType::ApiKey => fetch_identity_from_bearer_token(credential).await,
+        AuthType::OAuthToken => resolve_oauth_credential_identity(credential).await,
+        AuthType::CookieSession => Ok(ResolvedCredentialIdentity::default()),
+        AuthType::CliProfile => Ok(ResolvedCredentialIdentity {
+            name: normalize_identity_text(Some(credential)),
+            email: None,
+            organization: None,
+        }),
+    }
+}
+
+pub fn resolve_account_display_name(
+    preferred_name: Option<&str>,
+    email: Option<&str>,
+    fallback: &str,
+) -> String {
+    normalize_identity_text(preferred_name)
+        .or_else(|| normalize_identity_text(email))
+        .unwrap_or_else(|| fallback.to_string())
+}
+
 fn parse_oauth_callback_url(callback_url: &str) -> AppResult<reqwest::Url> {
     reqwest::Url::parse(callback_url)
         .or_else(|_| reqwest::Url::parse(&format!("http://localhost{callback_url}")))
@@ -378,6 +412,10 @@ fn build_auth_json_from_oauth_tokens(
         .get("email")
         .and_then(Value::as_str)
         .map(ToString::to_string);
+    let name = id_token_claims
+        .get("name")
+        .and_then(Value::as_str)
+        .and_then(|value| normalize_identity_text(Some(value)));
 
     let auth_json = serde_json::json!({
         "OPENAI_API_KEY": Value::Null,
@@ -395,6 +433,7 @@ fn build_auth_json_from_oauth_tokens(
         auth_json,
         account_id,
         email,
+        name,
     })
 }
 
@@ -432,6 +471,150 @@ fn oauth_access_token_from_credential(credential: &str) -> String {
                 .map(ToString::to_string)
         })
         .unwrap_or_else(|| credential.to_string())
+}
+
+async fn resolve_oauth_credential_identity(
+    credential: &str,
+) -> AppResult<ResolvedCredentialIdentity> {
+    let fallback_identity = extract_oauth_identity_from_credential(credential);
+    let access_token = oauth_access_token_from_credential(credential);
+
+    match fetch_identity_from_bearer_token(&access_token).await {
+        Ok(remote_identity) => Ok(merge_identity(remote_identity, fallback_identity)),
+        Err(_) if identity_has_data(&fallback_identity) => Ok(fallback_identity),
+        Err(error) => Err(error),
+    }
+}
+
+fn extract_oauth_identity_from_credential(credential: &str) -> ResolvedCredentialIdentity {
+    let credential_json = serde_json::from_str::<Value>(credential).ok();
+    let id_token = credential_json
+        .as_ref()
+        .and_then(|value| {
+            value
+                .get("tokens")
+                .and_then(Value::as_object)
+                .and_then(|tokens| tokens.get("id_token"))
+                .or_else(|| value.get("id_token"))
+        })
+        .and_then(Value::as_str);
+    let claims = id_token.and_then(|token| decode_jwt_payload(token).ok());
+
+    ResolvedCredentialIdentity {
+        name: claims
+            .as_ref()
+            .and_then(|value| value.get("name"))
+            .and_then(Value::as_str)
+            .and_then(|value| normalize_identity_text(Some(value))),
+        email: claims
+            .as_ref()
+            .and_then(|value| value.get("email"))
+            .and_then(Value::as_str)
+            .and_then(|value| normalize_identity_text(Some(value))),
+        organization: None,
+    }
+}
+
+async fn fetch_identity_from_bearer_token(
+    bearer_token: &str,
+) -> AppResult<ResolvedCredentialIdentity> {
+    let token = bearer_token.trim();
+    if token.is_empty() {
+        return Err(AppError::InvalidInput("凭证内容为空".to_string()));
+    }
+
+    let client = Client::builder()
+        .user_agent("codex-manager/0.1.0")
+        .timeout(std::time::Duration::from_secs(12))
+        .build()?;
+    let response = client
+        .get("https://api.openai.com/v1/me")
+        .header("Authorization", format!("Bearer {token}"))
+        .header("Accept", "application/json")
+        .send()
+        .await?;
+    let status = response.status();
+
+    if !status.is_success() {
+        let body = response.text().await.unwrap_or_default();
+        return Err(AppError::Other(format!(
+            "请求身份接口失败 {}: {}",
+            status.as_u16(),
+            truncate_error_body(&body, 120)
+        )));
+    }
+
+    let payload: Value = response.json().await?;
+    Ok(ResolvedCredentialIdentity {
+        name: first_non_empty_identity_value([
+            payload.get("name").and_then(Value::as_str),
+            payload.get("display_name").and_then(Value::as_str),
+        ]),
+        email: payload
+            .get("email")
+            .and_then(Value::as_str)
+            .and_then(|value| normalize_identity_text(Some(value))),
+        organization: extract_default_organization_name(&payload),
+    })
+}
+
+fn merge_identity(
+    primary: ResolvedCredentialIdentity,
+    fallback: ResolvedCredentialIdentity,
+) -> ResolvedCredentialIdentity {
+    ResolvedCredentialIdentity {
+        name: primary.name.or(fallback.name),
+        email: primary.email.or(fallback.email),
+        organization: primary.organization.or(fallback.organization),
+    }
+}
+
+fn identity_has_data(identity: &ResolvedCredentialIdentity) -> bool {
+    identity.name.is_some() || identity.email.is_some() || identity.organization.is_some()
+}
+
+fn extract_default_organization_name(payload: &Value) -> Option<String> {
+    let default_org = payload
+        .get("orgs")
+        .and_then(|value| value.get("data"))
+        .and_then(Value::as_array)
+        .and_then(|items| {
+            items.iter().find(|item| {
+                item.get("is_default")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false)
+            })
+        })
+        .or_else(|| {
+            payload
+                .get("orgs")
+                .and_then(|value| value.get("data"))
+                .and_then(Value::as_array)
+                .and_then(|items| items.first())
+        });
+
+    default_org
+        .and_then(|value| {
+            value
+                .get("title")
+                .and_then(Value::as_str)
+                .or_else(|| value.get("name").and_then(Value::as_str))
+        })
+        .and_then(|value| normalize_identity_text(Some(value)))
+}
+
+fn first_non_empty_identity_value<const N: usize>(values: [Option<&str>; N]) -> Option<String> {
+    values
+        .into_iter()
+        .flatten()
+        .find_map(|value| normalize_identity_text(Some(value)))
+}
+
+fn normalize_identity_text(value: Option<&str>) -> Option<String> {
+    value
+        .map(str::trim)
+        .filter(|text| !text.is_empty())
+        .map(ToString::to_string)
 }
 
 fn current_unix_seconds() -> AppResult<i64> {

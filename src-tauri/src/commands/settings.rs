@@ -22,7 +22,7 @@ pub async fn get_settings(state: State<'_, AppState>) -> Result<Value, AppError>
 
     // Defaults
     if !map.contains_key("theme") {
-        map.insert("theme".to_string(), Value::String("dark".to_string()));
+        map.insert("theme".to_string(), Value::String("light".to_string()));
     }
     if !map.contains_key("language") {
         map.insert("language".to_string(), Value::String("zh-CN".to_string()));

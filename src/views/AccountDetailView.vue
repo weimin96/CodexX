@@ -1,114 +1,144 @@
 <template>
-  <div class="view-container" v-if="account">
-    <!-- Breadcrumb -->
-    <n-breadcrumb>
-      <n-breadcrumb-item @click="router.push('/accounts')" style="cursor:pointer">账号列表</n-breadcrumb-item>
+  <div v-if="account" class="app-page">
+    <n-breadcrumb class="page-breadcrumb">
+      <n-breadcrumb-item @click="router.push('/accounts')" style="cursor: pointer;">
+        账号列表
+      </n-breadcrumb-item>
       <n-breadcrumb-item>{{ account.name }}</n-breadcrumb-item>
     </n-breadcrumb>
 
-    <!-- Header card -->
-    <div class="detail-hero">
-      <div class="hero-avatar" :style="{ background: account.color }">
-        {{ account.avatar_text ?? account.name[0]?.toUpperCase() }}
-      </div>
-      <div class="hero-info">
-        <div class="hero-name">
-          {{ account.name }}
-          <n-tag v-if="account.is_default" type="info" size="small">默认</n-tag>
-        </div>
-        <div class="hero-meta">
-          <span>{{ AUTH_TYPE_LABELS[account.auth_type] }}</span>
-          <template v-if="account.email">
-            <span class="dot">·</span>
-            <span>{{ account.email }}</span>
-          </template>
-          <template v-if="account.organization">
-            <span class="dot">·</span>
-            <span>{{ account.organization }}</span>
-          </template>
-        </div>
-        <div class="hero-status">
-          <StatusDot :status="account.status" show-label />
-          <span class="status-msg" v-if="account.status_message">{{ account.status_message }}</span>
-        </div>
-      </div>
-      <div class="hero-actions">
-        <n-button
-          :loading="checking"
-          size="small"
-          @click="handleCheck"
-        >检测状态</n-button>
-        <n-button
-          v-if="!account.is_default"
-          size="small"
-          type="primary"
-          ghost
-          @click="handleSetDefault"
-        >设为默认</n-button>
-        <n-button size="small" @click="showEditModal = true">编辑</n-button>
-      </div>
-    </div>
-
-    <!-- Details grid -->
-    <div class="detail-grid">
-      <!-- Account Info -->
-      <n-card title="账号信息" size="small">
-        <n-descriptions :column="1" label-placement="left" size="small">
-          <n-descriptions-item label="账号 ID">
-            <n-text code>{{ account.id }}</n-text>
-          </n-descriptions-item>
-          <n-descriptions-item label="认证方式">{{ AUTH_TYPE_LABELS[account.auth_type] }}</n-descriptions-item>
-          <n-descriptions-item label="创建时间">{{ formatDate(account.created_at) }}</n-descriptions-item>
-          <n-descriptions-item label="最后更新">{{ formatDate(account.updated_at) }}</n-descriptions-item>
-          <n-descriptions-item label="最后检测">{{ account.last_checked_at ? formatDate(account.last_checked_at) : '从未' }}</n-descriptions-item>
-          <n-descriptions-item label="状态">
-            <StatusDot :status="account.status" show-label />
-          </n-descriptions-item>
-        </n-descriptions>
-      </n-card>
-
-      <!-- Quick Usage -->
-      <n-card title="用量快览（本月）" size="small">
-        <div v-if="usageLoading" class="usage-loading">
-          <n-spin size="small" />
-        </div>
-        <div v-else-if="summary" class="usage-quick">
-          <div class="usage-stat">
-            <div class="stat-val">{{ formatTokens(summary.total_input_tokens) }}</div>
-            <div class="stat-key">输入 Token</div>
-          </div>
-          <div class="usage-stat">
-            <div class="stat-val">{{ formatTokens(summary.total_output_tokens) }}</div>
-            <div class="stat-key">输出 Token</div>
-          </div>
-          <div class="usage-stat">
-            <div class="stat-val">{{ summary.total_requests }}</div>
-            <div class="stat-key">请求次数</div>
-          </div>
-          <div class="usage-stat">
-            <div class="stat-val">${{ summary.total_cost.toFixed(4) }}</div>
-            <div class="stat-key">费用估算</div>
-          </div>
-        </div>
-        <div class="card-link" @click="goToUsage">查看详细统计 →</div>
-      </n-card>
-    </div>
-
-    <!-- Auth section -->
-    <n-card title="认证管理" size="small">
-      <div class="auth-section">
-        <div class="credential-row">
-          <n-text code class="credential-masked">{{ '•'.repeat(32) }}</n-text>
-          <n-button size="tiny" quaternary @click="handleRefreshToken" :loading="refreshing">
+    <section class="page-hero page-hero-light">
+      <div class="page-hero-copy">
+        <span class="page-eyebrow">账号</span>
+        <h1 class="page-title">{{ account.name }}</h1>
+        <p class="page-subtitle">
+          {{ AUTH_TYPE_LABELS[account.auth_type] }}
+          <template v-if="account.email"> · {{ account.email }}</template>
+          <template v-if="account.organization"> · {{ account.organization }}</template>
+        </p>
+        <div class="page-hero-actions">
+          <n-button secondary :loading="checking" @click="handleCheck">检测状态</n-button>
+          <n-button
+            v-if="!account.is_default"
+            type="primary"
+            @click="handleSetDefault"
+          >
+            设为默认
+          </n-button>
+          <n-button secondary @click="showEditModal = true">编辑账号</n-button>
+          <n-button secondary :loading="refreshing" @click="handleRefreshToken">
             刷新 Token
           </n-button>
         </div>
-        <n-alert v-if="authResult" :type="authAlertType" :title="authResult.message" style="margin-top:12px;" />
       </div>
-    </n-card>
 
-    <!-- Edit Modal -->
-    <n-modal v-model:show="showEditModal" preset="card" title="编辑账号" style="width: 480px;">
+      <div class="hero-detail-panel">
+        <div class="hero-avatar" :style="{ background: account.color }">
+          {{ account.avatar_text ?? account.name[0]?.toUpperCase() }}
+        </div>
+        <div class="hero-status">
+          <StatusDot :status="account.status" show-label />
+        </div>
+        <div class="hero-pill-list">
+          <span v-if="account.is_default" class="hero-pill hero-pill-dark">默认账号</span>
+          <span v-if="account.codex_plan_type" class="hero-pill hero-pill-blue">
+            {{ formatPlanType(account.codex_plan_type) }}
+          </span>
+          <span class="hero-pill">创建于 {{ formatDate(account.created_at) }}</span>
+        </div>
+        <div v-if="account.status_message" class="status-message" :class="account.status">
+          {{ account.status_message }}
+        </div>
+      </div>
+    </section>
+
+    <section class="two-column-grid">
+      <div class="surface-panel">
+        <h2 class="panel-heading">账号信息</h2>
+        <p class="panel-copy">基础信息。</p>
+        <div class="data-pair-list detail-list">
+          <div class="data-pair">
+            <span class="data-pair-label">账号 ID</span>
+            <span class="data-pair-value account-id">{{ account.id }}</span>
+          </div>
+          <div class="data-pair">
+            <span class="data-pair-label">认证方式</span>
+            <span class="data-pair-value">{{ AUTH_TYPE_LABELS[account.auth_type] }}</span>
+          </div>
+          <div class="data-pair">
+            <span class="data-pair-label">状态</span>
+            <span class="data-pair-value">
+              <StatusDot :status="account.status" show-label />
+            </span>
+          </div>
+          <div class="data-pair">
+            <span class="data-pair-label">最后更新</span>
+            <span class="data-pair-value">{{ formatDate(account.updated_at) }}</span>
+          </div>
+          <div class="data-pair">
+            <span class="data-pair-label">最后检测</span>
+            <span class="data-pair-value">
+              {{ account.last_checked_at ? formatDate(account.last_checked_at) : '从未检测' }}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <div class="surface-panel surface-panel-dark">
+        <h2 class="panel-heading">用量快览</h2>
+        <p class="panel-copy">本月汇总。</p>
+        <div v-if="usageLoading" class="panel-loading">
+          <n-spin size="small" />
+        </div>
+        <div v-else-if="summary" class="metric-grid usage-metrics">
+          <div class="metric-card">
+            <span class="metric-label">输入 Token</span>
+            <strong class="metric-value">{{ formatTokens(summary.total_input_tokens) }}</strong>
+          </div>
+          <div class="metric-card">
+            <span class="metric-label">输出 Token</span>
+            <strong class="metric-value">{{ formatTokens(summary.total_output_tokens) }}</strong>
+          </div>
+          <div class="metric-card">
+            <span class="metric-label">请求次数</span>
+            <strong class="metric-value">{{ summary.total_requests }}</strong>
+          </div>
+          <div class="metric-card">
+            <span class="metric-label">费用估算</span>
+            <strong class="metric-value">${{ summary.total_cost.toFixed(4) }}</strong>
+          </div>
+        </div>
+        <div v-else class="usage-empty">
+          <p>当前还没有可展示的用量统计。</p>
+        </div>
+        <button class="detail-link" type="button" @click="goToUsage">查看详细统计</button>
+      </div>
+    </section>
+
+    <section class="surface-panel">
+      <h2 class="panel-heading">认证管理</h2>
+      <p class="panel-copy">查看凭证状态与刷新结果。</p>
+      <div class="auth-grid">
+        <div class="auth-credential-card">
+          <span class="auth-label">凭证遮罩</span>
+          <strong class="auth-value">{{ '•'.repeat(32) }}</strong>
+        </div>
+        <div class="auth-credential-card">
+          <span class="auth-label">刷新操作</span>
+          <n-button secondary :loading="refreshing" @click="handleRefreshToken">
+            刷新 Token
+          </n-button>
+        </div>
+      </div>
+      <n-alert
+        v-if="authResult"
+        :type="authAlertType"
+        :title="authResult.message"
+        style="margin-top: 18px;"
+      />
+    </section>
+
+    <n-modal v-model:show="showEditModal" preset="card" title="编辑账号" style="width: 520px;">
       <n-form :model="editForm" label-placement="top">
         <n-form-item label="账号名称">
           <n-input v-model:value="editForm.name" />
@@ -120,27 +150,39 @@
           <n-input v-model:value="editForm.organization" />
         </n-form-item>
         <n-form-item label="更新凭证（留空保持不变）">
-          <n-input v-model:value="editForm.credential_value" type="password" show-password-on="click" placeholder="留空则不修改凭证" />
+          <n-input
+            v-model:value="editForm.credential_value"
+            type="password"
+            show-password-on="click"
+            placeholder="留空则不修改凭证"
+          />
         </n-form-item>
         <n-form-item label="标识颜色">
           <div class="color-row">
-            <div
-              v-for="c in PRESET_COLORS" :key="c"
-              class="color-dot" :class="{ selected: editForm.color === c }"
-              :style="{ background: c }" @click="editForm.color = c"
+            <button
+              v-for="color in PRESET_COLORS"
+              :key="color"
+              type="button"
+              class="color-dot"
+              :class="{ selected: editForm.color === color }"
+              :style="{ background: color }"
+              @click="editForm.color = color"
             />
           </div>
         </n-form-item>
         <div class="modal-footer">
-          <n-button @click="showEditModal = false">取消</n-button>
+          <n-button secondary @click="showEditModal = false">取消</n-button>
           <n-button type="primary" :loading="editLoading" @click="handleEdit">保存</n-button>
         </div>
       </n-form>
     </n-modal>
   </div>
 
-  <div v-else class="loading-state">
-    <n-spin />
+  <div v-else class="app-page">
+    <section class="surface-panel empty-panel">
+      <n-spin />
+      <p>正在加载账号详情。</p>
+    </section>
   </div>
 </template>
 
@@ -163,7 +205,7 @@ const accountStore = useAccountStore()
 const usageStore = useUsageStore()
 
 const accountId = computed(() => route.params.id as string)
-const account = computed(() => accountStore.accounts.find((a) => a.id === accountId.value))
+const account = computed(() => accountStore.accounts.find((item) => item.id === accountId.value))
 
 const checking = computed(() => accountStore.checkingStatus.has(accountId.value))
 const usageLoading = ref(false)
@@ -176,12 +218,34 @@ const authResult = ref<AuthCheckResult | null>(null)
 
 const authAlertType = computed(() => {
   if (!authResult.value) return 'default'
-  return { valid: 'success', expired: 'warning', invalid: 'error', unknown: 'default' }[authResult.value.status] as any
+  return {
+    valid: 'success',
+    expired: 'warning',
+    invalid: 'error',
+    unknown: 'default',
+  }[authResult.value.status] as 'success' | 'warning' | 'error' | 'default'
 })
 
-const PRESET_COLORS = ['#4f8ef7', '#18a058', '#f0a020', '#d03050', '#8b5cf6', '#06b6d4', '#f97316', '#ec4899', '#10b981', '#64748b']
+const PRESET_COLORS = [
+  '#0071e3',
+  '#1f8f5f',
+  '#b26a00',
+  '#c4314b',
+  '#7254d1',
+  '#0f9fb0',
+  '#d96a20',
+  '#b53b70',
+  '#147d68',
+  '#64748b',
+]
 
-const editForm = ref({ name: '', email: '', organization: '', color: '#4f8ef7', credential_value: '' })
+const editForm = ref({
+  name: '',
+  email: '',
+  organization: '',
+  color: '#0071e3',
+  credential_value: '',
+})
 
 onMounted(async () => {
   if (account.value) {
@@ -203,13 +267,22 @@ onMounted(async () => {
 })
 
 function formatDate(iso: string) {
-  try { return format(parseISO(iso), 'yyyy-MM-dd HH:mm') } catch { return iso }
+  try {
+    return format(parseISO(iso), 'yyyy-MM-dd HH:mm')
+  } catch {
+    return iso
+  }
 }
 
-function formatTokens(n: number): string {
-  if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + 'M'
-  if (n >= 1_000) return (n / 1_000).toFixed(1) + 'K'
-  return String(n)
+function formatTokens(value: number): string {
+  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`
+  if (value >= 1_000) return `${(value / 1_000).toFixed(1)}K`
+  return String(value)
+}
+
+function formatPlanType(planType: string): string {
+  const normalized = planType.trim()
+  return normalized ? normalized.toUpperCase() : '未知计划'
 }
 
 async function handleCheck() {
@@ -258,85 +331,167 @@ function goToUsage() {
 </script>
 
 <style scoped>
-.view-container { padding: 24px; display: flex; flex-direction: column; gap: 16px; max-width: 900px; }
+.page-breadcrumb {
+  margin-bottom: -8px;
+}
 
-.detail-hero {
+.hero-detail-panel {
+  width: min(280px, 100%);
   display: flex;
-  align-items: center;
-  gap: 16px;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 20px;
+  flex-direction: column;
+  gap: 10px;
+  align-items: flex-start;
 }
 
 .hero-avatar {
-  width: 56px; height: 56px; border-radius: 14px;
-  display: flex; align-items: center; justify-content: center;
-  font-size: 24px; font-weight: 700; color: #fff; flex-shrink: 0;
+  width: 56px;
+  height: 56px;
+  border-radius: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-display);
+  font-size: 22px;
+  font-weight: 600;
+  color: #ffffff;
 }
 
-.hero-info { flex: 1; min-width: 0; }
-
-.hero-name {
-  font-size: 20px; font-weight: 700; color: var(--text-primary);
-  display: flex; align-items: center; gap: 8px;
+.hero-status {
+  display: flex;
+  align-items: center;
 }
 
-.hero-meta {
-  font-size: 13px; color: var(--text-secondary); margin-top: 4px;
-  display: flex; align-items: center; gap: 4px;
+.hero-pill-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
-.dot { opacity: 0.4; }
+.hero-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 0 12px;
+  border-radius: var(--app-radius-control);
+  background: var(--app-surface-muted);
+  font-size: 11px;
+  line-height: 1.33;
+  color: var(--app-ink-secondary);
+}
 
-.hero-status { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+.hero-pill-dark {
+  background: var(--app-ink);
+  color: #ffffff;
+}
 
-.status-msg { font-size: 12px; color: var(--text-secondary); }
+.hero-pill-blue {
+  background: rgba(0, 113, 227, 0.12);
+  color: var(--app-blue);
+}
 
-.hero-actions { display: flex; gap: 8px; flex-shrink: 0; }
+.detail-list .data-pair-value {
+  display: flex;
+  justify-content: flex-end;
+}
 
-.detail-grid {
+.account-id {
+  word-break: break-all;
+}
+
+.panel-loading,
+.usage-empty {
+  min-height: 120px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.usage-empty p {
+  margin: 0;
+  color: rgba(255, 255, 255, 0.72);
+}
+
+.usage-metrics {
+  margin-top: 14px;
+}
+
+.detail-link {
+  margin-top: 12px;
+  border: none;
+  background: transparent;
+  color: var(--app-link-dark);
+  padding: 0;
+  font-size: 13px;
+  line-height: 1.43;
+  letter-spacing: -0.12px;
+  cursor: pointer;
+}
+
+.auth-grid {
+  margin-top: 14px;
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
 }
 
-.usage-quick {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 12px;
-  margin-bottom: 12px;
+.auth-credential-card {
+  padding: 14px 16px;
+  border-radius: 18px;
+  background: var(--app-surface-muted);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
-.usage-stat {
-  background: var(--bg-primary);
-  border-radius: 8px;
-  padding: 12px;
-  text-align: center;
+.auth-label {
+  font-size: 11px;
+  line-height: 1.33;
+  color: var(--app-ink-tertiary);
 }
 
-.stat-val { font-size: 20px; font-weight: 700; color: var(--accent); font-family: 'Fira Code', monospace; }
-.stat-key { font-size: 11px; color: var(--text-secondary); margin-top: 2px; }
-
-.usage-loading { display: flex; justify-content: center; padding: 20px 0; }
-
-.card-link {
-  font-size: 12px; color: var(--accent); cursor: pointer;
-  text-align: right; margin-top: 4px;
+.auth-value {
+  font-family: var(--font-display);
+  font-size: 16px;
+  line-height: 1.2;
+  letter-spacing: 0.12px;
 }
-.card-link:hover { opacity: 0.8; }
 
-.auth-section { display: flex; flex-direction: column; gap: 8px; }
+.color-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
 
-.credential-row { display: flex; align-items: center; gap: 12px; }
-.credential-masked { letter-spacing: 2px; opacity: 0.4; }
+.color-dot {
+  width: 28px;
+  height: 28px;
+  border: 2px solid transparent;
+  border-radius: 50%;
+  cursor: pointer;
+  transition:
+    transform 0.18s ease,
+    box-shadow 0.18s ease;
+}
 
-.color-row { display: flex; gap: 8px; flex-wrap: wrap; }
-.color-dot { width: 24px; height: 24px; border-radius: 50%; cursor: pointer; border: 2px solid transparent; transition: all 0.15s; }
-.color-dot:hover { transform: scale(1.15); }
-.color-dot.selected { border-color: #fff; box-shadow: 0 0 0 2px rgba(255,255,255,0.3); transform: scale(1.15); }
+.color-dot:hover {
+  transform: scale(1.08);
+}
 
-.modal-footer { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
-.loading-state { display: flex; align-items: center; justify-content: center; height: 300px; }
+.color-dot.selected {
+  border-color: #ffffff;
+  box-shadow: 0 0 0 2px rgba(29, 29, 31, 0.16);
+}
+
+.modal-footer {
+  margin-top: 14px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+@media (max-width: 768px) {
+  .auth-grid {
+    grid-template-columns: 1fr;
+  }
+}
 </style>

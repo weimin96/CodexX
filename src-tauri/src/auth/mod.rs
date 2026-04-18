@@ -1,9 +1,8 @@
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 
-use crate::account::{Account, AccountRepository, AccountStatus, AuthType};
+use crate::account::{Account, AuthType};
 use crate::error::AppResult;
-use crate::storage::Database;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

@@ -82,19 +82,22 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, h, Component } from 'vue'
+import { computed, onMounted, h, ref } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { listen } from '@tauri-apps/api/event'
 import type { MenuOption } from 'naive-ui'
-import { NIcon } from 'naive-ui'
+import { NIcon, useMessage } from 'naive-ui'
 import { useAccountStore } from '@/stores/account'
+import { useSettingsStore } from '@/stores/settings'
 import { AUTH_TYPE_LABELS } from '@/types'
 import StatusDot from '@/components/common/StatusDot.vue'
 
 const router = useRouter()
 const route = useRoute()
+const message = useMessage()
 const accountStore = useAccountStore()
+const settingsStore = useSettingsStore()
 const { activeAccount, totalAccounts, accountsByStatus } = storeToRefs(accountStore)
 
 const currentRoute = computed(() => route.name as string)
@@ -130,22 +133,57 @@ function handleNav(key: string) {
   router.push({ name: key })
 }
 
-// Window controls
-const appWindow = getCurrentWindow()
-const minimizeWindow = () => appWindow.minimize()
-const toggleMaximize = () => appWindow.toggleMaximize()
-const closeWindow = () => appWindow.hide() // hide to tray instead of quit
+// Window controls - 在 onMounted 中延迟初始化
+let appWindow: ReturnType<typeof getCurrentWindow> | null = null
+const isTauri = ref(false)
+
+const minimizeWindow = () => appWindow?.minimize()
+const toggleMaximize = () => appWindow?.toggleMaximize()
+const closeWindow = () => appWindow?.hide() // hide to tray instead of quit
+
+function getErrorMessage(error: unknown, fallback: string) {
+  if (error instanceof Error && error.message) return error.message
+  if (typeof error === 'string' && error) return error
+  return fallback
+}
 
 // Listen for backend status events
 onMounted(async () => {
-  await accountStore.loadAccounts()
+  // 延迟初始化 Tauri 窗口 API，确保在 Tauri 上下文完全准备好后调用
+  try {
+    appWindow = getCurrentWindow()
+    isTauri.value = true
+  } catch (e) {
+    console.warn('Running outside Tauri environment, window controls disabled')
+  }
 
-  await listen<{ account_id: string; status: string; message?: string }>(
-    'account-status-updated',
-    ({ payload }) => {
-      accountStore.updateAccountStatusFromEvent(payload.account_id, payload.status, payload.message)
-    },
-  )
+  await settingsStore.loadSettings()
+
+  if (isTauri.value && settingsStore.settings.local_auth_auto_sync === 'true') {
+    try {
+      const customPath = settingsStore.settings.local_auth_file_path.trim()
+      await accountStore.syncLocalAuthFile(customPath || undefined)
+    } catch (error) {
+      message.warning(getErrorMessage(error, '本地账号自动同步失败'))
+      await accountStore.loadAccounts()
+    }
+  } else {
+    await accountStore.loadAccounts()
+  }
+
+  // 只在 Tauri 环境中监听后端事件
+  if (isTauri.value) {
+    try {
+      await listen<{ account_id: string; status: string; message?: string }>(
+        'account-status-updated',
+        ({ payload }) => {
+          accountStore.updateAccountStatusFromEvent(payload.account_id, payload.status, payload.message)
+        },
+      )
+    } catch (e) {
+      console.warn('Failed to listen for events:', e)
+    }
+  }
 })
 </script>
 

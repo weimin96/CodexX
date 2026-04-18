@@ -1,5 +1,5 @@
 use crate::error::AppResult;
-use rusqlite::{Connection, params};
+use rusqlite::Connection;
 
 pub struct Database {
     conn: Connection,
@@ -14,7 +14,8 @@ impl Database {
     }
 
     fn initialize(&self) -> AppResult<()> {
-        self.conn.execute_batch("
+        self.conn.execute_batch(
+            "
             PRAGMA journal_mode=WAL;
             PRAGMA foreign_keys=ON;
 
@@ -67,7 +68,8 @@ impl Database {
                 ON usage_records(account_id, date);
             CREATE INDEX IF NOT EXISTS idx_credentials_account 
                 ON credentials(account_id);
-        ")?;
+        ",
+        )?;
         Ok(())
     }
 

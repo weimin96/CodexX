@@ -50,6 +50,38 @@
               style="width: 120px;"
             />
           </div>
+
+          <n-divider style="margin: 8px 0;" />
+
+          <div class="setting-item">
+            <div class="setting-info">
+              <div class="setting-label">启动时同步本地账号</div>
+              <div class="setting-desc">应用启动时自动读取本地 auth.json 并同步账号</div>
+            </div>
+            <n-switch
+              :value="localSettings.local_auth_auto_sync === 'true'"
+              @update:value="localSettings.local_auth_auto_sync = String($event)"
+            />
+          </div>
+
+          <n-divider style="margin: 8px 0;" />
+
+          <div class="setting-stack">
+            <div class="setting-info">
+              <div class="setting-label">auth.json 路径</div>
+              <div class="setting-desc">留空时优先使用 `CODEX_HOME\\auth.json`，否则回退到 `%USERPROFILE%\\.codex\\auth.json`</div>
+            </div>
+            <n-input
+              v-model:value="localSettings.local_auth_file_path"
+              size="small"
+              placeholder="例如：C:\\Users\\用户名\\.codex\\auth.json"
+            />
+            <div class="setting-actions">
+              <n-button size="small" :loading="syncingLocalAuth" @click="handleSyncLocalAuth">
+                立即同步
+              </n-button>
+            </div>
+          </div>
         </div>
       </n-card>
 
@@ -150,17 +182,32 @@
 <script setup lang="ts">
 import { ref, reactive, onMounted } from 'vue'
 import { useMessage, useDialog } from 'naive-ui'
+import { useAccountStore } from '@/stores/account'
 import { useSettingsStore } from '@/stores/settings'
-import { checkForUpdates } from '@tauri-apps/plugin-updater'
+import { AUTH_TYPE_LABELS } from '@/types'
+
+type TauriRuntimeWindow = Window & { __TAURI__?: unknown }
+
+// Tauri updater 条件导入
+const isTauri = typeof window !== 'undefined' && Boolean((window as TauriRuntimeWindow).__TAURI__)
+let checkForUpdates: (() => Promise<any>) | null = null
+
+if (isTauri) {
+  import('@tauri-apps/plugin-updater').then((module) => {
+    checkForUpdates = module.check
+  })
+}
 
 const message = useMessage()
 const dialog = useDialog()
+const accountStore = useAccountStore()
 const settingsStore = useSettingsStore()
 
 const localSettings = reactive({ ...settingsStore.settings })
 const saving = ref(false)
 const saved = ref(false)
 const checkingUpdate = ref(false)
+const syncingLocalAuth = ref(false)
 
 const themeOptions = [
   { label: '深色', value: 'dark' },
@@ -182,6 +229,12 @@ onMounted(async () => {
   Object.assign(localSettings, settingsStore.settings)
 })
 
+function getErrorMessage(error: unknown, fallback: string) {
+  if (error instanceof Error && error.message) return error.message
+  if (typeof error === 'string' && error) return error
+  return fallback
+}
+
 async function handleSave() {
   saving.value = true
   try {
@@ -198,6 +251,24 @@ async function onAutostartChange(enabled: boolean) {
   localSettings.autostart = String(enabled)
   await settingsStore.setAutostart(enabled)
   message.success(enabled ? '已开启开机自启' : '已关闭开机自启')
+}
+
+async function handleSyncLocalAuth() {
+  if (!isTauri) {
+    message.warning('本地账号同步仅在 Tauri 应用中可用')
+    return
+  }
+
+  syncingLocalAuth.value = true
+  try {
+    const customPath = localSettings.local_auth_file_path.trim()
+    const result = await accountStore.syncLocalAuthFile(customPath || undefined)
+    message.success(`已同步账号「${result.account_name}」(${AUTH_TYPE_LABELS[result.auth_type]})`)
+  } catch (error) {
+    message.error(getErrorMessage(error, '本地账号同步失败'))
+  } finally {
+    syncingLocalAuth.value = false
+  }
 }
 
 function handleRegenKey() {
@@ -225,8 +296,17 @@ function handleClearUsage() {
 }
 
 async function handleCheckUpdate() {
+  if (!isTauri) {
+    message.warning('检查更新功能仅在 Tauri 应用中可用')
+    return
+  }
+
   checkingUpdate.value = true
   try {
+    if (!checkForUpdates) {
+      message.error('更新功能未初始化')
+      return
+    }
     const update = await checkForUpdates()
     if (update) {
       message.info(`发现新版本 ${update.version}，正在下载...`)
@@ -257,9 +337,16 @@ async function handleCheckUpdate() {
   gap: 16px; min-height: 48px;
 }
 
+.setting-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
 .setting-info { flex: 1; min-width: 0; }
 .setting-label { font-size: 13px; font-weight: 500; color: var(--text-primary); }
 .setting-desc { font-size: 11px; color: var(--text-secondary); margin-top: 2px; }
+.setting-actions { display: flex; justify-content: flex-end; }
 
 .info-block {
   display: flex; align-items: flex-start; gap: 12px;

@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { accountService, statusService } from '@/services'
-import type { Account, CreateAccountInput, UpdateAccountInput } from '@/types'
+import type { Account, CreateAccountInput, LocalAuthSyncResult, UpdateAccountInput } from '@/types'
 
 export const useAccountStore = defineStore('account', () => {
   // State
@@ -83,6 +83,12 @@ export const useAccountStore = defineStore('account', () => {
     activeAccountId.value = id
   }
 
+  async function syncLocalAuthFile(authFilePath?: string): Promise<LocalAuthSyncResult> {
+    const result = await accountService.syncLocalAuthFile(authFilePath)
+    await loadAccounts()
+    return result
+  }
+
   async function checkAccountStatus(id: string) {
     checkingStatus.value.add(id)
     try {
@@ -136,6 +142,7 @@ export const useAccountStore = defineStore('account', () => {
     deleteAccount,
     switchAccount,
     setActive,
+    syncLocalAuthFile,
     checkAccountStatus,
     checkAllStatus,
     updateAccountStatusFromEvent,

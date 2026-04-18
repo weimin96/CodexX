@@ -2,6 +2,7 @@ pub mod account;
 pub mod auth;
 pub mod commands;
 pub mod error;
+pub mod local_sync;
 pub mod scheduler;
 pub mod security;
 pub mod storage;
@@ -39,8 +40,8 @@ pub fn run() {
             std::fs::create_dir_all(&app_dir).expect("Failed to create app dir");
 
             let db_path = app_dir.join("codex.db");
-            let db = Database::new(db_path.to_str().unwrap())
-                .expect("Failed to initialize database");
+            let db =
+                Database::new(db_path.to_str().unwrap()).expect("Failed to initialize database");
 
             app.manage(AppState {
                 db: Arc::new(Mutex::new(db)),
@@ -72,6 +73,7 @@ pub fn run() {
             commands::account::set_default_account,
             commands::account::export_accounts,
             commands::account::import_accounts,
+            commands::account::sync_local_auth_file,
             // Auth commands
             commands::auth::refresh_token,
             commands::auth::validate_token,

@@ -1,5 +1,5 @@
 use serde_json::Value;
-use tauri::{Emitter, State};
+use tauri::State;
 
 use crate::account::{AccountRepository, AccountStatus};
 use crate::auth::{AuthService, AuthStatus};
@@ -11,13 +11,19 @@ pub async fn check_status(
     state: State<'_, AppState>,
     account_id: String,
 ) -> Result<Value, AppError> {
-    let db = state.db.lock().await;
-    let repo = AccountRepository::new(&db);
-    let account = repo.get_by_id(&account_id)?;
-    let credential = repo.get_credential(&account_id)?;
+    let (account, credential) = {
+        let db = state.db.lock().await;
+        let repo = AccountRepository::new(&db);
+        (
+            repo.get_by_id(&account_id)?,
+            repo.get_credential(&account_id)?,
+        )
+    };
 
     let auth_service = AuthService::new();
-    let result = auth_service.validate_credential(&account, &credential).await?;
+    let result = auth_service
+        .validate_credential(&account, &credential)
+        .await?;
 
     let new_status = match result.status {
         AuthStatus::Valid => AccountStatus::Normal,
@@ -26,7 +32,11 @@ pub async fn check_status(
         AuthStatus::Unknown => AccountStatus::Unknown,
     };
 
-    repo.update_status(&account_id, &new_status, result.message.as_deref())?;
+    {
+        let db = state.db.lock().await;
+        let repo = AccountRepository::new(&db);
+        repo.update_status(&account_id, &new_status, result.message.as_deref())?;
+    }
 
     Ok(serde_json::json!({
         "account_id": account_id,
@@ -36,23 +46,29 @@ pub async fn check_status(
 }
 
 #[tauri::command]
-pub async fn check_all_status(
-    state: State<'_, AppState>,
-) -> Result<Value, AppError> {
-    let db = state.db.lock().await;
-    let repo = AccountRepository::new(&db);
-    let accounts = repo.list_all()?;
-    let auth_service = AuthService::new();
+pub async fn check_all_status(state: State<'_, AppState>) -> Result<Value, AppError> {
+    let accounts_with_credentials = {
+        let db = state.db.lock().await;
+        let repo = AccountRepository::new(&db);
+        let accounts = repo.list_all()?;
+        let mut pairs = Vec::new();
 
+        for account in accounts {
+            if let Ok(credential) = repo.get_credential(&account.id) {
+                pairs.push((account, credential));
+            }
+        }
+
+        pairs
+    };
+
+    let auth_service = AuthService::new();
     let mut results = Vec::new();
 
-    for account in accounts {
-        let credential = match repo.get_credential(&account.id) {
-            Ok(c) => c,
-            Err(_) => continue,
-        };
-
-        let result = auth_service.validate_credential(&account, &credential).await?;
+    for (account, credential) in accounts_with_credentials {
+        let result = auth_service
+            .validate_credential(&account, &credential)
+            .await?;
         let new_status = match result.status {
             AuthStatus::Valid => AccountStatus::Normal,
             AuthStatus::Expired => AccountStatus::Expired,
@@ -60,7 +76,11 @@ pub async fn check_all_status(
             AuthStatus::Unknown => AccountStatus::Unknown,
         };
 
-        repo.update_status(&account.id, &new_status, result.message.as_deref())?;
+        {
+            let db = state.db.lock().await;
+            let repo = AccountRepository::new(&db);
+            repo.update_status(&account.id, &new_status, result.message.as_deref())?;
+        }
 
         results.push(serde_json::json!({
             "account_id": account.id,

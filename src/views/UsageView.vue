@@ -72,7 +72,7 @@
       <!-- Token chart -->
       <n-card title="Token 用量趋势" size="small">
         <div class="chart-toolbar">
-          <n-radio-group v-model:value="chartType" size="tiny">
+          <n-radio-group v-model:value="chartType" size="small">
             <n-radio-button value="line">折线图</n-radio-button>
             <n-radio-button value="bar">柱状图</n-radio-button>
           </n-radio-group>

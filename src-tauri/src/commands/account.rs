@@ -3,6 +3,7 @@ use tauri::State;
 
 use crate::account::{AccountRepository, CreateAccountInput, UpdateAccountInput};
 use crate::error::AppError;
+use crate::local_sync::LocalAuthSyncService;
 use crate::security;
 use crate::AppState;
 
@@ -32,10 +33,7 @@ pub async fn update_account(
 }
 
 #[tauri::command]
-pub async fn delete_account(
-    state: State<'_, AppState>,
-    id: String,
-) -> Result<(), AppError> {
+pub async fn delete_account(state: State<'_, AppState>, id: String) -> Result<(), AppError> {
     let db = state.db.lock().await;
     let repo = AccountRepository::new(&db);
     repo.delete(&id)
@@ -50,10 +48,7 @@ pub async fn list_accounts(state: State<'_, AppState>) -> Result<Value, AppError
 }
 
 #[tauri::command]
-pub async fn get_account(
-    state: State<'_, AppState>,
-    id: String,
-) -> Result<Value, AppError> {
+pub async fn get_account(state: State<'_, AppState>, id: String) -> Result<Value, AppError> {
     let db = state.db.lock().await;
     let repo = AccountRepository::new(&db);
     let account = repo.get_by_id(&id)?;
@@ -61,10 +56,7 @@ pub async fn get_account(
 }
 
 #[tauri::command]
-pub async fn switch_account(
-    state: State<'_, AppState>,
-    id: String,
-) -> Result<(), AppError> {
+pub async fn switch_account(state: State<'_, AppState>, id: String) -> Result<(), AppError> {
     let db = state.db.lock().await;
     let repo = AccountRepository::new(&db);
     repo.set_default(&id)?;
@@ -72,10 +64,7 @@ pub async fn switch_account(
 }
 
 #[tauri::command]
-pub async fn set_default_account(
-    state: State<'_, AppState>,
-    id: String,
-) -> Result<(), AppError> {
+pub async fn set_default_account(state: State<'_, AppState>, id: String) -> Result<(), AppError> {
     let db = state.db.lock().await;
     let repo = AccountRepository::new(&db);
     repo.set_default(&id)
@@ -128,7 +117,10 @@ pub async fn import_accounts(
             .to_string();
 
         let input = CreateAccountInput {
-            name: account_val["name"].as_str().unwrap_or("Imported").to_string(),
+            name: account_val["name"]
+                .as_str()
+                .unwrap_or("Imported")
+                .to_string(),
             auth_type,
             email: account_val["email"].as_str().map(String::from),
             organization: account_val["organization"].as_str().map(String::from),
@@ -143,4 +135,15 @@ pub async fn import_accounts(
     }
 
     Ok(count)
+}
+
+#[tauri::command]
+pub async fn sync_local_auth_file(
+    state: State<'_, AppState>,
+    auth_file_path: Option<String>,
+) -> Result<Value, AppError> {
+    let db = state.db.lock().await;
+    let repo = AccountRepository::new(&db);
+    let result = LocalAuthSyncService::sync_auth_file(&repo, auth_file_path.as_deref())?;
+    Ok(serde_json::to_value(result)?)
 }

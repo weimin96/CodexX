@@ -27,20 +27,32 @@ pub async fn get_settings(state: State<'_, AppState>) -> Result<Value, AppError>
         map.insert("language".to_string(), Value::String("zh-CN".to_string()));
     }
     if !map.contains_key("check_interval") {
-        map.insert("check_interval".to_string(), Value::String("300".to_string()));
+        map.insert(
+            "check_interval".to_string(),
+            Value::String("300".to_string()),
+        );
     }
     if !map.contains_key("autostart") {
         map.insert("autostart".to_string(), Value::String("false".to_string()));
+    }
+    if !map.contains_key("local_auth_auto_sync") {
+        map.insert(
+            "local_auth_auto_sync".to_string(),
+            Value::String("true".to_string()),
+        );
+    }
+    if !map.contains_key("local_auth_file_path") {
+        map.insert(
+            "local_auth_file_path".to_string(),
+            Value::String(String::new()),
+        );
     }
 
     Ok(Value::Object(map))
 }
 
 #[tauri::command]
-pub async fn save_settings(
-    state: State<'_, AppState>,
-    settings: Value,
-) -> Result<(), AppError> {
+pub async fn save_settings(state: State<'_, AppState>, settings: Value) -> Result<(), AppError> {
     let db = state.db.lock().await;
     let conn = db.get_conn();
     let now = chrono::Utc::now().to_rfc3339();
@@ -63,10 +75,7 @@ pub async fn save_settings(
 }
 
 #[tauri::command]
-pub async fn set_autostart(
-    _state: State<'_, AppState>,
-    enabled: bool,
-) -> Result<(), AppError> {
+pub async fn set_autostart(_state: State<'_, AppState>, enabled: bool) -> Result<(), AppError> {
     // This would use the tauri-plugin-autostart in real implementation
     log::info!("Set autostart: {}", enabled);
     Ok(())

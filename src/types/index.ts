@@ -92,6 +92,8 @@ export interface AppSettings {
   language: string
   check_interval: string
   autostart: string
+  local_auth_auto_sync: string
+  local_auth_file_path: string
 }
 
 // ============================================================
@@ -102,6 +104,13 @@ export interface StatusCheckResult {
   account_id: string
   status: AccountStatus
   message?: string
+}
+
+export interface LocalAuthSyncResult {
+  account_id: string
+  account_name: string
+  auth_type: AuthType
+  auth_file_path: string
 }
 
 // ============================================================

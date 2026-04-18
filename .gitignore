@@ -23,3 +23,7 @@ Thumbs.db
 # Auto-generated
 src/auto-imports.d.ts
 src/components.d.ts
+
+findings.md
+progress.md
+task_plan.md

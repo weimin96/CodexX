@@ -1,99 +1,72 @@
 <template>
   <div class="account-card" :class="{ default: account.is_default }" @click="$emit('click')">
-    <!-- 卡片头部 -->
-    <div class="card-header">
-      <div class="avatar" :style="{ background: account.color }">
-        {{ account.avatar_text ?? account.name[0]?.toUpperCase() }}
-      </div>
-      <div class="card-info">
-        <div class="card-name">
-          {{ account.name }}
-          <n-tag v-if="account.is_default" size="tiny" type="info" style="margin-left:6px">默认</n-tag>
-          <n-tag v-if="account.codex_plan_type" size="tiny" type="success" style="margin-left:6px">
-            {{ formatPlanType(account.codex_plan_type) }}
-          </n-tag>
+    <div class="card-top">
+      <div class="card-profile">
+        <div class="avatar" :style="{ background: account.color }">
+          {{ displayAvatarText }}
         </div>
-        <div class="card-sub">{{ AUTH_TYPE_LABELS[account.auth_type] }}</div>
+        <div class="card-copy">
+          <div class="card-name-row">
+            <h3 class="card-name">{{ displayName }}</h3>
+            <span v-if="account.is_default" class="label-pill label-pill-contrast">默认</span>
+            <span v-if="account.codex_plan_type" class="label-pill label-pill-blue">
+              {{ formatPlanType(account.codex_plan_type) }}
+            </span>
+          </div>
+          <div class="card-subtitle">{{ AUTH_TYPE_LABELS[account.auth_type] }}</div>
+        </div>
       </div>
       <StatusDot :status="account.status" />
     </div>
 
-    <!-- 元信息 -->
-    <div class="card-meta">
-      <span v-if="account.email" class="meta-item">
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" stroke="currentColor" stroke-width="1.5"/><polyline points="22,6 12,13 2,6" stroke="currentColor" stroke-width="1.5"/></svg>
-        {{ account.email }}
-      </span>
-      <span v-if="account.organization" class="meta-item">
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" stroke="currentColor" stroke-width="1.5"/></svg>
-        {{ account.organization }}
-      </span>
-      <span class="meta-item" v-if="account.last_checked_at">
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="1.5"/><polyline points="12 6 12 12 16 14" stroke="currentColor" stroke-width="1.5"/></svg>
-        {{ formatDate(account.last_checked_at) }}
-      </span>
-    </div>
-
-    <!-- Codex 用量窗口 -->
-    <div v-if="hasCodexUsage(account)" class="usage-window-row">
-      <div class="usage-window-pill">
-        <span>5 小时</span>
-        <strong>{{ formatUsageWindow(account.codex_usage_5h) }}</strong>
+    <div class="meta-list">
+      <div v-if="account.email" class="meta-item">
+        <span class="meta-label">邮箱</span>
+        <span class="meta-value">{{ account.email }}</span>
       </div>
-      <div class="usage-window-pill">
-        <span>1 周</span>
-        <strong>{{ formatUsageWindow(account.codex_usage_week) }}</strong>
+      <div v-if="account.organization" class="meta-item">
+        <span class="meta-label">组织</span>
+        <span class="meta-value">{{ account.organization }}</span>
+      </div>
+      <div v-if="account.last_checked_at" class="meta-item">
+        <span class="meta-label">最后检测</span>
+        <span class="meta-value">{{ formatDate(account.last_checked_at) }}</span>
       </div>
     </div>
 
-    <div v-if="account.codex_usage_error" class="card-status-msg warning">
-      账号信息同步失败：{{ account.codex_usage_error }}
+    <div v-if="hasCodexUsage(account)" class="usage-grid">
+      <div class="usage-card">
+        <span class="usage-label">5 小时窗口</span>
+        <strong class="usage-value">{{ formatUsageWindow(account.codex_usage_5h) }}</strong>
+      </div>
+      <div class="usage-card">
+        <span class="usage-label">1 周窗口</span>
+        <strong class="usage-value">{{ formatUsageWindow(account.codex_usage_week) }}</strong>
+      </div>
     </div>
 
-    <!-- 状态消息 -->
-    <div v-if="account.status_message" class="card-status-msg" :class="account.status">
+    <div v-if="account.codex_usage_error" class="status-message warning">
+      账号资料暂不可用：{{ displayUsageError }}
+    </div>
+
+    <div v-if="account.status_message" class="status-message" :class="account.status">
       {{ account.status_message }}
     </div>
 
-    <!-- 操作 -->
     <div class="card-actions" @click.stop>
-      <n-button
-        size="tiny"
-        quaternary
-        :loading="checking"
-        @click="$emit('check')"
-        title="检测状态"
-      >
-        <template #icon>
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M23 4v6h-6M1 20v-6h6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
-        </template>
-        检测
+      <n-button size="small" secondary :loading="checking" @click="$emit('check')">
+        检测状态
       </n-button>
-
       <n-button
         v-if="!account.is_default"
-        size="tiny"
-        quaternary
+        size="small"
+        secondary
         @click="$emit('set-default')"
-        title="设为默认"
       >
-        <template #icon>
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" stroke="currentColor" stroke-width="2"/></svg>
-        </template>
-        默认
+        设为默认
       </n-button>
-
-      <n-button
-        size="tiny"
-        quaternary
-        type="error"
-        @click="$emit('delete')"
-        title="删除账号"
-      >
-        <template #icon>
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none"><polyline points="3 6 5 6 21 6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M19 6l-1 14H6L5 6M10 11v6M14 11v6M9 6V4h6v2" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
-        </template>
-        删除
+      <n-button size="small" secondary type="error" @click="$emit('delete')">
+        删除账号
       </n-button>
     </div>
   </div>
@@ -104,8 +77,9 @@ import { AUTH_TYPE_LABELS } from '@/types'
 import type { Account, CodexUsageWindow } from '@/types'
 import StatusDot from '@/components/common/StatusDot.vue'
 import { format, parseISO } from 'date-fns'
+import { computed } from 'vue'
 
-defineProps<{
+const props = defineProps<{
   account: Account
   checking?: boolean
 }>()
@@ -116,6 +90,10 @@ defineEmits<{
   'set-default': []
   delete: []
 }>()
+
+const displayName = computed(() => resolveLegacyAccountName(props.account))
+const displayAvatarText = computed(() => resolveAvatarText(props.account, displayName.value))
+const displayUsageError = computed(() => formatUsageError(props.account.codex_usage_error))
 
 function formatDate(iso: string): string {
   try {
@@ -144,148 +122,272 @@ function formatPlanType(planType: string): string {
   if (!normalized) return '未知计划'
   return normalized.toUpperCase()
 }
+
+function resolveLegacyAccountName(account: Account): string {
+  const normalizedName = account.name.trim()
+  if (!normalizedName) {
+    return account.email?.trim() || '未命名账号'
+  }
+
+  if (!normalizedName.startsWith('本地 auth.json')) {
+    return normalizedName
+  }
+
+  return account.email?.trim() || extractLegacyWrappedText(normalizedName) || '本地同步账号'
+}
+
+function extractLegacyWrappedText(value: string): string | null {
+  const matched = value.match(/[（(]([^（）()]+)[）)]/)
+  const candidate = matched?.[1]?.trim()
+  return candidate || null
+}
+
+function resolveAvatarText(account: Account, name: string): string {
+  if (!account.name.trim().startsWith('本地 auth.json') && account.avatar_text) {
+    return account.avatar_text
+  }
+
+  return name[0]?.toUpperCase() || account.avatar_text || '?'
+}
+
+function formatUsageError(error?: string): string {
+  const normalized = error?.trim()
+  if (!normalized) return 'Codex 资料接口暂不可用，可稍后重试'
+
+  if (/(^|\D)(401|403)(\D|$)/.test(normalized)) {
+    return '登录信息已失效，请重新同步本地账号'
+  }
+
+  if (
+    normalized.startsWith('Authentication failed:') ||
+    normalized.includes('请求 Codex 用量接口失败') ||
+    normalized.includes('error sending request') ||
+    normalized.includes('SSL')
+  ) {
+    return 'Codex 资料接口暂不可达，可稍后重试'
+  }
+
+  return normalized
+}
 </script>
 
 <style scoped>
 .account-card {
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 16px;
-  cursor: pointer;
-  transition: all 0.18s;
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  position: relative;
-  overflow: hidden;
-}
-.account-card::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  border-radius: 12px;
-  background: linear-gradient(135deg, rgba(255,255,255,0.02) 0%, transparent 60%);
-  pointer-events: none;
-}
-.account-card:hover {
-  border-color: rgba(79,142,247,0.5);
-  box-shadow: 0 0 0 1px rgba(79,142,247,0.15), 0 4px 24px rgba(0,0,0,0.3);
-  transform: translateY(-1px);
-}
-.account-card.default {
-  border-color: rgba(79,142,247,0.4);
-}
-.account-card.default::after {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 2px;
-  background: linear-gradient(90deg, #4f8ef7, #7bb3fb);
-  border-radius: 12px 12px 0 0;
+  gap: 14px;
+  padding: 18px;
+  border-radius: 22px;
+  background: var(--app-surface);
+  box-shadow: var(--app-shadow);
+  cursor: pointer;
+  transition:
+    transform 0.2s ease,
+    box-shadow 0.2s ease;
 }
 
-.card-header {
+.account-card:hover {
+  transform: translateY(-2px);
+  box-shadow: rgba(0, 0, 0, 0.22) 3px 9px 34px 0px;
+}
+
+.account-card.default {
+  background: var(--app-dark-surface);
+  color: var(--app-white);
+}
+
+.card-top {
   display: flex;
-  align-items: center;
-  gap: 10px;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.card-profile {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  min-width: 0;
 }
 
 .avatar {
-  width: 38px;
-  height: 38px;
-  border-radius: 10px;
+  width: 44px;
+  height: 44px;
+  border-radius: 14px;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 16px;
-  font-weight: 700;
-  color: #fff;
   flex-shrink: 0;
+  color: #ffffff;
+  font-family: var(--font-display);
+  font-size: 16px;
+  font-weight: 600;
 }
 
-.card-info { flex: 1; min-width: 0; }
+.card-name-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.card-copy {
+  min-width: 0;
+}
 
 .card-name {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--text-primary);
-  display: flex;
+  margin: 0;
+  min-width: 0;
+  font-family: var(--font-display);
+  font-size: 18px;
+  line-height: 1.2;
+  letter-spacing: 0.12px;
+  font-weight: 700;
+}
+
+.card-subtitle {
+  margin-top: 4px;
+  font-size: 13px;
+  line-height: 1.43;
+  letter-spacing: -0.12px;
+  color: var(--app-ink-secondary);
+}
+
+.account-card.default .card-subtitle {
+  color: rgba(255, 255, 255, 0.72);
+}
+
+.label-pill {
+  display: inline-flex;
   align-items: center;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.card-sub {
+  min-height: 24px;
+  padding: 0 10px;
+  border-radius: var(--app-radius-control);
   font-size: 11px;
-  color: var(--text-secondary);
-  margin-top: 1px;
+  line-height: 1.33;
+  letter-spacing: -0.12px;
 }
 
-.card-meta {
+.label-pill-contrast {
+  background: rgba(29, 29, 31, 0.08);
+  color: var(--app-ink);
+}
+
+.account-card.default .label-pill-contrast {
+  background: rgba(255, 255, 255, 0.12);
+  color: #ffffff;
+}
+
+.label-pill-blue {
+  background: rgba(0, 113, 227, 0.12);
+  color: var(--app-blue);
+}
+
+.meta-list {
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 8px;
 }
 
 .meta-item {
   display: flex;
-  align-items: center;
-  gap: 5px;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--app-border);
+}
+
+.meta-item:last-child {
+  padding-bottom: 0;
+  border-bottom: none;
+}
+
+.account-card.default .meta-item {
+  border-bottom-color: rgba(255, 255, 255, 0.08);
+}
+
+.meta-label {
   font-size: 11px;
-  color: var(--text-secondary);
+  line-height: 1.33;
+  color: var(--app-ink-tertiary);
+}
+
+.meta-value {
+  max-width: 70%;
+  text-align: right;
+  font-size: 13px;
+  line-height: 1.43;
+  letter-spacing: -0.12px;
+  color: var(--app-ink-secondary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-.card-status-msg {
-  font-size: 11px;
-  padding: 4px 8px;
-  border-radius: 6px;
-  border-left: 2px solid;
+.account-card.default .meta-label,
+.account-card.default .meta-value {
+  color: rgba(255, 255, 255, 0.72);
 }
-.card-status-msg.normal  { background: rgba(24,160,88,0.1);  border-color: #18a058; color: #4ad08a; }
-.card-status-msg.warning { background: rgba(240,160,32,0.1); border-color: #f0a020; color: #f0c060; }
-.card-status-msg.error   { background: rgba(208,48,80,0.1);  border-color: #d03050; color: #f06080; }
-.card-status-msg.expired { background: rgba(139,92,246,0.1); border-color: #8b5cf6; color: #a78bfa; }
-.card-status-msg.unknown { background: rgba(144,147,153,0.1); border-color: #909399; color: #b0b3b8; }
 
-.usage-window-row {
+.usage-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 6px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
 }
 
-.usage-window-pill {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  padding: 7px 8px;
-  border: 1px solid rgba(79,142,247,0.24);
-  border-radius: 8px;
-  background: rgba(79,142,247,0.08);
+.usage-card {
+  padding: 10px 12px;
+  border-radius: 16px;
+  background: var(--app-surface-muted);
 }
 
-.usage-window-pill span {
-  font-size: 10px;
-  color: var(--text-secondary);
+.account-card.default .usage-card {
+  background: rgba(255, 255, 255, 0.08);
 }
 
-.usage-window-pill strong {
-  font-size: 12px;
-  color: var(--text-primary);
-  font-family: 'Fira Code', monospace;
+.usage-label {
+  display: block;
+  font-size: 11px;
+  line-height: 1.33;
+  color: var(--app-ink-tertiary);
+}
+
+.usage-value {
+  display: block;
+  margin-top: 4px;
+  font-family: var(--font-display);
+  font-size: 16px;
+  line-height: 1.2;
+  letter-spacing: 0.12px;
+}
+
+.account-card.default .usage-label {
+  color: rgba(255, 255, 255, 0.56);
 }
 
 .card-actions {
   display: flex;
-  gap: 4px;
-  margin-top: 2px;
-  border-top: 1px solid var(--border);
-  padding-top: 8px;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+@media (max-width: 640px) {
+  .account-card {
+    padding: 16px;
+  }
+
+  .usage-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .meta-item {
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .meta-value {
+    max-width: 100%;
+    text-align: left;
+  }
 }
 </style>

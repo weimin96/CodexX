@@ -148,10 +148,11 @@ async fn complete_oauth_login_internal(
     let credential_value = serde_json::to_string(&completed.auth_json)?;
     let email = completed.email.clone();
     let stable_id = format!("oauth-login-{}", completed.account_id);
-    let account_name = email
-        .as_ref()
-        .map(|value| format!("OAuth 登录（{}）", value))
-        .unwrap_or_else(|| "OAuth 登录账号".to_string());
+    let account_name = auth::resolve_account_display_name(
+        completed.name.as_deref(),
+        email.as_deref(),
+        "OAuth 登录账号",
+    );
 
     let account = {
         let db = state.db.lock().await;

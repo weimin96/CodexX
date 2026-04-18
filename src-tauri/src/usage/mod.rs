@@ -1,8 +1,6 @@
-use chrono::{Datelike, Duration, NaiveDate, Utc};
+use chrono::{Duration, Utc};
 use rusqlite::params;
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
-
 use crate::error::AppResult;
 use crate::storage::Database;
 
@@ -41,7 +39,7 @@ pub struct ChartDataPoint {
 #[derive(Debug, Deserialize)]
 pub struct UsageQuery {
     pub account_id: String,
-    pub period: String, // "day", "week", "month"
+    pub period: String, // 可选值："day"、"week"、"month"
 }
 
 pub struct UsageRepository<'a> {
@@ -136,7 +134,7 @@ impl<'a> UsageRepository<'a> {
         Ok(points)
     }
 
-    /// Insert mock usage data for demonstration
+    /// 插入用于演示的模拟用量数据
     pub fn seed_demo_data(&self, account_id: &str) -> AppResult<()> {
         let today = Utc::now().date_naive();
         for i in 0..30 {

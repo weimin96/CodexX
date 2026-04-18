@@ -1,121 +1,109 @@
 <template>
-  <div class="view-container">
-    <!-- 头部 -->
-    <div class="view-header">
-      <div>
-        <h1 class="view-title">账号列表</h1>
-        <p class="view-sub">管理所有 Codex 账号 · {{ totalAccounts }} 个账号</p>
+  <div class="app-page">
+    <section class="page-hero">
+      <div class="page-hero-copy">
+        <span class="page-eyebrow">账号</span>
+        <h1 class="page-title">账号管理</h1>
+        <p class="page-subtitle">查看、同步和切换账号。</p>
+        <div class="page-hero-actions">
+          <n-button type="primary" :loading="syncingLocalAuth" @click="handleSyncLocalAuth">
+            本地同步
+          </n-button>
+          <n-button secondary :loading="oauthPreparing || oauthOpening" @click="handlePrepareOAuthLogin">
+            OAuth 登录
+          </n-button>
+          <n-button secondary :loading="checkingAll" @click="handleCheckAll">
+            检测全部
+          </n-button>
+          <n-button secondary @click="showImportModal = true">导入</n-button>
+          <n-button secondary @click="handleExport">导出</n-button>
+          <n-button type="primary" secondary @click="showCreateModal = true">
+            新增账号
+          </n-button>
+        </div>
       </div>
-      <div class="header-actions">
-        <n-button
-          :loading="checkingAll"
-          quaternary
-          size="small"
-          @click="handleCheckAll"
-        >
-          <template #icon>
-            <n-icon><RefreshIcon /></n-icon>
-          </template>
-          检测全部
-        </n-button>
-        <n-button
-          quaternary
-          size="small"
-          :loading="syncingLocalAuth"
-          @click="handleSyncLocalAuth"
-        >本地同步</n-button>
-        <n-button
-          quaternary
-          size="small"
-          :loading="oauthPreparing || oauthOpening"
-          @click="handlePrepareOAuthLogin"
-        >OAuth 登录</n-button>
-        <n-button
-          quaternary
-          size="small"
-          @click="showImportModal = true"
-        >导入</n-button>
-        <n-button
-          quaternary
-          size="small"
-          @click="handleExport"
-        >导出</n-button>
-        <n-button type="primary" size="small" @click="showCreateModal = true">
-          <template #icon>
-            <n-icon><PlusIcon /></n-icon>
-          </template>
-          新增账号
-        </n-button>
+
+      <div class="hero-stats">
+        <div class="hero-stat">
+          <span class="hero-stat-label">账号</span>
+          <strong class="hero-stat-value">{{ totalAccounts }}</strong>
+        </div>
+        <div class="hero-stat">
+          <span class="hero-stat-label">关注</span>
+          <strong class="hero-stat-value">{{ attentionAccountCount }}</strong>
+        </div>
+        <div class="hero-stat">
+          <span class="hero-stat-label">计划</span>
+          <strong class="hero-stat-value">{{ accountWithPlanCount }}</strong>
+        </div>
       </div>
-    </div>
+    </section>
 
-    <!-- 状态汇总 -->
-    <div class="status-bar">
-      <div
-        v-for="(label, key) in STATUS_LABELS"
-        :key="key"
-        class="status-chip"
-        :class="{ active: filterStatus === key }"
-        @click="filterStatus = filterStatus === key ? null : key as AccountStatus"
-      >
-        <StatusDot :status="key as AccountStatus" />
-        <span>{{ label }}</span>
-        <span class="chip-count">{{ accountsByStatus[key]?.length ?? 0 }}</span>
-      </div>
-    </div>
-
-    <!-- 搜索 -->
-    <div class="search-row">
-      <n-input
-        v-model:value="searchQuery"
-        placeholder="搜索账号名称、邮箱、组织..."
-        clearable
-        size="small"
-      >
-        <template #prefix>
-          <n-icon><SearchIcon /></n-icon>
-        </template>
-      </n-input>
-    </div>
-
-    <!-- 账号网格 -->
-    <div v-if="loading" class="loading-state">
+    <section v-if="loading" class="surface-panel empty-panel">
       <n-spin size="medium" />
-    </div>
+      <p>正在加载账号。</p>
+    </section>
 
-    <div v-else-if="filteredAccounts.length === 0" class="empty-state">
-      <svg width="64" height="64" viewBox="0 0 24 24" fill="none" opacity="0.3">
-        <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" stroke="#8b949e" stroke-width="1.5"/>
-        <circle cx="9" cy="7" r="4" stroke="#8b949e" stroke-width="1.5"/>
-        <path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" stroke="#8b949e" stroke-width="1.5"/>
-      </svg>
-      <p>{{ searchQuery || filterStatus ? '没有匹配的账号' : '还没有添加任何账号' }}</p>
-      <n-button v-if="!searchQuery && !filterStatus" type="primary" size="small" @click="showCreateModal = true">
-        添加第一个账号
-      </n-button>
-    </div>
+    <section v-else-if="!hasAccounts" class="surface-panel empty-panel">
+      <div class="empty-illustration">
+        <svg width="68" height="68" viewBox="0 0 24 24" fill="none">
+          <path
+            d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"
+            stroke="currentColor"
+            stroke-width="1.5"
+          />
+          <circle cx="9" cy="7" r="4" stroke="currentColor" stroke-width="1.5" />
+          <path
+            d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"
+            stroke="currentColor"
+            stroke-width="1.5"
+          />
+        </svg>
+      </div>
+      <p>还没有添加任何账号。</p>
+      <n-button type="primary" @click="showCreateModal = true">添加第一个账号</n-button>
+    </section>
 
-    <div v-else class="account-grid">
-      <AccountCard
-        v-for="account in filteredAccounts"
-        :key="account.id"
-        :account="account"
-        :checking="checkingStatus.has(account.id)"
-        @click="navigateToDetail(account.id)"
-        @check="handleCheckStatus(account.id)"
-        @set-default="handleSetDefault(account.id)"
-        @delete="handleDelete(account)"
-      />
-    </div>
+    <section v-else class="surface-panel section-grid account-section">
+      <div class="account-grid-header">
+        <div>
+          <h2 class="panel-heading">账号目录</h2>
+          <p class="panel-copy">共 {{ filteredAccounts.length }} 个账号。</p>
+        </div>
+        <div class="search-row">
+          <n-input
+            v-model:value="searchQuery"
+            placeholder="搜索账号名称、邮箱、组织..."
+            clearable
+          >
+            <template #prefix>
+              <n-icon><SearchIcon /></n-icon>
+            </template>
+          </n-input>
+        </div>
+      </div>
 
-    <!-- 创建弹窗 -->
-    <CreateAccountModal
-      v-model:show="showCreateModal"
-      @created="handleCreated"
-    />
+      <div v-if="filteredAccounts.length === 0" class="inline-empty-state">
+        <p>没有匹配的账号。</p>
+      </div>
 
-    <!-- 导出弹窗 -->
-    <n-modal v-model:show="showExportModal" preset="card" title="导出账号" style="width: 400px;">
+      <div v-else class="account-grid">
+        <AccountCard
+          v-for="account in filteredAccounts"
+          :key="account.id"
+          :account="account"
+          :checking="checkingStatus.has(account.id)"
+          @click="navigateToDetail(account.id)"
+          @check="handleCheckStatus(account.id)"
+          @set-default="handleSetDefault(account.id)"
+          @delete="handleDelete(account)"
+        />
+      </div>
+    </section>
+
+    <CreateAccountModal v-model:show="showCreateModal" @created="handleCreated" />
+
+    <n-modal v-model:show="showExportModal" preset="card" title="导出账号" style="width: 420px;">
       <n-form>
         <n-form-item label="加密密码">
           <n-input
@@ -126,7 +114,7 @@
           />
         </n-form-item>
         <n-alert type="warning" style="margin-bottom: 12px;">
-          导出文件经过 AES-256-GCM 加密，请妥善保管密码
+          导出文件经过 AES-256-GCM 加密，请妥善保管密码。
         </n-alert>
         <n-button type="primary" block :loading="exportLoading" @click="doExport">
           确认导出
@@ -134,8 +122,7 @@
       </n-form>
     </n-modal>
 
-    <!-- 导入弹窗 -->
-    <n-modal v-model:show="showImportModal" preset="card" title="导入账号" style="width: 420px;">
+    <n-modal v-model:show="showImportModal" preset="card" title="导入账号" style="width: 460px;">
       <n-form>
         <n-form-item label="加密文件内容">
           <n-input
@@ -159,15 +146,14 @@
       </n-form>
     </n-modal>
 
-    <!-- OAuth 登录弹窗 -->
     <n-modal
       :show="showOAuthModal"
       preset="card"
       title="OAuth 网页登录"
-      style="width: 540px;"
+      style="width: 560px;"
       @update:show="handleOAuthModalVisibleChange"
     >
-      <n-space vertical size="medium">
+      <n-space vertical size="large">
         <n-alert type="info">
           将通过系统浏览器打开 OpenAI 授权页，应用只监听 127.0.0.1 本地回调并加密保存登录结果。
         </n-alert>
@@ -189,7 +175,7 @@
               placeholder="本地回调监听地址"
             />
           </n-form-item>
-          <n-space>
+          <div class="oauth-actions">
             <n-button
               type="primary"
               :disabled="!oauthLogin"
@@ -198,10 +184,10 @@
             >
               打开授权页
             </n-button>
-            <n-button :loading="oauthCancelling" @click="handleCancelOAuthLogin">
+            <n-button secondary :loading="oauthCancelling" @click="handleCancelOAuthLogin">
               取消登录
             </n-button>
-          </n-space>
+          </div>
         </n-form>
 
         <n-alert v-if="oauthWaitingForCallback" type="success">
@@ -241,15 +227,13 @@ import type { UnlistenFn } from '@tauri-apps/api/event'
 import { useMessage, useDialog } from 'naive-ui'
 import { useAccountStore } from '@/stores/account'
 import { accountService, authService } from '@/services'
-import { AUTH_TYPE_LABELS, STATUS_LABELS } from '@/types'
+import { AUTH_TYPE_LABELS } from '@/types'
 import type {
   Account,
-  AccountStatus,
   OAuthCallbackFinishedEvent,
   OAuthLoginResult,
   PreparedOAuthLogin,
 } from '@/types'
-import StatusDot from '@/components/common/StatusDot.vue'
 import AccountCard from '@/components/account/AccountCard.vue'
 import CreateAccountModal from '@/components/account/CreateAccountModal.vue'
 
@@ -260,9 +244,7 @@ const accountStore = useAccountStore()
 const { accounts, loading, checkingStatus, totalAccounts, accountsByStatus } =
   storeToRefs(accountStore)
 
-// 本地状态
 const searchQuery = ref('')
-const filterStatus = ref<AccountStatus | null>(null)
 const showCreateModal = ref(false)
 const showExportModal = ref(false)
 const showImportModal = ref(false)
@@ -283,28 +265,45 @@ const oauthLogin = ref<PreparedOAuthLogin | null>(null)
 const oauthCallbackUrl = ref('')
 let oauthCallbackUnlisten: UnlistenFn | null = null
 
-// 计算属性
+const attentionAccountCount = computed(
+  () =>
+    (accountsByStatus.value.warning?.length ?? 0) +
+    (accountsByStatus.value.error?.length ?? 0) +
+    (accountsByStatus.value.expired?.length ?? 0),
+)
+
+const accountWithPlanCount = computed(
+  () => accounts.value.filter((account) => Boolean(account.codex_plan_type)).length,
+)
+
+const hasAccounts = computed(() => accounts.value.length > 0)
+
 const filteredAccounts = computed(() => {
   let list = accounts.value
-  if (filterStatus.value) {
-    list = list.filter((a) => a.status === filterStatus.value)
-  }
   if (searchQuery.value) {
-    const q = searchQuery.value.toLowerCase()
+    const query = searchQuery.value.toLowerCase()
     list = list.filter(
-      (a) =>
-        a.name.toLowerCase().includes(q) ||
-        a.email?.toLowerCase().includes(q) ||
-        a.organization?.toLowerCase().includes(q),
+      (account) =>
+        account.name.toLowerCase().includes(query) ||
+        account.email?.toLowerCase().includes(query) ||
+        account.organization?.toLowerCase().includes(query),
     )
   }
   return list
 })
 
-// SVG 图标
-const PlusIcon = { render: () => h('svg', { width: 16, height: 16, viewBox: '0 0 24 24', fill: 'none' }, [h('path', { d: 'M12 5v14M5 12h14', stroke: 'currentColor', 'stroke-width': 2, 'stroke-linecap': 'round' })]) }
-const RefreshIcon = { render: () => h('svg', { width: 16, height: 16, viewBox: '0 0 24 24', fill: 'none' }, [h('path', { d: 'M23 4v6h-6M1 20v-6h6M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15', stroke: 'currentColor', 'stroke-width': 2, 'stroke-linecap': 'round' })]) }
-const SearchIcon = { render: () => h('svg', { width: 14, height: 14, viewBox: '0 0 24 24', fill: 'none' }, [h('circle', { cx: 11, cy: 11, r: 8, stroke: 'currentColor', 'stroke-width': 2 }), h('path', { d: 'm21 21-4.35-4.35', stroke: 'currentColor', 'stroke-width': 2, 'stroke-linecap': 'round' })]) }
+const SearchIcon = {
+  render: () =>
+    h('svg', { width: 14, height: 14, viewBox: '0 0 24 24', fill: 'none' }, [
+      h('circle', { cx: 11, cy: 11, r: 8, stroke: 'currentColor', 'stroke-width': 2 }),
+      h('path', {
+        d: 'm21 21-4.35-4.35',
+        stroke: 'currentColor',
+        'stroke-width': 2,
+        'stroke-linecap': 'round',
+      }),
+    ]),
+}
 
 onMounted(() => {
   void registerOAuthCallbackListener()
@@ -320,7 +319,6 @@ onUnmounted(() => {
   }
 })
 
-// 操作
 function navigateToDetail(id: string) {
   accountStore.setActive(id)
   router.push({ name: 'AccountDetail', params: { id } })
@@ -386,7 +384,7 @@ async function handleSyncLocalAuth() {
   try {
     const result = await accountStore.syncLocalAuthFile()
     if (result.codex_usage_error) {
-      message.warning(`已同步账号「${result.account_name}」，账号信息获取失败`)
+      message.success(`已同步账号「${result.account_name}」，资料稍后重试`)
     } else if (result.codex_plan_type) {
       message.success(`已同步账号「${result.account_name}」(${result.codex_plan_type})`)
     } else {
@@ -526,11 +524,10 @@ async function doExport() {
   exportLoading.value = true
   try {
     const encrypted = await accountService.exportAccounts(exportPassword.value)
-    // 无文件选择器时使用剪贴板作为导出兜底，避免凭证明文落盘。
     await navigator.clipboard.writeText(encrypted)
     showExportModal.value = false
     message.success('导出成功，已复制到剪贴板')
-  } catch (e) {
+  } catch {
     message.error('导出失败')
   } finally {
     exportLoading.value = false
@@ -548,7 +545,7 @@ async function doImport() {
     await accountStore.loadAccounts()
     showImportModal.value = false
     message.success(`成功导入 ${count} 个账号`)
-  } catch (e) {
+  } catch {
     message.error('导入失败：密码错误或数据损坏')
   } finally {
     importLoading.value = false
@@ -557,86 +554,61 @@ async function doImport() {
 </script>
 
 <style scoped>
-.view-container {
-  padding: 24px;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-  max-width: 1100px;
-}
-
-.view-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
-}
-
-.view-title {
-  font-size: 22px;
-  font-weight: 700;
-  color: var(--text-primary);
-  letter-spacing: -0.3px;
-}
-
-.view-sub {
-  font-size: 13px;
-  color: var(--text-secondary);
-  margin-top: 2px;
-}
-
-.header-actions {
+.account-grid-header {
   display: flex;
   align-items: center;
-  gap: 8px;
-  flex-shrink: 0;
-}
-
-.status-bar {
-  display: flex;
-  gap: 6px;
+  justify-content: space-between;
+  gap: 20px;
   flex-wrap: wrap;
 }
 
-.status-chip {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 5px 10px;
-  border-radius: 20px;
-  border: 1px solid var(--border);
-  background: var(--bg-secondary);
-  cursor: pointer;
-  font-size: 12px;
-  color: var(--text-secondary);
-  transition: all 0.15s;
-}
-.status-chip:hover { border-color: var(--accent); color: var(--accent); }
-.status-chip.active { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
-.chip-count {
-  font-size: 11px;
-  background: rgba(255,255,255,0.08);
-  border-radius: 10px;
-  padding: 1px 6px;
-  font-weight: 600;
+.account-section {
+  min-width: 0;
+  flex-shrink: 0;
 }
 
-.search-row { display: flex; max-width: 360px; }
+.search-row {
+  width: min(360px, 100%);
+}
+
+.empty-illustration {
+  width: 92px;
+  height: 92px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--app-surface-muted);
+  color: var(--app-ink-tertiary);
+}
 
 .account-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-  gap: 12px;
+  grid-template-columns: repeat(auto-fill, minmax(min(280px, 100%), 1fr));
+  gap: 14px;
+  width: 100%;
+  min-width: 0;
 }
 
-.loading-state, .empty-state {
+.inline-empty-state {
   display: flex;
-  flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 12px;
-  padding: 80px 0;
-  color: var(--text-secondary);
-  font-size: 14px;
+  min-height: 160px;
+  border-radius: 20px;
+  background: var(--app-surface-muted);
+  color: var(--app-ink-secondary);
+}
+
+.oauth-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+@media (max-width: 768px) {
+  .account-grid {
+    grid-template-columns: 1fr;
+  }
 }
 </style>

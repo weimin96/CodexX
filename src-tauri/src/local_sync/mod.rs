@@ -200,7 +200,7 @@ impl LocalAuthSyncService {
             return Ok(PreparedLocalAuthSync {
                 resolved_path,
                 stable_id,
-                name: "本地 auth.json（API Key）".to_string(),
+                name: "API Key 账号".to_string(),
                 auth_type: AuthType::ApiKey,
                 email: None,
                 organization: Some("本地文件同步".to_string()),
@@ -254,11 +254,11 @@ impl LocalAuthSyncService {
         Ok(PreparedLocalAuthSync {
             resolved_path,
             stable_id,
-            name: identity
-                .email
-                .as_ref()
-                .map(|email| format!("本地 auth.json（{}）", email))
-                .unwrap_or_else(|| "本地 auth.json（OAuth）".to_string()),
+            name: auth::resolve_account_display_name(
+                identity.name.as_deref(),
+                identity.email.as_deref(),
+                "OAuth 账号",
+            ),
             auth_type: AuthType::OAuthToken,
             email: identity.email,
             organization,
@@ -296,6 +296,12 @@ impl LocalAuthSyncService {
             .and_then(Value::as_str)
             .and_then(|value| Self::non_empty_text(Some(value)))
             .map(ToString::to_string);
+        let name = claims
+            .as_ref()
+            .and_then(|value| value.get("name"))
+            .and_then(Value::as_str)
+            .and_then(|value| Self::non_empty_text(Some(value)))
+            .map(ToString::to_string);
         let plan_type = auth_claim
             .and_then(|value| value.get("chatgpt_plan_type"))
             .and_then(Value::as_str)
@@ -304,6 +310,7 @@ impl LocalAuthSyncService {
 
         LocalOAuthIdentity {
             account_id,
+            name,
             email,
             plan_type,
         }
@@ -356,6 +363,7 @@ impl LocalAuthSyncService {
 
 struct LocalOAuthIdentity {
     account_id: Option<String>,
+    name: Option<String>,
     email: Option<String>,
     plan_type: Option<String>,
 }

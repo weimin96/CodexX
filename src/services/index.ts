@@ -179,7 +179,7 @@ export const settingsService = {
   async getSettings(): Promise<AppSettings> {
     if (!isTauri) {
       return {
-        theme: 'dark',
+        theme: 'light',
         language: 'zh-CN',
         check_interval: '300',
         autostart: 'false',

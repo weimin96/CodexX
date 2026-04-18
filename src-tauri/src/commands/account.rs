@@ -1,7 +1,8 @@
 use serde_json::Value;
 use tauri::State;
 
-use crate::account::{AccountRepository, CreateAccountInput, UpdateAccountInput};
+use crate::account::{AccountRepository, AuthType, CreateAccountInput, UpdateAccountInput};
+use crate::auth;
 use crate::error::AppError;
 use crate::local_sync::LocalAuthSyncService;
 use crate::security;
@@ -12,9 +13,10 @@ pub async fn create_account(
     state: State<'_, AppState>,
     input: CreateAccountInput,
 ) -> Result<Value, AppError> {
+    let resolved_input = resolve_create_account_input(input).await?;
     let db = state.db.lock().await;
     let repo = AccountRepository::new(&db);
-    let account = repo.create(input)?;
+    let account = repo.create(resolved_input)?;
     // 新账号创建后写入演示用量，保持首页统计在空数据场景下可展示。
     let usage_repo = crate::usage::UsageRepository::new(&db);
     let _ = usage_repo.seed_demo_data(&account.id);
@@ -117,10 +119,7 @@ pub async fn import_accounts(
             .to_string();
 
         let input = CreateAccountInput {
-            name: account_val["name"]
-                .as_str()
-                .unwrap_or("Imported")
-                .to_string(),
+            name: account_val["name"].as_str().map(String::from),
             auth_type,
             email: account_val["email"].as_str().map(String::from),
             organization: account_val["organization"].as_str().map(String::from),
@@ -150,4 +149,70 @@ pub async fn sync_local_auth_file(
         LocalAuthSyncService::sync_prepared_auth(&repo, prepared, codex_profile)?
     };
     Ok(serde_json::to_value(result)?)
+}
+
+async fn resolve_create_account_input(input: CreateAccountInput) -> Result<CreateAccountInput, AppError> {
+    let CreateAccountInput {
+        name,
+        auth_type,
+        email,
+        organization,
+        color,
+        credential_value,
+        credential_type,
+    } = input;
+    let auth_type = AuthType::try_from(auth_type.as_str())?;
+    let mut resolved_name = normalize_optional_text(name);
+    let mut resolved_email = normalize_optional_text(email);
+    let mut resolved_organization = normalize_optional_text(organization);
+
+    // 新增账号不再要求用户手填名称，优先使用凭证可解析出的身份信息，避免账号列表混入临时占位名。
+    if resolved_name.is_none() || resolved_email.is_none() || resolved_organization.is_none() {
+        if let Ok(identity) = auth::resolve_credential_identity(&auth_type, &credential_value).await {
+            if resolved_name.is_none() {
+                resolved_name = identity.name;
+            }
+            if resolved_email.is_none() {
+                resolved_email = identity.email;
+            }
+            if resolved_organization.is_none() {
+                resolved_organization = identity.organization;
+            }
+        }
+    }
+
+    let fallback_name = fallback_account_name(&auth_type);
+    Ok(CreateAccountInput {
+        name: Some(auth::resolve_account_display_name(
+            resolved_name.as_deref(),
+            resolved_email.as_deref(),
+            fallback_name,
+        )),
+        auth_type: auth_type.to_string(),
+        email: resolved_email,
+        organization: resolved_organization,
+        color,
+        credential_value,
+        credential_type,
+    })
+}
+
+fn normalize_optional_text(value: Option<String>) -> Option<String> {
+    value.and_then(|text| {
+        let trimmed = text.trim();
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed.to_string())
+        }
+    })
+}
+
+fn fallback_account_name(auth_type: &AuthType) -> &'static str {
+    match auth_type {
+        AuthType::ApiKey => "API Key 账号",
+        AuthType::OAuthToken => "OAuth 账号",
+        AuthType::CookieSession => "Session 账号",
+        AuthType::CliProfile => "CLI 账号",
+    }
 }

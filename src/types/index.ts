@@ -35,7 +35,7 @@ export interface CodexUsageWindow {
 }
 
 export interface CreateAccountInput {
-  name: string
+  name?: string
   auth_type: AuthType
   email?: string
   organization?: string

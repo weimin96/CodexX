@@ -100,7 +100,7 @@ pub struct Account {
 
 #[derive(Debug, Deserialize)]
 pub struct CreateAccountInput {
-    pub name: String,
+    pub name: Option<String>,
     pub auth_type: String,
     pub email: Option<String>,
     pub organization: Option<String>,
@@ -158,12 +158,21 @@ impl<'a> AccountRepository<'a> {
     }
 
     pub fn create(&self, input: CreateAccountInput) -> AppResult<Account> {
+        let CreateAccountInput {
+            name,
+            auth_type,
+            email,
+            organization,
+            color,
+            credential_value,
+            credential_type,
+        } = input;
         let id = Uuid::new_v4().to_string();
         let now = Utc::now().to_rfc3339();
-        let auth_type = AuthType::try_from(input.auth_type.as_str())?;
-        let color = input.color.unwrap_or_else(|| "#18a058".to_string());
-        let avatar_text = input
-            .name
+        let auth_type = AuthType::try_from(auth_type.as_str())?;
+        let resolved_name = resolve_account_name(name.as_deref(), email.as_deref(), &auth_type);
+        let color = color.unwrap_or_else(|| "#18a058".to_string());
+        let avatar_text = resolved_name
             .chars()
             .next()
             .map(|c| c.to_uppercase().to_string());
@@ -171,15 +180,13 @@ impl<'a> AccountRepository<'a> {
         self.db.get_conn().execute(
             "INSERT INTO accounts (id, name, auth_type, email, organization, is_default, is_active, created_at, updated_at, status, color, avatar_text)
              VALUES (?1, ?2, ?3, ?4, ?5, 0, 1, ?6, ?7, 'unknown', ?8, ?9)",
-            params![id, input.name, auth_type.to_string(), input.email, input.organization, now, now, color, avatar_text],
+            params![id, resolved_name, auth_type.to_string(), email, organization, now, now, color, avatar_text],
         )?;
 
         // 凭证必须先加密再入库，避免数据库文件直接暴露密钥或 Token。
-        let encrypted = security::encrypt(&input.credential_value)?;
+        let encrypted = security::encrypt(&credential_value)?;
         let cred_id = Uuid::new_v4().to_string();
-        let cred_type = input
-            .credential_type
-            .unwrap_or_else(|| auth_type.to_string());
+        let cred_type = credential_type.unwrap_or_else(|| auth_type.to_string());
 
         self.db.get_conn().execute(
             "INSERT INTO credentials (id, account_id, credential_type, encrypted_value, created_at, updated_at)
@@ -487,4 +494,26 @@ impl<'a> AccountRepository<'a> {
             _ => None,
         })
     }
+}
+
+fn resolve_account_name(
+    preferred_name: Option<&str>,
+    email: Option<&str>,
+    auth_type: &AuthType,
+) -> String {
+    normalize_account_text(preferred_name)
+        .or_else(|| normalize_account_text(email))
+        .unwrap_or_else(|| match auth_type {
+            AuthType::ApiKey => "API Key 账号".to_string(),
+            AuthType::OAuthToken => "OAuth 账号".to_string(),
+            AuthType::CookieSession => "Session 账号".to_string(),
+            AuthType::CliProfile => "CLI 账号".to_string(),
+        })
+}
+
+fn normalize_account_text(value: Option<&str>) -> Option<String> {
+    value
+        .map(str::trim)
+        .filter(|text| !text.is_empty())
+        .map(ToString::to_string)
 }

@@ -36,19 +36,6 @@ pub async fn get_settings(state: State<'_, AppState>) -> Result<Value, AppError>
     if !map.contains_key("autostart") {
         map.insert("autostart".to_string(), Value::String("false".to_string()));
     }
-    if !map.contains_key("local_auth_auto_sync") {
-        map.insert(
-            "local_auth_auto_sync".to_string(),
-            Value::String("true".to_string()),
-        );
-    }
-    if !map.contains_key("local_auth_file_path") {
-        map.insert(
-            "local_auth_file_path".to_string(),
-            Value::String(String::new()),
-        );
-    }
-
     Ok(Value::Object(map))
 }
 

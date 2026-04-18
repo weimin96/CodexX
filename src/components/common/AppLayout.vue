@@ -1,6 +1,6 @@
 <template>
   <div class="app-shell">
-    <!-- Custom Title Bar -->
+    <!-- 自定义标题栏 -->
     <div class="titlebar" data-tauri-drag-region>
       <div class="titlebar-left" data-tauri-drag-region>
         <div class="app-logo">
@@ -23,11 +23,11 @@
       </div>
     </div>
 
-    <!-- Main Content -->
+    <!-- 主体内容 -->
     <div class="app-body">
-      <!-- Sidebar -->
+      <!-- 侧边栏 -->
       <aside class="sidebar">
-        <!-- Account selector chip -->
+        <!-- 账号选择入口 -->
         <div class="account-chip" @click="router.push('/accounts')">
           <div
             class="account-avatar"
@@ -44,7 +44,7 @@
 
         <n-divider style="margin: 8px 0;" />
 
-        <!-- Navigation -->
+        <!-- 导航 -->
         <n-menu
           :value="currentRoute"
           :options="menuOptions"
@@ -69,7 +69,7 @@
         </div>
       </aside>
 
-      <!-- Page View -->
+      <!-- 页面视图 -->
       <main class="page-content">
         <router-view v-slot="{ Component }">
           <transition name="fade-slide" mode="out-in">
@@ -84,25 +84,23 @@
 <script setup lang="ts">
 import { computed, onMounted, h, ref } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
+import { isTauri as detectTauriRuntime } from '@tauri-apps/api/core'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { listen } from '@tauri-apps/api/event'
 import type { MenuOption } from 'naive-ui'
-import { NIcon, useMessage } from 'naive-ui'
+import { NIcon } from 'naive-ui'
 import { useAccountStore } from '@/stores/account'
-import { useSettingsStore } from '@/stores/settings'
 import { AUTH_TYPE_LABELS } from '@/types'
 import StatusDot from '@/components/common/StatusDot.vue'
 
 const router = useRouter()
 const route = useRoute()
-const message = useMessage()
 const accountStore = useAccountStore()
-const settingsStore = useSettingsStore()
 const { activeAccount, totalAccounts, accountsByStatus } = storeToRefs(accountStore)
 
 const currentRoute = computed(() => route.name as string)
 
-// Icons as SVG render functions
+// SVG 图标渲染函数
 const renderIcon = (svgPath: string) => () =>
   h(NIcon, null, {
     default: () =>
@@ -133,43 +131,22 @@ function handleNav(key: string) {
   router.push({ name: key })
 }
 
-// Window controls - 在 onMounted 中延迟初始化
+// 窗口控制必须在 Tauri 运行时中初始化，浏览器预览模式不应调用本地 API。
 let appWindow: ReturnType<typeof getCurrentWindow> | null = null
-const isTauri = ref(false)
+const isTauri = ref(detectTauriRuntime())
 
 const minimizeWindow = () => appWindow?.minimize()
 const toggleMaximize = () => appWindow?.toggleMaximize()
-const closeWindow = () => appWindow?.hide() // hide to tray instead of quit
+const closeWindow = () => appWindow?.hide()
 
-function getErrorMessage(error: unknown, fallback: string) {
-  if (error instanceof Error && error.message) return error.message
-  if (typeof error === 'string' && error) return error
-  return fallback
-}
-
-// Listen for backend status events
 onMounted(async () => {
-  // 延迟初始化 Tauri 窗口 API，确保在 Tauri 上下文完全准备好后调用
-  try {
+  if (isTauri.value) {
     appWindow = getCurrentWindow()
-    isTauri.value = true
-  } catch (e) {
-    console.warn('Running outside Tauri environment, window controls disabled')
-  }
-
-  await settingsStore.loadSettings()
-
-  if (isTauri.value && settingsStore.settings.local_auth_auto_sync === 'true') {
-    try {
-      const customPath = settingsStore.settings.local_auth_file_path.trim()
-      await accountStore.syncLocalAuthFile(customPath || undefined)
-    } catch (error) {
-      message.warning(getErrorMessage(error, '本地账号自动同步失败'))
-      await accountStore.loadAccounts()
-    }
   } else {
-    await accountStore.loadAccounts()
+    console.warn('当前不在 Tauri 环境中，窗口控制已禁用')
   }
+
+  await accountStore.loadAccounts()
 
   // 只在 Tauri 环境中监听后端事件
   if (isTauri.value) {

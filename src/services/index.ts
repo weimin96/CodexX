@@ -1,4 +1,4 @@
-import { invoke } from '@tauri-apps/api/core'
+import { invoke, isTauri as detectTauriRuntime } from '@tauri-apps/api/core'
 import type {
   Account,
   CreateAccountInput,
@@ -10,18 +10,18 @@ import type {
   AppSettings,
   StatusCheckResult,
   LocalAuthSyncResult,
+  PreparedOAuthLogin,
+  OAuthLoginResult,
 } from '@/types'
 
-type TauriRuntimeWindow = Window & { __TAURI__?: unknown }
-
 // 检测是否在 Tauri 环境中运行
-const isTauri = typeof window !== 'undefined' && Boolean((window as TauriRuntimeWindow).__TAURI__)
+const isTauri = detectTauriRuntime()
 
-// Mock 数据，用于非 Tauri 环境（浏览器开发模式）
+// 模拟数据用于浏览器开发模式，避免普通网页预览直接调用本地命令。
 const mockAccounts: Account[] = []
 
 // ============================================================
-// Account Service
+// 账号服务
 // ============================================================
 
 export const accountService = {
@@ -70,16 +70,16 @@ export const accountService = {
     return invoke<number>('import_accounts', { encryptedData, password })
   },
 
-  async syncLocalAuthFile(authFilePath?: string): Promise<LocalAuthSyncResult> {
+  async syncLocalAuthFile(): Promise<LocalAuthSyncResult> {
     if (!isTauri) {
       throw new Error('本地同步仅在 Tauri 环境中可用')
     }
-    return invoke<LocalAuthSyncResult>('sync_local_auth_file', { authFilePath })
+    return invoke<LocalAuthSyncResult>('sync_local_auth_file', { authFilePath: null })
   },
 }
 
 // ============================================================
-// Auth Service
+// 认证服务
 // ============================================================
 
 export const authService = {
@@ -97,10 +97,36 @@ export const authService = {
     if (!isTauri) return 'unknown'
     return invoke<string>('get_auth_status', { accountId })
   },
+
+  async prepareOAuthLogin(): Promise<PreparedOAuthLogin> {
+    if (!isTauri) {
+      throw new Error('OAuth 网页登录仅在 Tauri 环境中可用')
+    }
+    return invoke<PreparedOAuthLogin>('prepare_oauth_login')
+  },
+
+  async openOAuthLoginUrl(url: string): Promise<void> {
+    if (!isTauri) {
+      throw new Error('OAuth 网页登录仅在 Tauri 环境中可用')
+    }
+    return invoke('open_oauth_login_url', { url })
+  },
+
+  async completeOAuthCallbackLogin(callbackUrl: string): Promise<OAuthLoginResult> {
+    if (!isTauri) {
+      throw new Error('OAuth 网页登录仅在 Tauri 环境中可用')
+    }
+    return invoke<OAuthLoginResult>('complete_oauth_callback_login', { callbackUrl })
+  },
+
+  async cancelOAuthLogin(): Promise<void> {
+    if (!isTauri) return
+    return invoke('cancel_oauth_login')
+  },
 }
 
 // ============================================================
-// Status Service
+// 状态服务
 // ============================================================
 
 export const statusService = {
@@ -116,7 +142,7 @@ export const statusService = {
 }
 
 // ============================================================
-// Usage Service
+// 用量服务
 // ============================================================
 
 export const usageService = {
@@ -146,7 +172,7 @@ export const usageService = {
 }
 
 // ============================================================
-// Settings Service
+// 设置服务
 // ============================================================
 
 export const settingsService = {
@@ -157,8 +183,6 @@ export const settingsService = {
         language: 'zh-CN',
         check_interval: '300',
         autostart: 'false',
-        local_auth_auto_sync: 'true',
-        local_auth_file_path: '',
       }
     }
     return invoke<AppSettings>('get_settings')

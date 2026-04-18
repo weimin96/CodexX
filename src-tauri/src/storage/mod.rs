@@ -1,5 +1,6 @@
 use crate::error::AppResult;
 use rusqlite::Connection;
+use std::collections::HashSet;
 
 pub struct Database {
     conn: Connection,
@@ -70,6 +71,37 @@ impl Database {
                 ON credentials(account_id);
         ",
         )?;
+        self.ensure_account_profile_columns()?;
+        Ok(())
+    }
+
+    fn ensure_account_profile_columns(&self) -> AppResult<()> {
+        let mut stmt = self.conn.prepare("PRAGMA table_info(accounts)")?;
+        let columns = stmt
+            .query_map([], |row| row.get::<_, String>(1))?
+            .collect::<Result<HashSet<_>, _>>()?;
+
+        let required_columns = [
+            ("codex_plan_type", "TEXT"),
+            ("codex_usage_fetched_at", "TEXT"),
+            ("codex_usage_5h_used_percent", "REAL"),
+            ("codex_usage_5h_window_seconds", "INTEGER"),
+            ("codex_usage_5h_reset_at", "INTEGER"),
+            ("codex_usage_week_used_percent", "REAL"),
+            ("codex_usage_week_window_seconds", "INTEGER"),
+            ("codex_usage_week_reset_at", "INTEGER"),
+            ("codex_usage_error", "TEXT"),
+        ];
+
+        for (column, definition) in required_columns {
+            if !columns.contains(column) {
+                self.conn.execute(
+                    &format!("ALTER TABLE accounts ADD COLUMN {column} {definition}"),
+                    [],
+                )?;
+            }
+        }
+
         Ok(())
     }
 

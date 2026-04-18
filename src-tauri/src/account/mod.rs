@@ -91,6 +91,11 @@ pub struct Account {
     pub status_message: Option<String>,
     pub color: String,
     pub avatar_text: Option<String>,
+    pub codex_plan_type: Option<String>,
+    pub codex_usage_fetched_at: Option<String>,
+    pub codex_usage_5h: Option<CodexUsageWindow>,
+    pub codex_usage_week: Option<CodexUsageWindow>,
+    pub codex_usage_error: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -124,6 +129,23 @@ pub struct UpsertSyncedAccountInput {
     pub color: Option<String>,
     pub credential_value: String,
     pub credential_type: Option<String>,
+    pub codex_profile: Option<CodexAccountProfile>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CodexUsageWindow {
+    pub used_percent: f64,
+    pub window_seconds: i64,
+    pub reset_at: Option<i64>,
+}
+
+#[derive(Debug, Clone)]
+pub struct CodexAccountProfile {
+    pub plan_type: Option<String>,
+    pub fetched_at: Option<String>,
+    pub five_hour: Option<CodexUsageWindow>,
+    pub one_week: Option<CodexUsageWindow>,
+    pub usage_error: Option<String>,
 }
 
 pub struct AccountRepository<'a> {
@@ -152,7 +174,7 @@ impl<'a> AccountRepository<'a> {
             params![id, input.name, auth_type.to_string(), input.email, input.organization, now, now, color, avatar_text],
         )?;
 
-        // Encrypt and store credential
+        // 凭证必须先加密再入库，避免数据库文件直接暴露密钥或 Token。
         let encrypted = security::encrypt(&input.credential_value)?;
         let cred_id = Uuid::new_v4().to_string();
         let cred_type = input
@@ -172,7 +194,11 @@ impl<'a> AccountRepository<'a> {
         let conn = self.db.get_conn();
         let mut stmt = conn.prepare(
             "SELECT id, name, auth_type, email, organization, is_default, is_active, 
-                    created_at, updated_at, last_checked_at, status, status_message, color, avatar_text
+                    created_at, updated_at, last_checked_at, status, status_message, color, avatar_text,
+                    codex_plan_type, codex_usage_fetched_at,
+                    codex_usage_5h_used_percent, codex_usage_5h_window_seconds, codex_usage_5h_reset_at,
+                    codex_usage_week_used_percent, codex_usage_week_window_seconds, codex_usage_week_reset_at,
+                    codex_usage_error
              FROM accounts WHERE id = ?1"
         )?;
 
@@ -187,7 +213,11 @@ impl<'a> AccountRepository<'a> {
         let conn = self.db.get_conn();
         let mut stmt = conn.prepare(
             "SELECT id, name, auth_type, email, organization, is_default, is_active,
-                    created_at, updated_at, last_checked_at, status, status_message, color, avatar_text
+                    created_at, updated_at, last_checked_at, status, status_message, color, avatar_text,
+                    codex_plan_type, codex_usage_fetched_at,
+                    codex_usage_5h_used_percent, codex_usage_5h_window_seconds, codex_usage_5h_reset_at,
+                    codex_usage_week_used_percent, codex_usage_week_window_seconds, codex_usage_week_reset_at,
+                    codex_usage_error
              FROM accounts ORDER BY is_default DESC, created_at ASC"
         )?;
 
@@ -251,16 +281,36 @@ impl<'a> AccountRepository<'a> {
             color,
             credential_value,
             credential_type,
+            codex_profile,
         } = input;
         let now = Utc::now().to_rfc3339();
         let color = color.unwrap_or_else(|| "#4f8ef7".to_string());
         let avatar_text = name.chars().next().map(|c| c.to_uppercase().to_string());
         let account_exists = self.get_by_id(&stable_id).is_ok();
         let should_be_default = !account_exists && self.list_all()?.is_empty();
+        let profile_present = if codex_profile.is_some() { 1 } else { 0 };
+        let profile = codex_profile.unwrap_or_else(|| CodexAccountProfile {
+            plan_type: None,
+            fetched_at: None,
+            five_hour: None,
+            one_week: None,
+            usage_error: None,
+        });
 
         self.db.get_conn().execute(
-            "INSERT INTO accounts (id, name, auth_type, email, organization, is_default, is_active, created_at, updated_at, status, color, avatar_text)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, 1, ?7, ?8, 'unknown', ?9, ?10)
+            "INSERT INTO accounts (
+                id, name, auth_type, email, organization, is_default, is_active,
+                created_at, updated_at, status, color, avatar_text,
+                codex_plan_type, codex_usage_fetched_at,
+                codex_usage_5h_used_percent, codex_usage_5h_window_seconds, codex_usage_5h_reset_at,
+                codex_usage_week_used_percent, codex_usage_week_window_seconds, codex_usage_week_reset_at,
+                codex_usage_error
+             )
+             VALUES (
+                ?1, ?2, ?3, ?4, ?5, ?6, 1,
+                ?7, ?8, 'unknown', ?9, ?10,
+                ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20
+             )
              ON CONFLICT(id) DO UPDATE SET
                 name = excluded.name,
                 auth_type = excluded.auth_type,
@@ -269,7 +319,16 @@ impl<'a> AccountRepository<'a> {
                 is_active = 1,
                 updated_at = excluded.updated_at,
                 color = excluded.color,
-                avatar_text = excluded.avatar_text",
+                avatar_text = excluded.avatar_text,
+                codex_plan_type = CASE WHEN ?11 = 1 THEN excluded.codex_plan_type ELSE accounts.codex_plan_type END,
+                codex_usage_fetched_at = CASE WHEN ?11 = 1 THEN excluded.codex_usage_fetched_at ELSE accounts.codex_usage_fetched_at END,
+                codex_usage_5h_used_percent = CASE WHEN ?11 = 1 THEN excluded.codex_usage_5h_used_percent ELSE accounts.codex_usage_5h_used_percent END,
+                codex_usage_5h_window_seconds = CASE WHEN ?11 = 1 THEN excluded.codex_usage_5h_window_seconds ELSE accounts.codex_usage_5h_window_seconds END,
+                codex_usage_5h_reset_at = CASE WHEN ?11 = 1 THEN excluded.codex_usage_5h_reset_at ELSE accounts.codex_usage_5h_reset_at END,
+                codex_usage_week_used_percent = CASE WHEN ?11 = 1 THEN excluded.codex_usage_week_used_percent ELSE accounts.codex_usage_week_used_percent END,
+                codex_usage_week_window_seconds = CASE WHEN ?11 = 1 THEN excluded.codex_usage_week_window_seconds ELSE accounts.codex_usage_week_window_seconds END,
+                codex_usage_week_reset_at = CASE WHEN ?11 = 1 THEN excluded.codex_usage_week_reset_at ELSE accounts.codex_usage_week_reset_at END,
+                codex_usage_error = CASE WHEN ?11 = 1 THEN excluded.codex_usage_error ELSE accounts.codex_usage_error END",
             params![
                 &stable_id,
                 &name,
@@ -281,6 +340,16 @@ impl<'a> AccountRepository<'a> {
                 &now,
                 &color,
                 &avatar_text,
+                profile_present,
+                &profile.plan_type,
+                &profile.fetched_at,
+                profile.five_hour.as_ref().map(|window| window.used_percent),
+                profile.five_hour.as_ref().map(|window| window.window_seconds),
+                profile.five_hour.as_ref().and_then(|window| window.reset_at),
+                profile.one_week.as_ref().map(|window| window.used_percent),
+                profile.one_week.as_ref().map(|window| window.window_seconds),
+                profile.one_week.as_ref().and_then(|window| window.reset_at),
+                &profile.usage_error,
             ],
         )?;
 
@@ -393,6 +462,29 @@ impl<'a> AccountRepository<'a> {
             status_message: row.get(11)?,
             color: row.get(12)?,
             avatar_text: row.get(13)?,
+            codex_plan_type: row.get(14)?,
+            codex_usage_fetched_at: row.get(15)?,
+            codex_usage_5h: Self::map_usage_window(row, 16, 17, 18)?,
+            codex_usage_week: Self::map_usage_window(row, 19, 20, 21)?,
+            codex_usage_error: row.get(22)?,
+        })
+    }
+
+    fn map_usage_window(
+        row: &Row,
+        used_percent_index: usize,
+        window_seconds_index: usize,
+        reset_at_index: usize,
+    ) -> rusqlite::Result<Option<CodexUsageWindow>> {
+        let used_percent: Option<f64> = row.get(used_percent_index)?;
+        let window_seconds: Option<i64> = row.get(window_seconds_index)?;
+        Ok(match (used_percent, window_seconds) {
+            (Some(used_percent), Some(window_seconds)) => Some(CodexUsageWindow {
+                used_percent,
+                window_seconds,
+                reset_at: row.get(reset_at_index)?,
+            }),
+            _ => None,
         })
     }
 }

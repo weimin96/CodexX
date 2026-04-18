@@ -15,7 +15,7 @@ pub async fn create_account(
     let db = state.db.lock().await;
     let repo = AccountRepository::new(&db);
     let account = repo.create(input)?;
-    // Seed demo data
+    // 新账号创建后写入演示用量，保持首页统计在空数据场景下可展示。
     let usage_repo = crate::usage::UsageRepository::new(&db);
     let _ = usage_repo.seed_demo_data(&account.id);
     Ok(serde_json::to_value(account)?)
@@ -79,7 +79,7 @@ pub async fn export_accounts(
     let repo = AccountRepository::new(&db);
     let accounts = repo.list_all()?;
 
-    // Build export including credentials
+    // 导出必须包含凭证密文解密后的明文，再由用户密码整体加密。
     let mut export_data = Vec::new();
     for account in &accounts {
         let cred = repo.get_credential(&account.id).unwrap_or_default();
@@ -142,8 +142,12 @@ pub async fn sync_local_auth_file(
     state: State<'_, AppState>,
     auth_file_path: Option<String>,
 ) -> Result<Value, AppError> {
-    let db = state.db.lock().await;
-    let repo = AccountRepository::new(&db);
-    let result = LocalAuthSyncService::sync_auth_file(&repo, auth_file_path.as_deref())?;
+    let prepared = LocalAuthSyncService::prepare_auth_file(auth_file_path.as_deref())?;
+    let codex_profile = LocalAuthSyncService::fetch_codex_profile(&prepared).await;
+    let result = {
+        let db = state.db.lock().await;
+        let repo = AccountRepository::new(&db);
+        LocalAuthSyncService::sync_prepared_auth(&repo, prepared, codex_profile)?
+    };
     Ok(serde_json::to_value(result)?)
 }

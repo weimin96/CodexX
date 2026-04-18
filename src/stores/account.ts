@@ -4,13 +4,13 @@ import { accountService, statusService } from '@/services'
 import type { Account, CreateAccountInput, LocalAuthSyncResult, UpdateAccountInput } from '@/types'
 
 export const useAccountStore = defineStore('account', () => {
-  // State
+  // 状态
   const accounts = ref<Account[]>([])
   const activeAccountId = ref<string | null>(null)
   const loading = ref(false)
   const checkingStatus = ref<Set<string>>(new Set())
 
-  // Getters
+  // 派生数据
   const defaultAccount = computed(() =>
     accounts.value.find((a) => a.is_default) ?? accounts.value[0] ?? null
   )
@@ -35,7 +35,7 @@ export const useAccountStore = defineStore('account', () => {
     return map
   })
 
-  // Actions
+  // 操作
   async function loadAccounts() {
     loading.value = true
     try {
@@ -75,7 +75,7 @@ export const useAccountStore = defineStore('account', () => {
   async function switchAccount(id: string) {
     await accountService.switchAccount(id)
     activeAccountId.value = id
-    // Refresh list to get updated is_default flags
+    // 默认账号状态由后端统一维护，切换后重新拉取可以避免前端状态分叉。
     await loadAccounts()
   }
 
@@ -83,8 +83,8 @@ export const useAccountStore = defineStore('account', () => {
     activeAccountId.value = id
   }
 
-  async function syncLocalAuthFile(authFilePath?: string): Promise<LocalAuthSyncResult> {
-    const result = await accountService.syncLocalAuthFile(authFilePath)
+  async function syncLocalAuthFile(): Promise<LocalAuthSyncResult> {
+    const result = await accountService.syncLocalAuthFile()
     await loadAccounts()
     return result
   }

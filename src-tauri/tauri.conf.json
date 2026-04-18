@@ -55,11 +55,6 @@
       ],
       "dialog": true,
       "pubkey": ""
-    },
-    "autostart": {
-      "desktopFile": "com.codex.manager.desktop",
-      "hidden": false,
-      "args": null
     }
   }
 }

@@ -1,6 +1,6 @@
 <template>
   <div class="account-card" :class="{ default: account.is_default }" @click="$emit('click')">
-    <!-- Card header -->
+    <!-- 卡片头部 -->
     <div class="card-header">
       <div class="avatar" :style="{ background: account.color }">
         {{ account.avatar_text ?? account.name[0]?.toUpperCase() }}
@@ -9,13 +9,16 @@
         <div class="card-name">
           {{ account.name }}
           <n-tag v-if="account.is_default" size="tiny" type="info" style="margin-left:6px">默认</n-tag>
+          <n-tag v-if="account.codex_plan_type" size="tiny" type="success" style="margin-left:6px">
+            {{ formatPlanType(account.codex_plan_type) }}
+          </n-tag>
         </div>
         <div class="card-sub">{{ AUTH_TYPE_LABELS[account.auth_type] }}</div>
       </div>
       <StatusDot :status="account.status" />
     </div>
 
-    <!-- Meta info -->
+    <!-- 元信息 -->
     <div class="card-meta">
       <span v-if="account.email" class="meta-item">
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" stroke="currentColor" stroke-width="1.5"/><polyline points="22,6 12,13 2,6" stroke="currentColor" stroke-width="1.5"/></svg>
@@ -31,12 +34,28 @@
       </span>
     </div>
 
-    <!-- Status message -->
+    <!-- Codex 用量窗口 -->
+    <div v-if="hasCodexUsage(account)" class="usage-window-row">
+      <div class="usage-window-pill">
+        <span>5 小时</span>
+        <strong>{{ formatUsageWindow(account.codex_usage_5h) }}</strong>
+      </div>
+      <div class="usage-window-pill">
+        <span>1 周</span>
+        <strong>{{ formatUsageWindow(account.codex_usage_week) }}</strong>
+      </div>
+    </div>
+
+    <div v-if="account.codex_usage_error" class="card-status-msg warning">
+      账号信息同步失败：{{ account.codex_usage_error }}
+    </div>
+
+    <!-- 状态消息 -->
     <div v-if="account.status_message" class="card-status-msg" :class="account.status">
       {{ account.status_message }}
     </div>
 
-    <!-- Actions -->
+    <!-- 操作 -->
     <div class="card-actions" @click.stop>
       <n-button
         size="tiny"
@@ -82,7 +101,7 @@
 
 <script setup lang="ts">
 import { AUTH_TYPE_LABELS } from '@/types'
-import type { Account } from '@/types'
+import type { Account, CodexUsageWindow } from '@/types'
 import StatusDot from '@/components/common/StatusDot.vue'
 import { format, parseISO } from 'date-fns'
 
@@ -104,6 +123,26 @@ function formatDate(iso: string): string {
   } catch {
     return iso
   }
+}
+
+function hasCodexUsage(account: Account): boolean {
+  return Boolean(account.codex_usage_5h || account.codex_usage_week)
+}
+
+function formatUsageWindow(window?: CodexUsageWindow): string {
+  if (!window) return '未知'
+  return `已用 ${formatPercent(window.used_percent)}`
+}
+
+function formatPercent(value: number): string {
+  if (!Number.isFinite(value)) return '未知'
+  return `${Math.max(0, Math.min(100, value)).toFixed(1)}%`
+}
+
+function formatPlanType(planType: string): string {
+  const normalized = planType.trim()
+  if (!normalized) return '未知计划'
+  return normalized.toUpperCase()
 }
 </script>
 
@@ -214,6 +253,33 @@ function formatDate(iso: string): string {
 .card-status-msg.error   { background: rgba(208,48,80,0.1);  border-color: #d03050; color: #f06080; }
 .card-status-msg.expired { background: rgba(139,92,246,0.1); border-color: #8b5cf6; color: #a78bfa; }
 .card-status-msg.unknown { background: rgba(144,147,153,0.1); border-color: #909399; color: #b0b3b8; }
+
+.usage-window-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+
+.usage-window-pill {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 7px 8px;
+  border: 1px solid rgba(79,142,247,0.24);
+  border-radius: 8px;
+  background: rgba(79,142,247,0.08);
+}
+
+.usage-window-pill span {
+  font-size: 10px;
+  color: var(--text-secondary);
+}
+
+.usage-window-pill strong {
+  font-size: 12px;
+  color: var(--text-primary);
+  font-family: 'Fira Code', monospace;
+}
 
 .card-actions {
   display: flex;

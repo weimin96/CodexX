@@ -1,5 +1,5 @@
 // ============================================================
-// Account Types
+// 账号类型
 // ============================================================
 
 export type AuthType = 'api_key' | 'oauth_token' | 'cookie_session' | 'cli_profile'
@@ -21,6 +21,17 @@ export interface Account {
   status_message?: string
   color: string
   avatar_text?: string
+  codex_plan_type?: string
+  codex_usage_fetched_at?: string
+  codex_usage_5h?: CodexUsageWindow
+  codex_usage_week?: CodexUsageWindow
+  codex_usage_error?: string
+}
+
+export interface CodexUsageWindow {
+  used_percent: number
+  window_seconds: number
+  reset_at?: number
 }
 
 export interface CreateAccountInput {
@@ -43,7 +54,7 @@ export interface UpdateAccountInput {
 }
 
 // ============================================================
-// Auth Types
+// 认证类型
 // ============================================================
 
 export type AuthStatus = 'valid' | 'expired' | 'invalid' | 'unknown'
@@ -55,8 +66,24 @@ export interface AuthCheckResult {
   expires_at?: string
 }
 
+export interface PreparedOAuthLogin {
+  auth_url: string
+  redirect_uri: string
+}
+
+export interface OAuthLoginResult {
+  account_id: string
+  account_name: string
+  auth_type: AuthType
+}
+
+export interface OAuthCallbackFinishedEvent {
+  result: OAuthLoginResult | null
+  error: string | null
+}
+
 // ============================================================
-// Usage Types
+// 用量类型
 // ============================================================
 
 export interface UsageSummary {
@@ -84,7 +111,7 @@ export interface UsageQuery {
 }
 
 // ============================================================
-// Settings Types
+// 设置类型
 // ============================================================
 
 export interface AppSettings {
@@ -92,12 +119,10 @@ export interface AppSettings {
   language: string
   check_interval: string
   autostart: string
-  local_auth_auto_sync: string
-  local_auth_file_path: string
 }
 
 // ============================================================
-// Status Types
+// 状态类型
 // ============================================================
 
 export interface StatusCheckResult {
@@ -111,10 +136,12 @@ export interface LocalAuthSyncResult {
   account_name: string
   auth_type: AuthType
   auth_file_path: string
+  codex_plan_type?: string
+  codex_usage_error?: string
 }
 
 // ============================================================
-// UI Helper Types
+// 界面辅助类型
 // ============================================================
 
 export const AUTH_TYPE_LABELS: Record<AuthType, string> = {

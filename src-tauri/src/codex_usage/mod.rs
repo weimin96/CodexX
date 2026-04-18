@@ -1,0 +1,161 @@
+use chrono::Utc;
+use serde::Deserialize;
+
+use crate::account::{CodexAccountProfile, CodexUsageWindow};
+use crate::error::{AppError, AppResult};
+
+const CODEX_USAGE_URLS: [&str; 2] = [
+    "https://chatgpt.com/backend-api/wham/usage",
+    "https://chatgpt.com/api/codex/usage",
+];
+
+#[derive(Debug, Deserialize)]
+struct CodexUsageApiResponse {
+    plan_type: Option<String>,
+    rate_limit: Option<RateLimitDetails>,
+    additional_rate_limits: Option<Vec<AdditionalRateLimitDetails>>,
+}
+
+#[derive(Debug, Deserialize)]
+struct RateLimitDetails {
+    primary_window: Option<UsageWindowRaw>,
+    secondary_window: Option<UsageWindowRaw>,
+}
+
+#[derive(Debug, Deserialize)]
+struct AdditionalRateLimitDetails {
+    rate_limit: Option<RateLimitDetails>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct UsageWindowRaw {
+    used_percent: f64,
+    limit_window_seconds: i64,
+    reset_at: i64,
+}
+
+pub async fn fetch_codex_account_profile(
+    access_token: &str,
+    account_id: &str,
+    fallback_plan_type: Option<String>,
+) -> AppResult<CodexAccountProfile> {
+    let client = reqwest::Client::builder()
+        .user_agent("codex-manager/0.1.0")
+        .timeout(std::time::Duration::from_secs(18))
+        .build()?;
+    let mut errors = Vec::new();
+
+    for usage_url in CODEX_USAGE_URLS {
+        let response = match client
+            .get(usage_url)
+            .header("Authorization", format!("Bearer {access_token}"))
+            .header("ChatGPT-Account-Id", account_id)
+            .header("Accept", "application/json")
+            .send()
+            .await
+        {
+            Ok(response) => response,
+            Err(error) => {
+                errors.push(format!("{usage_url} -> {error}"));
+                continue;
+            }
+        };
+
+        let status = response.status();
+        if !status.is_success() {
+            let body = response.text().await.unwrap_or_default();
+            errors.push(format!(
+                "{usage_url} -> {}: {}",
+                status.as_u16(),
+                truncate_error_body(&body, 180)
+            ));
+            continue;
+        }
+
+        let payload: CodexUsageApiResponse = response.json().await?;
+        return Ok(map_usage_payload(payload, fallback_plan_type));
+    }
+
+    Err(AppError::AuthFailed(format!(
+        "请求 Codex 用量接口失败: {}",
+        summarize_errors(&errors)
+    )))
+}
+
+fn map_usage_payload(
+    payload: CodexUsageApiResponse,
+    fallback_plan_type: Option<String>,
+) -> CodexAccountProfile {
+    let mut windows = Vec::new();
+
+    if let Some(rate_limit) = payload.rate_limit {
+        collect_rate_limit_windows(rate_limit, &mut windows);
+    }
+
+    if let Some(additional_rate_limits) = payload.additional_rate_limits {
+        for additional in additional_rate_limits {
+            if let Some(rate_limit) = additional.rate_limit {
+                collect_rate_limit_windows(rate_limit, &mut windows);
+            }
+        }
+    }
+
+    CodexAccountProfile {
+        plan_type: payload.plan_type.or(fallback_plan_type),
+        fetched_at: Some(Utc::now().to_rfc3339()),
+        five_hour: pick_nearest_window(&windows, 5 * 60 * 60),
+        one_week: pick_nearest_window(&windows, 7 * 24 * 60 * 60),
+        usage_error: None,
+    }
+}
+
+fn collect_rate_limit_windows(rate_limit: RateLimitDetails, windows: &mut Vec<UsageWindowRaw>) {
+    if let Some(primary_window) = rate_limit.primary_window {
+        windows.push(primary_window);
+    }
+    if let Some(secondary_window) = rate_limit.secondary_window {
+        windows.push(secondary_window);
+    }
+}
+
+fn pick_nearest_window(
+    windows: &[UsageWindowRaw],
+    target_window_seconds: i64,
+) -> Option<CodexUsageWindow> {
+    windows
+        .iter()
+        .min_by_key(|window| (window.limit_window_seconds - target_window_seconds).abs())
+        .map(|window| CodexUsageWindow {
+            used_percent: window.used_percent,
+            window_seconds: window.limit_window_seconds,
+            reset_at: Some(window.reset_at),
+        })
+}
+
+fn summarize_errors(errors: &[String]) -> String {
+    if errors.is_empty() {
+        return "未命中任何候选地址".to_string();
+    }
+
+    let preview = errors
+        .iter()
+        .take(2)
+        .map(String::as_str)
+        .collect::<Vec<_>>()
+        .join(" | ");
+    if errors.len() > 2 {
+        format!("{preview} | 另有 {} 个候选地址失败", errors.len() - 2)
+    } else {
+        preview
+    }
+}
+
+fn truncate_error_body(value: &str, max_chars: usize) -> String {
+    let trimmed = value.trim();
+    if trimmed.chars().count() <= max_chars {
+        return trimmed.to_string();
+    }
+
+    let prefix = trimmed.chars().take(max_chars).collect::<String>();
+    format!("{prefix}...")
+}

@@ -1,5 +1,6 @@
 pub mod account;
 pub mod auth;
+pub mod codex_usage;
 pub mod commands;
 pub mod error;
 pub mod local_sync;
@@ -8,13 +9,25 @@ pub mod security;
 pub mod storage;
 pub mod usage;
 
+use std::sync::mpsc::Sender;
 use std::sync::Arc;
+use std::thread::JoinHandle;
 use storage::Database;
 use tauri::Manager;
 use tokio::sync::Mutex;
 
+use crate::auth::PendingOAuthLogin;
+
+pub struct OAuthCallbackListenerHandle {
+    pub shutdown_tx: Option<Sender<()>>,
+    pub task: Option<JoinHandle<()>>,
+}
+
 pub struct AppState {
     pub db: Arc<Mutex<Database>>,
+    pub oauth_flow_lock: Arc<Mutex<()>>,
+    pub pending_oauth_login: Mutex<Option<PendingOAuthLogin>>,
+    pub oauth_listener: Mutex<Option<OAuthCallbackListenerHandle>>,
 }
 
 pub fn run() {
@@ -29,7 +42,7 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .setup(|app| {
-            // Initialize database
+            // 初始化数据库，所有账号凭证后续都通过仓储层加密写入。
             let app_dir = app
                 .path()
                 .app_data_dir()
@@ -42,16 +55,19 @@ pub fn run() {
 
             app.manage(AppState {
                 db: Arc::new(Mutex::new(db)),
+                oauth_flow_lock: Arc::new(Mutex::new(())),
+                pending_oauth_login: Mutex::new(None),
+                oauth_listener: Mutex::new(None),
             });
 
-            // Setup system tray
+            // 初始化系统托盘，保持主窗口关闭后的基础可达性。
             #[cfg(all(desktop))]
             {
                 let handle = app.handle().clone();
                 setup_tray(handle)?;
             }
 
-            // Start background scheduler
+            // 启动后台调度器，周期性刷新账号状态但不读取本地 auth.json。
             let handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 scheduler::start_scheduler(handle).await;
@@ -60,7 +76,7 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            // Account commands
+            // 账号命令
             commands::account::create_account,
             commands::account::update_account,
             commands::account::delete_account,
@@ -71,18 +87,22 @@ pub fn run() {
             commands::account::export_accounts,
             commands::account::import_accounts,
             commands::account::sync_local_auth_file,
-            // Auth commands
+            // 认证命令
             commands::auth::refresh_token,
             commands::auth::validate_token,
             commands::auth::get_auth_status,
-            // Status commands
+            commands::auth::prepare_oauth_login,
+            commands::auth::open_oauth_login_url,
+            commands::auth::complete_oauth_callback_login,
+            commands::auth::cancel_oauth_login,
+            // 状态命令
             commands::status::check_status,
             commands::status::check_all_status,
-            // Usage commands
+            // 用量命令
             commands::usage::fetch_usage,
             commands::usage::get_usage_stats,
             commands::usage::get_usage_chart_data,
-            // Settings commands
+            // 设置命令
             commands::settings::get_settings,
             commands::settings::save_settings,
             commands::settings::set_autostart,

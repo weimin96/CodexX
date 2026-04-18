@@ -9,8 +9,6 @@ export const useSettingsStore = defineStore('settings', () => {
     language: 'zh-CN',
     check_interval: '300',
     autostart: 'false',
-    local_auth_auto_sync: 'true',
-    local_auth_file_path: '',
   })
   const loading = ref(false)
 

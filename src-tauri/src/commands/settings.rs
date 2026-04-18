@@ -1,6 +1,7 @@
 use rusqlite::params;
 use serde_json::Value;
 use tauri::State;
+use tauri_plugin_autostart::ManagerExt as _;
 
 use crate::error::AppError;
 use crate::AppState;
@@ -75,8 +76,29 @@ pub async fn save_settings(state: State<'_, AppState>, settings: Value) -> Resul
 }
 
 #[tauri::command]
-pub async fn set_autostart(_state: State<'_, AppState>, enabled: bool) -> Result<(), AppError> {
-    // This would use the tauri-plugin-autostart in real implementation
-    log::info!("Set autostart: {}", enabled);
+pub async fn set_autostart(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    enabled: bool,
+) -> Result<(), AppError> {
+    if enabled {
+        app.autolaunch()
+            .enable()
+            .map_err(|err| AppError::Other(format!("设置开机自启失败: {}", err)))?;
+    } else {
+        app.autolaunch()
+            .disable()
+            .map_err(|err| AppError::Other(format!("关闭开机自启失败: {}", err)))?;
+    }
+
+    let db = state.db.lock().await;
+    let conn = db.get_conn();
+    let now = chrono::Utc::now().to_rfc3339();
+    conn.execute(
+        "INSERT INTO settings (key, value, updated_at) VALUES (?1, ?2, ?3)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
+        params!["autostart", enabled.to_string(), now],
+    )?;
+
     Ok(())
 }

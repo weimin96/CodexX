@@ -23,16 +23,6 @@
         </div>
       </div>
       <div class="card-side">
-        <n-button
-          secondary
-          size="small"
-          class="trigger-dialog-button"
-          :disabled="!canTriggerConversation || triggeringConversation"
-          :loading="triggeringConversation"
-          @click="emit('trigger-conversation')"
-        >
-          触发对话
-        </n-button>
         <n-dropdown
           trigger="click"
           :options="cardActionOptions"
@@ -116,7 +106,13 @@ const emit = defineEmits<{
   delete: []
 }>()
 
-type CardActionKey = 'detail' | 'check' | 'switch-account' | 'export-auth' | 'delete'
+type CardActionKey =
+  | 'detail'
+  | 'check'
+  | 'trigger-conversation'
+  | 'switch-account'
+  | 'export-auth'
+  | 'delete'
 
 const displayName = computed(() => resolveAccountDisplayName(props.account))
 const displayAvatarText = computed(() => resolveAccountAvatarText(props.account))
@@ -165,6 +161,15 @@ const cardActionOptions = computed<DropdownOption[]>(() => {
               'stroke-linejoin': 'round',
             }),
           ],
+        ),
+    },
+    {
+      label: props.triggeringConversation ? '预热中' : '一键预热',
+      key: 'trigger-conversation',
+      disabled: props.triggeringConversation || !canTriggerConversation.value,
+      icon: () =>
+        renderActionIcon(
+          'M21 15a4 4 0 0 1-4 4H7l-4 4V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4v8z',
         ),
     },
   ]
@@ -245,6 +250,9 @@ function handleCardActionSelect(key: string | number) {
       break
     case 'check':
       emit('check')
+      break
+    case 'trigger-conversation':
+      emit('trigger-conversation')
       break
     case 'switch-account':
       emit('switch-account')
@@ -426,13 +434,6 @@ function formatUsageError(error?: string): string {
 
 .card-icon-button {
   flex-shrink: 0;
-}
-
-.trigger-dialog-button {
-  height: 30px;
-  padding: 0 10px;
-  border-radius: var(--app-radius-control);
-  font-size: 12px;
 }
 
 .status-diagnostic {

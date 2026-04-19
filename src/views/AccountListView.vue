@@ -222,7 +222,7 @@ const accountActionOptions = computed<DropdownOption[]>(() => [
       ),
   },
   {
-    label: triggeringConversation.value ? '触发中' : '触发对话',
+    label: triggeringConversation.value ? '预热中' : '一键预热',
     key: 'trigger-conversation',
     disabled: triggeringConversation.value || !hasAccounts.value,
     icon: () => renderDropdownIcon('M21 15a4 4 0 0 1-4 4H7l-4 4V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4v8z'),
@@ -392,9 +392,9 @@ async function handleTriggerConversation(accountId?: string) {
   try {
     const result = await usageService.triggerCodexShortConversation(accountId)
     await accountStore.loadAccounts()
-    message.success(`已通过「${result.account_name}」触发 ${result.model} 对话`)
+    message.success(`已通过「${result.account_name}」完成 ${result.model} 一键预热`)
   } catch (error) {
-    message.error(getErrorMessage(error, '触发对话失败'))
+    message.error(getErrorMessage(error, '一键预热失败'))
   } finally {
     if (accountId) {
       const nextTriggeringAccounts = new Set(triggeringConversationAccounts.value)

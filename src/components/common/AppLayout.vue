@@ -142,7 +142,7 @@
                 />
               </svg>
             </span>
-            <span>Codex 启动</span>
+            <span>启动器</span>
           </button>
         </div>
       </aside>
@@ -224,7 +224,7 @@ const menuOptions: MenuOption[] = [
 
 const currentSectionLabel = computed(() => {
   if (currentRoute.value === 'CodexLaunch') {
-    return 'Codex 启动'
+    return '启动器'
   }
 
   const currentOption = menuOptions.find((option) => option.key === currentRoute.value)

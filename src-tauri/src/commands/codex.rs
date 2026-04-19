@@ -5,7 +5,8 @@ use uuid::Uuid;
 
 use crate::account::AccountRepository;
 use crate::codex_runtime::{
-    open_interactive_codex, prompt_preview, run_codex_exec, CodexCommandTarget, CodexExecInput,
+    open_codex_cli_terminal, open_codex_desktop_app, open_interactive_codex, prompt_preview,
+    run_codex_exec, CodexCliLaunchInput, CodexCommandTarget, CodexExecInput,
     CodexInteractiveInput, CodexLaunchResult,
 };
 use crate::error::AppError;
@@ -158,6 +159,35 @@ pub async fn open_codex_interactive_session(
         exit_code: None,
         usage_event_count: 0,
         message: "已在新终端中启动交互式 Codex，会话用量暂未导入".to_string(),
+        stderr_preview: None,
+    })?)
+}
+
+#[tauri::command]
+pub async fn launch_codex_cli(input: CodexCliLaunchInput) -> Result<Value, AppError> {
+    let target = CodexCommandTarget::discover()?;
+    open_codex_cli_terminal(&target, &input)?;
+
+    Ok(serde_json::to_value(CodexLaunchResult {
+        session_id: Uuid::new_v4().to_string(),
+        status: "launched".to_string(),
+        exit_code: None,
+        usage_event_count: 0,
+        message: "已在新终端中启动 Codex CLI".to_string(),
+        stderr_preview: None,
+    })?)
+}
+
+#[tauri::command]
+pub async fn launch_codex_app() -> Result<Value, AppError> {
+    open_codex_desktop_app()?;
+
+    Ok(serde_json::to_value(CodexLaunchResult {
+        session_id: Uuid::new_v4().to_string(),
+        status: "launched".to_string(),
+        exit_code: None,
+        usage_event_count: 0,
+        message: "已启动 Codex App".to_string(),
         stderr_preview: None,
     })?)
 }

@@ -93,6 +93,8 @@ pub fn run() {
             // Codex 启动命令
             commands::codex::run_codex_exec_session,
             commands::codex::open_codex_interactive_session,
+            commands::codex::launch_codex_cli,
+            commands::codex::launch_codex_app,
             // 认证命令
             commands::auth::refresh_token,
             commands::auth::validate_token,

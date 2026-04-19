@@ -1,46 +1,27 @@
 <template>
   <div class="app-page codex-page">
-    <section class="page-hero">
-      <div class="page-hero-copy">
-        <h1 class="page-title">Codex 启动</h1>
-      </div>
-      <div class="hero-stats">
-        <div class="hero-stat">
-          <span class="hero-stat-label">账号</span>
-          <strong class="hero-stat-value">{{ activeAccountLabel }}</strong>
-        </div>
-        <div class="hero-stat">
-          <span class="hero-stat-label">沙箱</span>
-          <strong class="hero-stat-value">{{ sandboxLabel }}</strong>
-        </div>
-        <div class="hero-stat">
-          <span class="hero-stat-label">项目</span>
-          <strong class="hero-stat-value">{{ projectHistory.length }}</strong>
-        </div>
-      </div>
-    </section>
-
     <section class="surface-panel section-grid">
       <div class="toolbar-header">
-        <div>
-          <h2 class="panel-heading">任务</h2>
+        <div class="toolbar-copy">
+          <h2 class="panel-heading">启动方式</h2>
+          <p class="panel-supporting">
+            CLI 会直接打开 Codex 命令窗口。App 会启动系统安装的 Codex 应用。
+          </p>
         </div>
         <div class="codex-actions">
           <n-button
-            secondary
-            :disabled="!selectedAccountId"
-            :loading="openingCodex"
-            @click="handleOpenCodexInteractive"
+            type="primary"
+            :loading="launchingCli"
+            @click="handleLaunchCodexCli"
           >
-            打开交互
+            启动 CLI
           </n-button>
           <n-button
-            type="primary"
-            :disabled="!selectedAccountId"
-            :loading="runningCodex"
-            @click="handleRunCodexExec"
+            secondary
+            :loading="launchingApp"
+            @click="handleLaunchCodexApp"
           >
-            运行任务
+            启动 App
           </n-button>
         </div>
       </div>
@@ -48,20 +29,8 @@
       <div class="codex-launch-grid">
         <div class="control-grid">
           <div class="control-block">
-            <span class="control-label">账号</span>
-            <n-select
-              v-model:value="selectedAccountId"
-              :options="accountOptions"
-              placeholder="请选择账号"
-            />
-          </div>
-          <div class="control-block">
             <span class="control-label">模型</span>
             <n-input v-model:value="codexModel" placeholder="默认配置" />
-          </div>
-          <div class="control-block">
-            <span class="control-label">沙箱</span>
-            <n-select v-model:value="codexSandbox" :options="sandboxOptions" />
           </div>
         </div>
 
@@ -89,16 +58,6 @@
             </button>
           </div>
         </div>
-
-        <div class="control-block">
-          <span class="control-label">任务内容</span>
-          <n-input
-            v-model:value="codexPrompt"
-            type="textarea"
-            :autosize="{ minRows: 6, maxRows: 12 }"
-            placeholder="输入要交给 Codex 的任务"
-          />
-        </div>
       </div>
 
       <n-alert
@@ -113,68 +72,27 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { onMounted, ref } from 'vue'
 import { isTauri as detectTauriRuntime } from '@tauri-apps/api/core'
 import { useMessage } from 'naive-ui'
 import { usageService } from '@/services'
-import { useAccountStore } from '@/stores/account'
 import type { CodexLaunchResult } from '@/types'
-import { resolveAccountDisplayName } from '@/utils/account-display'
 
 const PROJECT_HISTORY_KEY = 'codex-manager.codex-project-history'
 const MAX_PROJECT_HISTORY = 8
 
 const isTauri = detectTauriRuntime()
 const message = useMessage()
-const accountStore = useAccountStore()
 
-const selectedAccountId = ref('')
-const codexPrompt = ref('')
 const codexWorkingDirectory = ref('')
 const codexModel = ref('')
-const codexSandbox = ref<'read-only' | 'workspace-write' | 'danger-full-access'>('workspace-write')
-const runningCodex = ref(false)
-const openingCodex = ref(false)
+const launchingCli = ref(false)
+const launchingApp = ref(false)
 const lastCodexResult = ref<CodexLaunchResult | null>(null)
 const projectHistory = ref<string[]>([])
 
-const accountOptions = computed(() =>
-  accountStore.accounts.map((account) => ({
-    label: resolveAccountDisplayName(account),
-    value: account.id,
-  })),
-)
-
-const activeAccountLabel = computed(() => {
-  if (!selectedAccountId.value) return '未选择'
-  const account = accountStore.accounts.find((item) => item.id === selectedAccountId.value)
-  return account ? resolveAccountDisplayName(account) : '未知账号'
-})
-
-const sandboxOptions = [
-  { label: '只读', value: 'read-only' },
-  { label: '工作区写入', value: 'workspace-write' },
-  { label: '完全访问', value: 'danger-full-access' },
-]
-
-const sandboxLabel = computed(
-  () =>
-    sandboxOptions.find((option) => option.value === codexSandbox.value)?.label ?? '工作区写入',
-)
-
-onMounted(async () => {
+onMounted(() => {
   projectHistory.value = readProjectHistory()
-
-  if (accountStore.accounts.length === 0) {
-    await accountStore.loadAccounts()
-  }
-
-  const activeAccount = accountStore.activeAccount
-  if (activeAccount) {
-    selectedAccountId.value = activeAccount.id
-  } else if (accountOptions.value.length > 0) {
-    selectedAccountId.value = accountOptions.value[0].value
-  }
 })
 
 async function handleChooseDirectory() {
@@ -200,62 +118,36 @@ async function handleChooseDirectory() {
   }
 }
 
-async function handleRunCodexExec() {
-  if (!selectedAccountId.value) {
-    message.warning('请选择账号')
-    return
-  }
-
-  if (!codexPrompt.value.trim()) {
-    message.warning('请输入任务内容')
-    return
-  }
-
-  runningCodex.value = true
+async function handleLaunchCodexCli() {
+  launchingCli.value = true
   try {
     const workingDirectory = normalizeOptionalText(codexWorkingDirectory.value)
-    const result = await usageService.runCodexExec({
-      account_id: selectedAccountId.value,
-      prompt: codexPrompt.value.trim(),
+    const result = await usageService.launchCodexCli({
       working_directory: workingDirectory,
       model: normalizeOptionalText(codexModel.value),
-      sandbox: codexSandbox.value,
     })
     if (workingDirectory) rememberProjectPath(workingDirectory)
     lastCodexResult.value = result
     message.success(result.message)
   } catch (error) {
-    console.warn('运行 Codex 任务失败', error)
-    message.error('运行 Codex 任务失败')
+    console.warn('启动 Codex CLI 失败', error)
+    message.error('启动 Codex CLI 失败')
   } finally {
-    runningCodex.value = false
+    launchingCli.value = false
   }
 }
 
-async function handleOpenCodexInteractive() {
-  if (!selectedAccountId.value) {
-    message.warning('请选择账号')
-    return
-  }
-
-  openingCodex.value = true
+async function handleLaunchCodexApp() {
+  launchingApp.value = true
   try {
-    const workingDirectory = normalizeOptionalText(codexWorkingDirectory.value)
-    const result = await usageService.openCodexInteractive({
-      account_id: selectedAccountId.value,
-      prompt: normalizeOptionalText(codexPrompt.value),
-      working_directory: workingDirectory,
-      model: normalizeOptionalText(codexModel.value),
-      sandbox: codexSandbox.value,
-    })
-    if (workingDirectory) rememberProjectPath(workingDirectory)
+    const result = await usageService.launchCodexApp()
     lastCodexResult.value = result
     message.success(result.message)
   } catch (error) {
-    console.warn('打开交互式 Codex 失败', error)
-    message.error('打开交互式 Codex 失败')
+    console.warn('启动 Codex App 失败', error)
+    message.error('启动 Codex App 失败')
   } finally {
-    openingCodex.value = false
+    launchingApp.value = false
   }
 }
 
@@ -303,9 +195,15 @@ function normalizeOptionalText(value: string): string | undefined {
 
 .toolbar-header {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 14px;
+}
+
+.toolbar-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 
 .codex-actions {
@@ -323,7 +221,7 @@ function normalizeOptionalText(value: string): string | undefined {
 
 .control-grid {
   display: grid;
-  grid-template-columns: 1.2fr 0.9fr 0.9fr;
+  grid-template-columns: minmax(0, 280px);
   gap: 12px;
 }
 

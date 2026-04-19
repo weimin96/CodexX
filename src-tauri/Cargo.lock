@@ -598,7 +598,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "codex-manager"
+name = "codexx"
 version = "0.1.0"
 dependencies = [
  "aes-gcm",

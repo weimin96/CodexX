@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Codex Manager",
+  "productName": "CodexX",
   "version": "0.1.0",
   "identifier": "com.codex.manager",
   "build": {
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "Codex 账号管理工具",
+        "title": "CodexX",
         "width": 1200,
       "height": 720,
         "minWidth": 900,

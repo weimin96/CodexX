@@ -39,7 +39,7 @@ pub async fn fetch_codex_account_profile(
     fallback_plan_type: Option<String>,
 ) -> Result<CodexAccountProfile, String> {
     let client = reqwest::Client::builder()
-        .user_agent("codex-manager/0.1.0")
+        .user_agent("codexx/0.1.0")
         .timeout(std::time::Duration::from_secs(18))
         .build()
         .map_err(|error| format!("创建资料请求客户端失败: {error}"))?;

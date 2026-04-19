@@ -1108,6 +1108,6 @@ trust_level = "trusted"
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        std::env::temp_dir().join(format!("codex-manager-codex-runtime-tests-{suffix}"))
+        std::env::temp_dir().join(format!("codexx-codex-runtime-tests-{suffix}"))
     }
 }

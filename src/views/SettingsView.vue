@@ -106,7 +106,7 @@
           </svg>
         </div>
         <div>
-          <div class="about-title">Codex Manager</div>
+          <div class="about-title">CodexX</div>
           <div class="about-version">版本 0.1.0</div>
         </div>
       </div>
@@ -360,7 +360,7 @@ function handleRegenKey() {
     positiveText: '确认重新生成',
     negativeText: '取消',
     onPositiveClick: () => {
-      message.info('请在系统凭据库中手动删除 codex-manager 条目后重启应用')
+      message.info('请在系统凭据库中手动删除 CodexX 使用的 codex-manager 条目后重启应用')
     },
   })
 }

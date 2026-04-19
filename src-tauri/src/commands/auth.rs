@@ -343,7 +343,7 @@ fn run_oauth_callback_listener(
                         &mut stream,
                         "404 Not Found",
                         "未识别的回调地址",
-                        "当前地址不是 Codex Manager 的 OAuth 回调地址，可以关闭这个页面。",
+                        "当前地址不是 CodexX 的 OAuth 回调地址，可以关闭这个页面。",
                     );
                     continue;
                 }
@@ -386,7 +386,7 @@ fn run_oauth_callback_listener(
                             &mut stream,
                             "200 OK",
                             "授权完成",
-                            "账号已经写入 Codex Manager，可以回到应用继续操作。",
+                            "账号已经写入 CodexX，可以回到应用继续操作。",
                         );
                         restore_main_window(&app);
                         tauri::async_runtime::block_on(async {

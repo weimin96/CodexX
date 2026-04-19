@@ -183,6 +183,9 @@ const cardActionOptions = computed<DropdownOption[]>(() => {
       key: 'trigger-conversation',
       disabled:
         props.triggeringConversation || props.warmupDisabled || !canTriggerConversation.value,
+      props: {
+        title: '触发5小时刷新',
+      },
       icon: () =>
         renderActionIcon(
           'M21 15a4 4 0 0 1-4 4H7l-4 4V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4v8z',

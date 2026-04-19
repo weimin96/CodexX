@@ -104,6 +104,7 @@ const props = defineProps<{
   account: Account
   checking?: boolean
   triggeringConversation?: boolean
+  warmupDisabled?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -177,7 +178,8 @@ const cardActionOptions = computed<DropdownOption[]>(() => {
     {
       label: props.triggeringConversation ? '预热中' : '一键预热',
       key: 'trigger-conversation',
-      disabled: props.triggeringConversation || !canTriggerConversation.value,
+      disabled:
+        props.triggeringConversation || props.warmupDisabled || !canTriggerConversation.value,
       icon: () =>
         renderActionIcon(
           'M21 15a4 4 0 0 1-4 4H7l-4 4V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4v8z',

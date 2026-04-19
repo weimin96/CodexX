@@ -50,6 +50,49 @@
         </div>
       </div>
 
+      <section v-if="warmupProgressVisible" class="warmup-progress-panel">
+        <div class="warmup-progress-header">
+          <div class="warmup-progress-copy">
+            <h3>{{ warmupProgressTitle }}</h3>
+            <p>{{ warmupProgressSummary }}</p>
+          </div>
+          <n-button
+            v-if="!triggeringConversation"
+            quaternary
+            size="small"
+            @click="clearWarmupProgress"
+          >
+            清空
+          </n-button>
+        </div>
+
+        <n-progress type="line" :percentage="warmupProgressPercentage" />
+
+        <div class="warmup-progress-meta">
+          <span class="warmup-progress-chip">可执行 {{ warmupExecutableCount }}</span>
+          <span class="warmup-progress-chip">成功 {{ warmupSuccessCount }}</span>
+          <span class="warmup-progress-chip">失败 {{ warmupFailedCount }}</span>
+          <span class="warmup-progress-chip">跳过 {{ warmupSkippedCount }}</span>
+        </div>
+
+        <div class="warmup-progress-list">
+          <article
+            v-for="entry in warmupProgressEntries"
+            :key="entry.accountId"
+            class="warmup-progress-item"
+            :class="`state-${entry.state}`"
+          >
+            <div class="warmup-progress-item-copy">
+              <strong>{{ entry.accountName }}</strong>
+              <span>{{ entry.detail }}</span>
+            </div>
+            <span class="warmup-progress-item-status">
+              {{ resolveWarmupStateLabel(entry.state) }}
+            </span>
+          </article>
+        </div>
+      </section>
+
       <div v-if="!hasAccounts" class="inline-empty-state">
         <p>还没有添加任何账号，请通过账号操作添加、导入或同步账号。</p>
       </div>
@@ -65,6 +108,7 @@
           :account="account"
           :checking="checkingStatus.has(account.id)"
           :triggering-conversation="triggeringConversationAccounts.has(account.id)"
+          :warmup-disabled="triggeringConversation"
           @detail="navigateToDetail(account.id)"
           @check="handleCheckStatus(account.id)"
           @switch-account="handleSwitchAccount(account.id)"
@@ -221,6 +265,18 @@ const dialog = useDialog()
 const accountStore = useAccountStore()
 const { accounts, loading, checkingStatus } = storeToRefs(accountStore)
 
+type WarmupProgressMode = 'single' | 'batch'
+type WarmupProgressState = 'pending' | 'running' | 'success' | 'failed' | 'skipped'
+
+interface WarmupProgressEntry {
+  accountId: string
+  accountName: string
+  state: WarmupProgressState
+  detail: string
+}
+
+const FULL_FIVE_HOUR_UNUSED_THRESHOLD = 0.000_001
+
 const searchQuery = ref('')
 const showCreateModal = ref(false)
 const showOAuthModal = ref(false)
@@ -230,6 +286,8 @@ const checkingAll = ref(false)
 const syncingLocalAuth = ref(false)
 const triggeringConversation = ref(false)
 const triggeringConversationAccounts = ref<Set<string>>(new Set())
+const warmupProgressMode = ref<WarmupProgressMode>('batch')
+const warmupProgressEntries = ref<WarmupProgressEntry[]>([])
 const oauthPreparing = ref(false)
 const oauthOpening = ref(false)
 const oauthWaitingForCallback = ref(false)
@@ -240,6 +298,50 @@ const oauthCallbackUrl = ref('')
 let oauthCallbackUnlisten: UnlistenFn | null = null
 
 const hasAccounts = computed(() => accounts.value.length > 0)
+const warmupProgressVisible = computed(() => warmupProgressEntries.value.length > 0)
+const warmupExecutableCount = computed(
+  () => warmupProgressEntries.value.filter((entry) => entry.state !== 'skipped').length,
+)
+const warmupCompletedCount = computed(
+  () =>
+    warmupProgressEntries.value.filter(
+      (entry) => entry.state === 'success' || entry.state === 'failed',
+    ).length,
+)
+const warmupSuccessCount = computed(
+  () => warmupProgressEntries.value.filter((entry) => entry.state === 'success').length,
+)
+const warmupFailedCount = computed(
+  () => warmupProgressEntries.value.filter((entry) => entry.state === 'failed').length,
+)
+const warmupSkippedCount = computed(
+  () => warmupProgressEntries.value.filter((entry) => entry.state === 'skipped').length,
+)
+const warmupProgressPercentage = computed(() => {
+  if (!warmupProgressEntries.value.length) {
+    return 0
+  }
+
+  if (warmupExecutableCount.value === 0) {
+    return 100
+  }
+
+  return Math.round((warmupCompletedCount.value / warmupExecutableCount.value) * 100)
+})
+const warmupProgressTitle = computed(() =>
+  warmupProgressMode.value === 'single' ? '预热执行进度' : '批量预热进度'
+)
+const warmupProgressSummary = computed(() => {
+  if (!warmupProgressEntries.value.length) {
+    return ''
+  }
+
+  if (warmupExecutableCount.value === 0) {
+    return `当前没有可执行预热的账号，已跳过 ${warmupSkippedCount.value} 个账号。`
+  }
+
+  return `已完成 ${warmupCompletedCount.value}/${warmupExecutableCount.value} 个可执行账号，已跳过 ${warmupSkippedCount.value} 个账号。`
+})
 
 type AccountActionKey =
   | 'sync-local'
@@ -369,6 +471,58 @@ function navigateToDetail(id: string) {
   router.push({ name: 'AccountDetail', params: { id } })
 }
 
+function hasFullFiveHourQuota(account: Account): boolean {
+  return Boolean(account.codex_usage_5h && account.codex_usage_5h.used_percent <= FULL_FIVE_HOUR_UNUSED_THRESHOLD)
+}
+
+function resolveWarmupSkipDetail(account: Account): string {
+  return account.codex_usage_5h ? '5 小时额度未满 100%' : '缺少 5 小时额度数据'
+}
+
+// 批量预热会跨多次后端调用，前端需要保留每个账号的状态，用户才能知道具体卡在哪个账号。
+function resetWarmupProgress(targetAccounts: Account[], mode: WarmupProgressMode) {
+  warmupProgressMode.value = mode
+  warmupProgressEntries.value = targetAccounts.map((account) => ({
+    accountId: account.id,
+    accountName: resolveAccountDisplayName(account),
+    state: 'pending',
+    detail: '等待执行',
+  }))
+}
+
+function updateWarmupProgressEntry(
+  accountId: string,
+  state: WarmupProgressState,
+  detail: string,
+) {
+  warmupProgressEntries.value = warmupProgressEntries.value.map((entry) =>
+    entry.accountId === accountId ? { ...entry, state, detail } : entry,
+  )
+}
+
+function clearWarmupProgress() {
+  if (triggeringConversation.value) {
+    return
+  }
+
+  warmupProgressEntries.value = []
+}
+
+function resolveWarmupStateLabel(state: WarmupProgressState): string {
+  switch (state) {
+    case 'pending':
+      return '等待中'
+    case 'running':
+      return '执行中'
+    case 'success':
+      return '已完成'
+    case 'failed':
+      return '失败'
+    case 'skipped':
+      return '已跳过'
+  }
+}
+
 async function handleCheckStatus(id: string) {
   try {
     await accountStore.checkAccountStatus(id)
@@ -428,23 +582,79 @@ async function handleSwitchAccount(id: string) {
 async function handleTriggerConversation(accountId?: string) {
   if (triggeringConversation.value) return
 
-  triggeringConversation.value = true
-  if (accountId) {
-    triggeringConversationAccounts.value = new Set([...triggeringConversationAccounts.value, accountId])
+  const targetAccounts = accountId
+    ? accounts.value.filter((account) => account.id === accountId)
+    : [...accounts.value]
+
+  if (targetAccounts.length === 0) {
+    message.warning('没有可执行一键预热的账号')
+    return
   }
 
-  try {
-    const result = await usageService.triggerCodexShortConversation(accountId)
-    await accountStore.loadAccounts()
-    message.success(`已通过「${result.account_name}」完成 ${result.model} 一键预热`)
-  } catch (error) {
-    message.error(getErrorMessage(error, '一键预热失败'))
-  } finally {
-    if (accountId) {
-      const nextTriggeringAccounts = new Set(triggeringConversationAccounts.value)
-      nextTriggeringAccounts.delete(accountId)
-      triggeringConversationAccounts.value = nextTriggeringAccounts
+  resetWarmupProgress(targetAccounts, accountId ? 'single' : 'batch')
+
+  const executableAccounts = targetAccounts.filter((account) => {
+    if (!hasFullFiveHourQuota(account)) {
+      updateWarmupProgressEntry(account.id, 'skipped', resolveWarmupSkipDetail(account))
+      return false
     }
+    return true
+  })
+
+  if (executableAccounts.length === 0) {
+    message.warning(
+      accountId
+        ? '该账号当前没有可执行的一键预热额度'
+        : '当前没有 5 小时剩余额度为 100% 的账号可执行一键预热',
+    )
+    return
+  }
+
+  triggeringConversation.value = true
+  try {
+    for (const account of executableAccounts) {
+      updateWarmupProgressEntry(account.id, 'running', '正在发送最短对话预热')
+      triggeringConversationAccounts.value = new Set([
+        ...triggeringConversationAccounts.value,
+        account.id,
+      ])
+
+      try {
+        const result = await usageService.triggerCodexShortConversation(account.id)
+        updateWarmupProgressEntry(account.id, 'success', `${result.model} 预热完成`)
+
+        if (accountId) {
+          message.success(`已通过「${result.account_name}」完成 ${result.model} 一键预热`)
+        }
+      } catch (error) {
+        const errorMessage = getErrorMessage(error, '一键预热失败')
+        updateWarmupProgressEntry(account.id, 'failed', errorMessage)
+
+        if (accountId) {
+          message.error(errorMessage)
+        }
+      } finally {
+        const nextTriggeringAccounts = new Set(triggeringConversationAccounts.value)
+        nextTriggeringAccounts.delete(account.id)
+        triggeringConversationAccounts.value = nextTriggeringAccounts
+      }
+    }
+
+    try {
+      await accountStore.loadAccounts()
+    } catch {
+      message.warning('预热结果已返回，但刷新账号列表失败')
+    }
+
+    if (!accountId) {
+      const skippedText = warmupSkippedCount.value > 0 ? `，跳过 ${warmupSkippedCount.value} 个` : ''
+      if (warmupFailedCount.value > 0) {
+        message.warning(`批量预热完成，成功 ${warmupSuccessCount.value} 个，失败 ${warmupFailedCount.value} 个${skippedText}`)
+      } else {
+        message.success(`批量预热完成，成功 ${warmupSuccessCount.value} 个${skippedText}`)
+      }
+    }
+  } finally {
     triggeringConversation.value = false
   }
 }
@@ -762,6 +972,133 @@ function resetOAuthLoginState() {
   font-size: 13px;
 }
 
+.warmup-progress-panel {
+  display: grid;
+  gap: 12px;
+  padding: 16px 18px;
+  border-radius: 22px;
+  border: 1px solid rgba(0, 113, 227, 0.12);
+  background:
+    linear-gradient(135deg, rgba(0, 113, 227, 0.08), rgba(0, 113, 227, 0.02) 54%),
+    var(--app-surface-muted);
+}
+
+.warmup-progress-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.warmup-progress-copy {
+  display: grid;
+  gap: 4px;
+}
+
+.warmup-progress-copy h3 {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.3;
+  font-family: var(--font-display);
+}
+
+.warmup-progress-copy p {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--app-ink-secondary);
+}
+
+.warmup-progress-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.warmup-progress-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: rgba(29, 29, 31, 0.06);
+  color: var(--app-ink-secondary);
+  font-size: 12px;
+  line-height: 1;
+}
+
+.warmup-progress-list {
+  display: grid;
+  gap: 8px;
+  max-height: 240px;
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.warmup-progress-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid rgba(29, 29, 31, 0.06);
+}
+
+.warmup-progress-item.state-running {
+  border-color: rgba(0, 113, 227, 0.18);
+}
+
+.warmup-progress-item.state-success {
+  border-color: rgba(52, 199, 89, 0.18);
+}
+
+.warmup-progress-item.state-failed {
+  border-color: rgba(208, 48, 80, 0.18);
+}
+
+.warmup-progress-item.state-skipped {
+  border-color: rgba(29, 29, 31, 0.1);
+}
+
+.warmup-progress-item-copy {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.warmup-progress-item-copy strong {
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.warmup-progress-item-copy span {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--app-ink-secondary);
+  word-break: break-word;
+}
+
+.warmup-progress-item-status {
+  flex-shrink: 0;
+  font-size: 12px;
+  line-height: 1.33;
+  color: var(--app-ink-secondary);
+}
+
+.warmup-progress-item.state-running .warmup-progress-item-status {
+  color: var(--app-blue);
+}
+
+.warmup-progress-item.state-success .warmup-progress-item-status {
+  color: #248a3d;
+}
+
+.warmup-progress-item.state-failed .warmup-progress-item-status {
+  color: #c43b57;
+}
+
 .account-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(min(280px, 100%), 1fr));
@@ -904,6 +1241,12 @@ function resetOAuthLoginState() {
 @media (max-width: 768px) {
   .account-grid {
     grid-template-columns: 1fr;
+  }
+
+  .warmup-progress-header,
+  .warmup-progress-item {
+    flex-direction: column;
+    align-items: flex-start;
   }
 
   .oauth-step-grid {

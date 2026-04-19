@@ -6,8 +6,8 @@ use uuid::Uuid;
 use crate::account::AccountRepository;
 use crate::codex_runtime::{
     open_codex_cli_terminal, open_codex_desktop_app, open_interactive_codex, prompt_preview,
-    run_codex_exec, CodexCliLaunchInput, CodexCommandTarget, CodexExecInput,
-    CodexInteractiveInput, CodexLaunchResult,
+    read_codex_launcher_config, run_codex_exec, CodexCliLaunchInput, CodexCommandTarget,
+    CodexExecInput, CodexInteractiveInput, CodexLaunchResult,
 };
 use crate::error::AppError;
 use crate::usage::{CodexLaunchSessionRecord, UsageRepository};
@@ -176,6 +176,11 @@ pub async fn launch_codex_cli(input: CodexCliLaunchInput) -> Result<Value, AppEr
         message: "已在新终端中启动 Codex CLI".to_string(),
         stderr_preview: None,
     })?)
+}
+
+#[tauri::command]
+pub async fn get_codex_launcher_config() -> Result<Value, AppError> {
+    Ok(serde_json::to_value(read_codex_launcher_config()?)?)
 }
 
 #[tauri::command]

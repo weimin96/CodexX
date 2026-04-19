@@ -23,115 +23,32 @@
         </div>
       </div>
       <div class="card-side">
-        <div class="card-actions" @click.stop>
-          <n-tooltip trigger="hover">
-            <template #trigger>
-              <n-button
-                circle
-                secondary
-                size="small"
-                class="card-icon-button"
-                @click="$emit('detail')"
-              >
-                <template #icon>
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
-                    <path
-                      d="M9 6h11M9 12h11M9 18h11M4 6h.01M4 12h.01M4 18h.01"
-                      stroke="currentColor"
-                      stroke-width="1.8"
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                    />
-                  </svg>
-                </template>
-              </n-button>
+        <n-dropdown
+          trigger="click"
+          :options="cardActionOptions"
+          @select="handleCardActionSelect"
+        >
+          <n-button
+            circle
+            secondary
+            size="small"
+            class="card-icon-button"
+            title="账号操作"
+            aria-label="账号操作"
+          >
+            <template #icon>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+                <path
+                  d="M5 12h.01M12 12h.01M19 12h.01"
+                  stroke="currentColor"
+                  stroke-width="2.4"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                />
+              </svg>
             </template>
-            查看详情
-          </n-tooltip>
-
-          <n-tooltip trigger="hover">
-            <template #trigger>
-              <n-button
-                circle
-                secondary
-                size="small"
-                class="card-icon-button"
-                :loading="checking"
-                @click="$emit('check')"
-              >
-                <template #icon>
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
-                    <path
-                      d="M20 12a8 8 0 1 1-2.34-5.66"
-                      stroke="currentColor"
-                      stroke-width="1.8"
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                    />
-                    <path
-                      d="M20 4v6h-6"
-                      stroke="currentColor"
-                      stroke-width="1.8"
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                    />
-                  </svg>
-                </template>
-              </n-button>
-            </template>
-            检测状态
-          </n-tooltip>
-
-          <n-tooltip v-if="!account.is_default" trigger="hover">
-            <template #trigger>
-              <n-button
-                circle
-                secondary
-                size="small"
-                class="card-icon-button"
-                @click="$emit('set-default')"
-              >
-                <template #icon>
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
-                    <path
-                      d="M12 3.5l2.63 5.33 5.87.85-4.25 4.14 1 5.84L12 17.1l-5.25 2.76 1-5.84-4.25-4.14 5.87-.85L12 3.5z"
-                      stroke="currentColor"
-                      stroke-width="1.7"
-                      stroke-linejoin="round"
-                    />
-                  </svg>
-                </template>
-              </n-button>
-            </template>
-            设为默认
-          </n-tooltip>
-
-          <n-tooltip trigger="hover">
-            <template #trigger>
-              <n-button
-                circle
-                secondary
-                size="small"
-                type="error"
-                class="card-icon-button"
-                @click="$emit('delete')"
-              >
-                <template #icon>
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
-                    <path
-                      d="M4 7h16M9 11v6M15 11v6M10 4h4l1 2H9l1-2zm-3 3 1 12h8l1-12"
-                      stroke="currentColor"
-                      stroke-width="1.8"
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                    />
-                  </svg>
-                </template>
-              </n-button>
-            </template>
-            删除账号
-          </n-tooltip>
-        </div>
+          </n-button>
+        </n-dropdown>
       </div>
     </div>
 
@@ -162,7 +79,8 @@ import { AUTH_TYPE_LABELS } from '@/types'
 import type { Account } from '@/types'
 import StatusDot from '@/components/common/StatusDot.vue'
 import AccountQuotaChart from '@/components/account/AccountQuotaChart.vue'
-import { computed } from 'vue'
+import { computed, h } from 'vue'
+import type { DropdownOption } from 'naive-ui'
 import {
   resolveAccountAvatarText,
   resolveAccountDisplayName,
@@ -178,12 +96,14 @@ const props = defineProps<{
   checking?: boolean
 }>()
 
-defineEmits<{
+const emit = defineEmits<{
   detail: []
   check: []
   'set-default': []
   delete: []
 }>()
+
+type CardActionKey = 'detail' | 'check' | 'set-default' | 'delete'
 
 const displayName = computed(() => resolveAccountDisplayName(props.account))
 const displayAvatarText = computed(() => resolveAccountAvatarText(props.account))
@@ -192,6 +112,81 @@ const displayUsageError = computed(() => formatUsageError(props.account.codex_us
 const statusDisplay = computed(() => resolveAccountStatusDisplay(props.account))
 const displayStatusMessage = computed(() => resolveAccountStatusMessage(props.account))
 const statusDiagnostic = computed(() => resolveAccountStatusDiagnostic(props.account))
+const cardActionOptions = computed<DropdownOption[]>(() => {
+  const options: DropdownOption[] = [
+    {
+      label: () => renderActionLabel('查看详情', 'var(--app-blue)'),
+      key: 'detail',
+      icon: () =>
+        renderActionIcon(
+          'M9 6h11M9 12h11M9 18h11M4 6h.01M4 12h.01M4 18h.01',
+          'var(--app-blue)',
+        ),
+    },
+    {
+      label: () => renderActionLabel(props.checking ? '检测中' : '检测状态', '#1f8f5f'),
+      key: 'check',
+      disabled: props.checking,
+      icon: () =>
+        h(
+          'svg',
+          {
+            width: 16,
+            height: 16,
+            viewBox: '0 0 24 24',
+            fill: 'none',
+            style: { color: '#1f8f5f' },
+          },
+          [
+            h('path', {
+              d: 'M20 12a8 8 0 1 1-2.34-5.66',
+              stroke: 'currentColor',
+              'stroke-width': 1.8,
+              'stroke-linecap': 'round',
+              'stroke-linejoin': 'round',
+            }),
+            h('path', {
+              d: 'M20 4v6h-6',
+              stroke: 'currentColor',
+              'stroke-width': 1.8,
+              'stroke-linecap': 'round',
+              'stroke-linejoin': 'round',
+            }),
+          ],
+        ),
+    },
+  ]
+
+  if (!props.account.is_default) {
+    options.push({
+      label: () => renderActionLabel('设为默认', '#7254d1'),
+      key: 'set-default',
+      icon: () =>
+        renderActionIcon(
+          'M12 3.5l2.63 5.33 5.87.85-4.25 4.14 1 5.84L12 17.1l-5.25 2.76 1-5.84-4.25-4.14 5.87-.85L12 3.5z',
+          '#7254d1',
+        ),
+    })
+  }
+
+  options.push(
+    {
+      type: 'divider',
+      key: 'card-action-divider',
+    },
+    {
+      label: () => renderActionLabel('删除账号', 'var(--status-error)'),
+      key: 'delete',
+      icon: () =>
+        renderActionIcon(
+          'M4 7h16M9 11v6M15 11v6M10 4h4l1 2H9l1-2zm-3 3 1 12h8l1-12',
+          'var(--status-error)',
+        ),
+    },
+  )
+
+  return options
+})
 
 function hasCodexUsage(account: Account): boolean {
   return Boolean(account.codex_usage_5h || account.codex_usage_week)
@@ -201,6 +196,56 @@ function formatPlanType(planType: string): string {
   const normalized = planType.trim()
   if (!normalized) return '未知计划'
   return normalized.toUpperCase()
+}
+
+function renderActionLabel(text: string, color: string) {
+  return h(
+    'span',
+    {
+      style: {
+        color,
+        fontWeight: 500,
+      },
+    },
+    text,
+  )
+}
+
+function renderActionIcon(path: string, color: string) {
+  return h(
+    'svg',
+    {
+      width: 16,
+      height: 16,
+      viewBox: '0 0 24 24',
+      fill: 'none',
+      style: { color },
+    },
+    h('path', {
+      d: path,
+      stroke: 'currentColor',
+      'stroke-width': 1.8,
+      'stroke-linecap': 'round',
+      'stroke-linejoin': 'round',
+    }),
+  )
+}
+
+function handleCardActionSelect(key: string | number) {
+  switch (key as CardActionKey) {
+    case 'detail':
+      emit('detail')
+      break
+    case 'check':
+      emit('check')
+      break
+    case 'set-default':
+      emit('set-default')
+      break
+    case 'delete':
+      emit('delete')
+      break
+  }
 }
 
 function formatUsageError(error?: string): string {
@@ -347,11 +392,6 @@ function formatUsageError(error?: string): string {
   display: flex;
   flex-direction: column;
   gap: 8px;
-}
-
-.card-actions {
-  display: flex;
-  gap: 6px;
 }
 
 .card-icon-button {

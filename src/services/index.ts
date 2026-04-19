@@ -8,6 +8,7 @@ import type {
   ChartDataPoint,
   UsageQuery,
   CodexCliLaunchInput,
+  CodexLauncherConfig,
   CodexExecInput,
   CodexInteractiveInput,
   CodexLaunchResult,
@@ -198,6 +199,16 @@ export const usageService = {
       throw new Error('受控启动 Codex 仅在 Tauri 环境中可用')
     }
     return invoke<CodexLaunchResult>('launch_codex_cli', { input })
+  },
+
+  async getCodexLauncherConfig(): Promise<CodexLauncherConfig> {
+    if (!isTauri) {
+      return {
+        default_model: undefined,
+        model_options: [],
+      }
+    }
+    return invoke<CodexLauncherConfig>('get_codex_launcher_config')
   },
 
   async launchCodexApp(): Promise<CodexLaunchResult> {

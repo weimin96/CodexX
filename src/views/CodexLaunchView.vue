@@ -30,7 +30,13 @@
         <div class="control-grid">
           <div class="control-block">
             <span class="control-label">模型</span>
-            <n-input v-model:value="codexModel" placeholder="默认配置" />
+            <n-select
+              v-model:value="codexModel"
+              :options="modelOptions"
+              clearable
+              filterable
+              placeholder="读取配置默认模型"
+            />
           </div>
         </div>
 
@@ -76,7 +82,7 @@ import { onMounted, ref } from 'vue'
 import { isTauri as detectTauriRuntime } from '@tauri-apps/api/core'
 import { useMessage } from 'naive-ui'
 import { usageService } from '@/services'
-import type { CodexLaunchResult } from '@/types'
+import type { CodexLaunchResult, CodexModelOption } from '@/types'
 
 const PROJECT_HISTORY_KEY = 'codex-manager.codex-project-history'
 const MAX_PROJECT_HISTORY = 8
@@ -85,14 +91,16 @@ const isTauri = detectTauriRuntime()
 const message = useMessage()
 
 const codexWorkingDirectory = ref('')
-const codexModel = ref('')
+const codexModel = ref<string | null>(null)
 const launchingCli = ref(false)
 const launchingApp = ref(false)
 const lastCodexResult = ref<CodexLaunchResult | null>(null)
 const projectHistory = ref<string[]>([])
+const modelOptions = ref<CodexModelOption[]>([])
 
-onMounted(() => {
+onMounted(async () => {
   projectHistory.value = readProjectHistory()
+  await loadLauncherConfig()
 })
 
 async function handleChooseDirectory() {
@@ -151,6 +159,20 @@ async function handleLaunchCodexApp() {
   }
 }
 
+async function loadLauncherConfig() {
+  try {
+    const launcherConfig = await usageService.getCodexLauncherConfig()
+    modelOptions.value = launcherConfig.model_options
+
+    if (!normalizeOptionalText(codexModel.value) && launcherConfig.default_model) {
+      codexModel.value = launcherConfig.default_model
+    }
+  } catch (error) {
+    console.warn('读取 Codex 启动配置失败', error)
+    message.warning('读取 Codex 默认模型失败，已回退为手动选择')
+  }
+}
+
 function useProjectPath(projectPath: string) {
   codexWorkingDirectory.value = projectPath
   rememberProjectPath(projectPath)
@@ -182,8 +204,8 @@ function readProjectHistory(): string[] {
   }
 }
 
-function normalizeOptionalText(value: string): string | undefined {
-  const trimmed = value.trim()
+function normalizeOptionalText(value: string | null | undefined): string | undefined {
+  const trimmed = value?.trim() ?? ''
   return trimmed ? trimmed : undefined
 }
 </script>

@@ -15,20 +15,6 @@
           <template v-if="displaySubtitleEmail"> · {{ displaySubtitleEmail }}</template>
           <template v-if="displayOrganization"> · {{ displayOrganization }}</template>
         </p>
-        <div class="page-hero-actions">
-          <n-button secondary :loading="checking" @click="handleCheck">检测状态</n-button>
-          <n-button
-            secondary
-            :disabled="account.is_default"
-            @click="handleSwitchAccount"
-          >
-            切换账号
-          </n-button>
-          <n-button secondary @click="showEditModal = true">编辑账号</n-button>
-          <n-button secondary :loading="refreshing" @click="handleRefreshToken">
-            刷新 Token
-          </n-button>
-        </div>
       </div>
 
       <div class="hero-detail-panel">
@@ -79,7 +65,6 @@
     <section class="two-column-grid">
       <div class="surface-panel">
         <h2 class="panel-heading">账号信息</h2>
-        <p class="panel-copy">基础信息。</p>
         <div class="data-pair-list detail-list">
           <div class="data-pair">
             <span class="data-pair-label">账号 ID</span>
@@ -146,7 +131,6 @@
 
     <section class="surface-panel">
       <h2 class="panel-heading">认证管理</h2>
-      <p class="panel-copy">查看凭证状态与刷新结果。</p>
       <div class="auth-grid">
         <div class="auth-credential-card">
           <div class="auth-credential-head">
@@ -195,58 +179,8 @@
             {{ credentialVisible ? '仅在当前窗口临时显示。' : '点击眼睛图标显示凭证。' }}
           </span>
         </div>
-        <div class="auth-credential-card auth-action-card">
-          <span class="auth-label">刷新操作</span>
-          <strong class="auth-action-title">刷新 Token</strong>
-          <span class="auth-note">用于校验当前登录状态并更新结果。</span>
-          <n-button type="primary" class="refresh-action-button" :loading="refreshing" @click="handleRefreshToken">
-            刷新 Token
-          </n-button>
-        </div>
       </div>
-      <n-alert
-        v-if="authResult"
-        :type="authAlertType"
-        :title="authResult.message"
-        style="margin-top: 18px;"
-      />
     </section>
-
-    <n-modal v-model:show="showEditModal" preset="card" title="编辑账号" style="width: 520px;">
-      <n-form :model="editForm" label-placement="top">
-        <n-form-item label="邮箱">
-          <n-input v-model:value="editForm.email" />
-        </n-form-item>
-        <n-form-item label="组织">
-          <n-input v-model:value="editForm.organization" />
-        </n-form-item>
-        <n-form-item label="更新凭证（留空保持不变）">
-          <n-input
-            v-model:value="editForm.credential_value"
-            type="password"
-            show-password-on="click"
-            placeholder="留空则不修改凭证"
-          />
-        </n-form-item>
-        <n-form-item label="标识颜色">
-          <div class="color-row">
-            <button
-              v-for="color in PRESET_COLORS"
-              :key="color"
-              type="button"
-              class="color-dot"
-              :class="{ selected: editForm.color === color }"
-              :style="{ background: color }"
-              @click="editForm.color = color"
-            />
-          </div>
-        </n-form-item>
-        <div class="modal-footer">
-          <n-button secondary @click="showEditModal = false">取消</n-button>
-          <n-button type="primary" :loading="editLoading" @click="handleEdit">保存</n-button>
-        </div>
-      </n-form>
-    </n-modal>
   </div>
 
   <div v-else class="app-page">
@@ -263,9 +197,9 @@ import { useRoute, useRouter } from 'vue-router'
 import { useMessage } from 'naive-ui'
 import { useAccountStore } from '@/stores/account'
 import { useUsageStore } from '@/stores/usage'
-import { accountService, authService } from '@/services'
+import { accountService } from '@/services'
 import { AUTH_TYPE_LABELS } from '@/types'
-import type { AuthCheckResult, CodexUsageWindow } from '@/types'
+import type { CodexUsageWindow } from '@/types'
 import StatusDot from '@/components/common/StatusDot.vue'
 import { format, parseISO } from 'date-fns'
 import {
@@ -310,7 +244,6 @@ const planLabel = computed(() => formatAccountPlanType(account.value?.codex_plan
 const planTone = computed(() => resolveAccountPlanTone(account.value?.codex_plan_type))
 const showFiveHourQuota = computed(() => supportsFiveHourQuota(account.value?.codex_plan_type))
 
-const checking = computed(() => accountStore.checkingStatus.has(accountId.value))
 const usageLoading = ref(false)
 const summary = computed(() => usageStore.getSummary(accountId.value, 'month'))
 const hasCodexUsage = computed(() =>
@@ -320,23 +253,9 @@ const nextUsageResetAt = computed(() =>
   account.value ? resolveNextUsageResetAt(account.value.codex_usage_5h, account.value.codex_usage_week) : null,
 )
 
-const showEditModal = ref(false)
-const editLoading = ref(false)
-const refreshing = ref(false)
-const authResult = ref<AuthCheckResult | null>(null)
 const credentialVisible = ref(false)
 const credentialLoading = ref(false)
 const credentialPreview = ref('')
-
-const authAlertType = computed(() => {
-  if (!authResult.value) return 'default'
-  return {
-    valid: 'success',
-    expired: 'warning',
-    invalid: 'error',
-    unknown: 'default',
-  }[authResult.value.status] as 'success' | 'warning' | 'error' | 'default'
-})
 
 const credentialDisplayValue = computed(() => {
   if (credentialLoading.value) {
@@ -350,38 +269,7 @@ const credentialDisplayValue = computed(() => {
   return credentialPreview.value || '未读取到凭证'
 })
 
-const PRESET_COLORS = [
-  '#0071e3',
-  '#1f8f5f',
-  '#b26a00',
-  '#c4314b',
-  '#7254d1',
-  '#0f9fb0',
-  '#d96a20',
-  '#b53b70',
-  '#147d68',
-  '#64748b',
-]
-
-const editForm = ref({
-  name: '',
-  email: '',
-  organization: '',
-  color: '#0071e3',
-  credential_value: '',
-})
-
 onMounted(async () => {
-  if (account.value) {
-    editForm.value = {
-      name: account.value.name,
-      email: account.value.email ?? '',
-      organization: account.value.organization ?? '',
-      color: account.value.color,
-      credential_value: '',
-    }
-  }
-
   usageLoading.value = true
   try {
     await usageStore.loadUsage(accountId.value, 'month')
@@ -427,31 +315,6 @@ function resolveNextUsageResetAt(
     .filter((value): value is number => typeof value === 'number' && Number.isFinite(value) && value > 0)
 
   return resetTimes.length > 0 ? Math.min(...resetTimes) : null
-}
-
-async function handleCheck() {
-  await accountStore.checkAccountStatus(accountId.value)
-  message.success('状态检测完成')
-}
-
-async function handleSwitchAccount() {
-  try {
-    await accountStore.switchAccount(accountId.value)
-    message.success('已切换当前账号')
-  } catch (error) {
-    message.error(getErrorMessage(error, '切换账号失败'))
-  }
-}
-
-async function handleRefreshToken() {
-  refreshing.value = true
-  try {
-    authResult.value = await authService.refreshToken(accountId.value)
-  } catch {
-    message.error('刷新失败')
-  } finally {
-    refreshing.value = false
-  }
 }
 
 async function handleToggleCredentialVisibility() {
@@ -503,31 +366,6 @@ function extractCredentialPreview(credential: string): string {
   }
 
   return trimmedCredential
-}
-
-function getErrorMessage(error: unknown, fallback: string): string {
-  if (error instanceof Error && error.message) return error.message
-  if (typeof error === 'string' && error) return error
-  return fallback
-}
-
-async function handleEdit() {
-  editLoading.value = true
-  try {
-    const normalizedEmail = editForm.value.email.trim()
-    await accountStore.updateAccount({
-      id: accountId.value,
-      name: normalizedEmail || editForm.value.name,
-      email: normalizedEmail || undefined,
-      organization: editForm.value.organization || undefined,
-      color: editForm.value.color,
-      credential_value: editForm.value.credential_value || undefined,
-    })
-    showEditModal.value = false
-    message.success('账号已更新')
-  } finally {
-    editLoading.value = false
-  }
 }
 
 function goToUsage() {
@@ -701,7 +539,7 @@ function goToUsage() {
 .auth-grid {
   margin-top: 14px;
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1fr);
   gap: 12px;
 }
 
@@ -767,54 +605,6 @@ function goToUsage() {
   font-size: 12px;
   line-height: 1.5;
   color: var(--app-ink-secondary);
-}
-
-.auth-action-card {
-  justify-content: space-between;
-}
-
-.auth-action-title {
-  font-family: var(--font-display);
-  font-size: 18px;
-  line-height: 1.2;
-  letter-spacing: 0.12px;
-}
-
-.refresh-action-button {
-  width: 100%;
-}
-
-.color-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-}
-
-.color-dot {
-  width: 28px;
-  height: 28px;
-  border: 2px solid transparent;
-  border-radius: 50%;
-  cursor: pointer;
-  transition:
-    transform 0.18s ease,
-    box-shadow 0.18s ease;
-}
-
-.color-dot:hover {
-  transform: scale(1.08);
-}
-
-.color-dot.selected {
-  border-color: #ffffff;
-  box-shadow: 0 0 0 2px rgba(29, 29, 31, 0.16);
-}
-
-.modal-footer {
-  margin-top: 14px;
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
 }
 
 @media (max-width: 768px) {

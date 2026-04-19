@@ -103,6 +103,7 @@ import {
 const props = defineProps<{
   account: Account
   checking?: boolean
+  refreshingToken?: boolean
   triggeringConversation?: boolean
   warmupDisabled?: boolean
 }>()
@@ -110,6 +111,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   detail: []
   check: []
+  'refresh-token': []
   'switch-account': []
   'export-auth': []
   'trigger-conversation': []
@@ -119,6 +121,7 @@ const emit = defineEmits<{
 type CardActionKey =
   | 'detail'
   | 'check'
+  | 'refresh-token'
   | 'trigger-conversation'
   | 'switch-account'
   | 'export-auth'
@@ -177,6 +180,12 @@ const cardActionOptions = computed<DropdownOption[]>(() => {
             }),
           ],
         ),
+    },
+    {
+      label: props.refreshingToken ? '刷新中' : '刷新 Token',
+      key: 'refresh-token',
+      disabled: props.refreshingToken,
+      icon: () => renderActionIcon('M21 12a9 9 0 1 1-2.64-6.36M21 3v6h-6'),
     },
     {
       label: props.triggeringConversation ? '预热中' : '一键预热',
@@ -264,6 +273,9 @@ function handleCardActionSelect(key: string | number) {
       break
     case 'check':
       emit('check')
+      break
+    case 'refresh-token':
+      emit('refresh-token')
       break
     case 'trigger-conversation':
       emit('trigger-conversation')

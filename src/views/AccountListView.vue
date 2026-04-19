@@ -106,10 +106,12 @@
           :key="account.id"
           :account="account"
           :checking="checkingStatus.has(account.id)"
+          :refreshing-token="refreshingTokenAccounts.has(account.id)"
           :triggering-conversation="triggeringConversationAccounts.has(account.id)"
           :warmup-disabled="triggeringConversation"
           @detail="navigateToDetail(account.id)"
           @check="handleCheckStatus(account.id)"
+          @refresh-token="handleRefreshToken(account.id)"
           @switch-account="handleSwitchAccount(account.id)"
           @export-auth="handleExportAccount(account)"
           @trigger-conversation="handleTriggerConversation(account.id)"
@@ -284,6 +286,7 @@ const importLoading = ref(false)
 const checkingAll = ref(false)
 const syncingLocalAuth = ref(false)
 const triggeringConversation = ref(false)
+const refreshingTokenAccounts = ref<Set<string>>(new Set())
 const triggeringConversationAccounts = ref<Set<string>>(new Set())
 const warmupProgressMode = ref<WarmupProgressMode>('batch')
 const warmupProgressEntries = ref<WarmupProgressEntry[]>([])
@@ -516,6 +519,25 @@ async function handleCheckStatus(id: string) {
     message.success('状态检测完成')
   } catch {
     message.error('状态检测失败')
+  }
+}
+
+async function handleRefreshToken(id: string) {
+  if (refreshingTokenAccounts.value.has(id)) {
+    return
+  }
+
+  refreshingTokenAccounts.value = new Set([...refreshingTokenAccounts.value, id])
+  try {
+    const result = await authService.refreshToken(id)
+    await accountStore.loadAccounts()
+    message.success(result.message || 'Token 已刷新')
+  } catch (error) {
+    message.error(getErrorMessage(error, '刷新 Token 失败'))
+  } finally {
+    const nextRefreshingAccounts = new Set(refreshingTokenAccounts.value)
+    nextRefreshingAccounts.delete(id)
+    refreshingTokenAccounts.value = nextRefreshingAccounts
   }
 }
 

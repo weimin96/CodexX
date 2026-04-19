@@ -36,7 +36,6 @@
         class="config-editor"
         type="textarea"
         placeholder="在这里编辑 Codex config.toml 内容"
-        :autosize="{ minRows: 24, maxRows: 34 }"
         :disabled="loading || saving"
       />
 
@@ -128,10 +127,15 @@ function formatError(error: unknown, fallback: string): string {
 <style scoped>
 .codex-config-page {
   gap: 14px;
+  overflow: hidden;
 }
 
 .config-editor-panel {
+  flex: 1;
+  min-height: 0;
   gap: 14px;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  overflow: hidden;
 }
 
 .config-editor-head {
@@ -167,6 +171,22 @@ function formatError(error: unknown, fallback: string): string {
   font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
   font-size: 12px;
   line-height: 1.55;
+  resize: none;
+}
+
+.config-editor {
+  min-height: 0;
+}
+
+.config-editor :deep(.n-input-wrapper),
+.config-editor :deep(.n-input__textarea) {
+  height: 100%;
+  min-height: 0;
+}
+
+.config-editor :deep(.n-input__textarea-el) {
+  height: 100% !important;
+  overflow: auto;
 }
 
 .config-editor-footer {

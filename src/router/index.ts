@@ -32,6 +32,12 @@ const router = createRouter({
       meta: { title: '启动器' },
     },
     {
+      path: '/codex-config',
+      name: 'CodexConfig',
+      component: () => import('@/views/CodexConfigView.vue'),
+      meta: { title: 'Codex 配置' },
+    },
+    {
       path: '/settings',
       name: 'Settings',
       component: () => import('@/views/SettingsView.vue'),

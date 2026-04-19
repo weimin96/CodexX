@@ -681,7 +681,7 @@ fn find_powershell() -> AppResult<PathBuf> {
         .ok_or_else(|| AppError::Other("未找到 PowerShell，无法启动 codex.ps1".to_string()))
 }
 
-fn resolve_codex_home() -> AppResult<PathBuf> {
+pub fn resolve_codex_home() -> AppResult<PathBuf> {
     if let Ok(codex_home) = env::var("CODEX_HOME") {
         if let Some(path) = normalize_text(Some(codex_home.as_str())) {
             return Ok(PathBuf::from(path));

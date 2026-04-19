@@ -145,6 +145,20 @@ export interface CodexLauncherConfig {
   model_options: CodexModelOption[]
 }
 
+export interface CodexConfigEntry {
+  key: string
+  value_type: string
+  value: string
+}
+
+export interface CodexConfigSnapshot {
+  path: string
+  exists: boolean
+  raw_text: string
+  parsed_entries: CodexConfigEntry[]
+  backup_path?: string
+}
+
 export interface CodexLaunchResult {
   session_id: string
   status: string

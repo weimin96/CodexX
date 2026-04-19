@@ -1,5 +1,6 @@
 pub mod account;
 pub mod auth;
+pub mod codex_config;
 pub mod codex_runtime;
 pub mod codex_usage;
 pub mod commands;
@@ -96,6 +97,8 @@ pub fn run() {
             commands::codex::launch_codex_cli,
             commands::codex::get_codex_launcher_config,
             commands::codex::launch_codex_app,
+            commands::codex_config::read_codex_config_file,
+            commands::codex_config::save_codex_config_file,
             // 认证命令
             commands::auth::refresh_token,
             commands::auth::validate_token,

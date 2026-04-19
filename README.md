@@ -1,5 +1,13 @@
 # CodexX
 
+<p align="center">
+  <img src="docs/readme/codexx-logo.png" alt="CodexX Logo" width="144" />
+</p>
+
+<p align="center">
+  <img src="docs/readme/codexx-overview.png" alt="CodexX 项目概览图" />
+</p>
+
 CodexX 是一个基于 Tauri 2、Vue 3 和 Rust 的桌面应用，用于管理 Codex 账号、本地认证文件、Codex 配置和本机用量统计。
 
 ## 功能概览

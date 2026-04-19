@@ -193,7 +193,7 @@ const cardActionOptions = computed<DropdownOption[]>(() => {
       disabled:
         props.triggeringConversation || props.warmupDisabled || !canTriggerConversation.value,
       props: {
-        title: '触发5小时刷新',
+        title: '触发5小时倒计时',
       },
       icon: () =>
         renderActionIcon(

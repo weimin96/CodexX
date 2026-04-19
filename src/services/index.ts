@@ -8,6 +8,7 @@ import type {
   ChartDataPoint,
   UsageQuery,
   CodexCliLaunchInput,
+  CodexConfigSnapshot,
   CodexLauncherConfig,
   CodexExecInput,
   CodexInteractiveInput,
@@ -252,6 +253,36 @@ export const usageService = {
   async clearUsageData(): Promise<void> {
     if (!isTauri) return
     return invoke('clear_usage_data')
+  },
+}
+
+// ============================================================
+// Codex 配置服务
+// ============================================================
+
+export const codexConfigService = {
+  async readConfig(): Promise<CodexConfigSnapshot> {
+    if (!isTauri) {
+      return {
+        path: '~/.codex/config.toml',
+        exists: false,
+        raw_text: '',
+        parsed_entries: [],
+      }
+    }
+    return invoke<CodexConfigSnapshot>('read_codex_config_file')
+  },
+
+  async saveConfig(rawText: string): Promise<CodexConfigSnapshot> {
+    if (!isTauri) {
+      return {
+        path: '~/.codex/config.toml',
+        exists: true,
+        raw_text: rawText,
+        parsed_entries: [],
+      }
+    }
+    return invoke<CodexConfigSnapshot>('save_codex_config_file', { rawText })
   },
 }
 

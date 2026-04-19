@@ -214,6 +214,11 @@ const menuOptions: MenuOption[] = [
     icon: renderIcon('M3 3v18h18M7 16l4-4 4 4 4-4'),
   },
   {
+    label: 'Codex 配置',
+    key: 'CodexConfig',
+    icon: renderIcon('M4 5h16M4 12h16M4 19h10M8 3v4M16 10v4M12 17v4'),
+  },
+  {
     label: '设置',
     key: 'Settings',
     icon: renderIcon(

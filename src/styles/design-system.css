@@ -234,16 +234,6 @@ a {
   max-width: 620px;
 }
 
-.page-eyebrow {
-  font-size: 11px;
-  line-height: 1.33;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  font-weight: 600;
-  color: inherit;
-  opacity: 0.72;
-}
-
 .page-title {
   margin: 0;
   font-family: var(--font-display);

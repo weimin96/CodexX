@@ -6,7 +6,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
-use crate::account::{AccountRepository, AuthType, CodexAccountProfile, UpsertSyncedAccountInput};
+use crate::account::{
+    Account, AccountRepository, AuthType, CodexAccountProfile, UpsertSyncedAccountInput,
+};
 use crate::auth;
 use crate::codex_usage;
 use crate::error::{AppError, AppResult};
@@ -25,6 +27,7 @@ pub struct LocalAuthSyncResult {
 pub struct PreparedLocalAuthSync {
     resolved_path: PathBuf,
     stable_id: String,
+    legacy_path_stable_id: String,
     name: String,
     auth_type: AuthType,
     email: Option<String>,
@@ -39,6 +42,38 @@ pub struct PreparedLocalAuthSync {
 struct CodexUsageSource {
     access_token: String,
     account_id: String,
+}
+
+impl PreparedLocalAuthSync {
+    pub(crate) fn stable_id(&self) -> &str {
+        &self.stable_id
+    }
+
+    pub(crate) fn can_recover_account(&self, account: &Account) -> bool {
+        if self.stable_id == account.id {
+            return true;
+        }
+
+        if self.legacy_path_stable_id != account.id || self.auth_type != account.auth_type {
+            return false;
+        }
+
+        match self.auth_type {
+            AuthType::OAuthToken => self
+                .email
+                .as_deref()
+                .zip(account.email.as_deref())
+                .is_some_and(|(current_email, account_email)| {
+                    current_email.eq_ignore_ascii_case(account_email)
+                }),
+            AuthType::ApiKey => false,
+            AuthType::CookieSession | AuthType::CliProfile => false,
+        }
+    }
+
+    pub(crate) fn credential_value(&self) -> &str {
+        &self.credential_value
+    }
 }
 
 #[derive(Debug)]
@@ -108,6 +143,7 @@ impl LocalAuthSyncService {
         let PreparedLocalAuthSync {
             resolved_path,
             stable_id,
+            legacy_path_stable_id: _,
             name,
             auth_type,
             email,
@@ -193,13 +229,14 @@ impl LocalAuthSyncService {
         resolved_path: PathBuf,
         auth_document: LocalAuthFileDocument,
     ) -> AppResult<PreparedLocalAuthSync> {
-        let stable_id = Self::build_stable_account_id(&resolved_path);
+        let legacy_path_stable_id = Self::build_path_stable_account_id(&resolved_path);
         let source_path = Self::normalize_path(&resolved_path);
 
         if let Some(api_key) = Self::non_empty_text(auth_document.openai_api_key.as_deref()) {
             return Ok(PreparedLocalAuthSync {
                 resolved_path,
-                stable_id,
+                stable_id: Self::build_identity_stable_account_id("api-key", api_key),
+                legacy_path_stable_id,
                 name: "API Key 账号".to_string(),
                 auth_type: AuthType::ApiKey,
                 email: None,
@@ -238,15 +275,24 @@ impl LocalAuthSyncService {
             one_week: None,
             usage_error,
         });
-        let usage_source = identity.account_id.map(|account_id| CodexUsageSource {
-            access_token: access_token.to_string(),
-            account_id,
-        });
+        let stable_id = identity
+            .account_id
+            .as_deref()
+            .map(|account_id| Self::build_identity_stable_account_id("chatgpt", account_id))
+            .unwrap_or_else(|| legacy_path_stable_id.clone());
+        let usage_source = identity
+            .account_id
+            .as_ref()
+            .map(|account_id| CodexUsageSource {
+                access_token: access_token.to_string(),
+                account_id: account_id.clone(),
+            });
         let credential_value = serde_json::to_string(&auth_document.raw)?;
 
         Ok(PreparedLocalAuthSync {
             resolved_path,
             stable_id,
+            legacy_path_stable_id,
             name: auth::resolve_account_display_name(
                 identity.name.as_deref(),
                 identity.email.as_deref(),
@@ -317,20 +363,36 @@ impl LocalAuthSyncService {
         ))
     }
 
-    fn build_stable_account_id(path: &Path) -> String {
+    fn build_path_stable_account_id(path: &Path) -> String {
         let normalized = Self::normalize_path(path);
         let normalized_text = normalized
             .to_string_lossy()
             .replace('/', "\\")
             .to_lowercase();
-        let digest = Sha256::digest(normalized_text.as_bytes());
+        let suffix = Self::digest_suffix("path", &normalized_text);
+
+        format!("local-auth-{}", suffix)
+    }
+
+    fn build_identity_stable_account_id(identity_kind: &str, identity_value: &str) -> String {
+        let normalized_value = identity_value.trim();
+        let suffix = Self::digest_suffix(identity_kind, normalized_value);
+
+        format!("local-auth-{identity_kind}-{suffix}")
+    }
+
+    fn digest_suffix(scope: &str, value: &str) -> String {
+        let mut hasher = Sha256::new();
+        hasher.update(scope.as_bytes());
+        hasher.update([0]);
+        hasher.update(value.as_bytes());
+        let digest = hasher.finalize();
         let mut suffix = String::with_capacity(24);
 
         for byte in digest.iter().take(12) {
             let _ = write!(&mut suffix, "{:02x}", byte);
         }
-
-        format!("local-auth-{}", suffix)
+        suffix
     }
 
     fn normalize_path(path: &Path) -> PathBuf {

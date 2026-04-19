@@ -2,7 +2,6 @@
   <div class="app-page codex-page">
     <section class="page-hero">
       <div class="page-hero-copy">
-        <span class="page-eyebrow">Codex</span>
         <h1 class="page-title">Codex 启动</h1>
       </div>
       <div class="hero-stats">

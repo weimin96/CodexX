@@ -32,16 +32,26 @@
         <span class="meta-label">最后检测</span>
         <span class="meta-value">{{ formatDate(account.last_checked_at) }}</span>
       </div>
+      <div v-if="nextUsageResetAt" class="meta-item">
+        <span class="meta-label">下次重置</span>
+        <span class="meta-value">{{ formatUnixDate(nextUsageResetAt) }}</span>
+      </div>
     </div>
 
     <div v-if="hasCodexUsage(account)" class="usage-grid">
       <div class="usage-card">
-        <span class="usage-label">5 小时窗口</span>
-        <strong class="usage-value">{{ formatUsageWindow(account.codex_usage_5h) }}</strong>
+        <span class="usage-label">5 小时剩余</span>
+        <strong class="usage-value">{{ formatRemainingUsageWindow(account.codex_usage_5h) }}</strong>
+        <span v-if="account.codex_usage_5h?.reset_at" class="usage-reset">
+          重置 {{ formatUnixDate(account.codex_usage_5h.reset_at) }}
+        </span>
       </div>
       <div class="usage-card">
-        <span class="usage-label">1 周窗口</span>
-        <strong class="usage-value">{{ formatUsageWindow(account.codex_usage_week) }}</strong>
+        <span class="usage-label">周剩余</span>
+        <strong class="usage-value">{{ formatRemainingUsageWindow(account.codex_usage_week) }}</strong>
+        <span v-if="account.codex_usage_week?.reset_at" class="usage-reset">
+          重置 {{ formatUnixDate(account.codex_usage_week.reset_at) }}
+        </span>
       </div>
     </div>
 
@@ -102,6 +112,7 @@ const displayAvatarText = computed(() => resolveAccountAvatarText(props.account)
 const displayOrganization = computed(() => resolveAccountOrganizationDisplay(props.account))
 const organizationLabel = computed(() => resolveAccountOrganizationLabel(props.account) ?? '组织')
 const displayUsageError = computed(() => formatUsageError(props.account.codex_usage_error))
+const nextUsageResetAt = computed(() => resolveNextUsageResetAt(props.account))
 
 function formatDate(iso: string): string {
   try {
@@ -111,13 +122,18 @@ function formatDate(iso: string): string {
   }
 }
 
+function formatUnixDate(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds <= 0) return '未知'
+  return format(new Date(seconds * 1000), 'MM-dd HH:mm')
+}
+
 function hasCodexUsage(account: Account): boolean {
   return Boolean(account.codex_usage_5h || account.codex_usage_week)
 }
 
-function formatUsageWindow(window?: CodexUsageWindow): string {
+function formatRemainingUsageWindow(window?: CodexUsageWindow): string {
   if (!window) return '未知'
-  return `已用 ${formatPercent(window.used_percent)}`
+  return formatPercent(100 - window.used_percent)
 }
 
 function formatPercent(value: number): string {
@@ -129,6 +145,13 @@ function formatPlanType(planType: string): string {
   const normalized = planType.trim()
   if (!normalized) return '未知计划'
   return normalized.toUpperCase()
+}
+
+function resolveNextUsageResetAt(account: Account): number | null {
+  const resetTimes = [account.codex_usage_5h?.reset_at, account.codex_usage_week?.reset_at]
+    .filter((value): value is number => typeof value === 'number' && Number.isFinite(value) && value > 0)
+
+  return resetTimes.length > 0 ? Math.min(...resetTimes) : null
 }
 
 function formatUsageError(error?: string): string {
@@ -342,7 +365,19 @@ function formatUsageError(error?: string): string {
   letter-spacing: 0.12px;
 }
 
+.usage-reset {
+  display: block;
+  margin-top: 4px;
+  font-size: 11px;
+  line-height: 1.33;
+  color: var(--app-ink-tertiary);
+}
+
 .account-card.default .usage-label {
+  color: var(--app-feature-ink-tertiary);
+}
+
+.account-card.default .usage-reset {
   color: var(--app-feature-ink-tertiary);
 }
 

@@ -98,6 +98,7 @@ export const useAccountStore = defineStore('account', () => {
         acc.status = result.status
         acc.status_message = result.message
       }
+      await loadAccounts()
     } finally {
       checkingStatus.value.delete(id)
     }
@@ -114,6 +115,7 @@ export const useAccountStore = defineStore('account', () => {
           acc.status_message = result.message
         }
       }
+      await loadAccounts()
     } finally {
       checkingStatus.value.clear()
     }

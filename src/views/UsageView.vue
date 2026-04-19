@@ -2,11 +2,7 @@
   <div class="app-page">
     <section class="surface-panel section-grid">
       <div class="toolbar-header">
-        <div>
-          <h1 class="panel-heading">用量统计</h1>
-          <p class="panel-copy">按时间范围查看全部账号的 Token 用量。</p>
-        </div>
-        <n-button secondary :loading="loading" @click="loadData">刷新数据</n-button>
+        <h1 class="panel-heading">用量统计</h1>
       </div>
 
       <div class="controls-grid">
@@ -27,6 +23,29 @@
           </n-radio-group>
         </div>
       </div>
+
+      <div class="metric-grid dashboard-metric-grid">
+        <div class="metric-card metric-card-compact">
+          <span class="metric-label">总账号数</span>
+          <strong class="metric-value">{{ totalAccountCount }}</strong>
+        </div>
+        <div class="metric-card metric-card-compact">
+          <span class="metric-label">今日 Token</span>
+          <strong class="metric-value">{{ formatTokens(todayTotalTokens) }}</strong>
+        </div>
+        <div class="metric-card metric-card-compact">
+          <span class="metric-label">输入 Token</span>
+          <strong class="metric-value">{{ formatTokens(summary?.total_input_tokens ?? 0) }}</strong>
+        </div>
+        <div class="metric-card metric-card-compact">
+          <span class="metric-label">输出 Token</span>
+          <strong class="metric-value">{{ formatTokens(summary?.total_output_tokens ?? 0) }}</strong>
+        </div>
+        <div class="metric-card metric-card-compact">
+          <span class="metric-label">请求次数</span>
+          <strong class="metric-value">{{ (summary?.total_requests ?? 0).toLocaleString() }}</strong>
+        </div>
+      </div>
     </section>
 
     <section v-if="loading" class="surface-panel empty-panel">
@@ -36,26 +55,7 @@
 
     <template v-else-if="chartData.length > 0 || summaryRows.length > 0">
       <section class="surface-panel">
-        <h2 class="panel-heading">摘要</h2>
-        <div v-if="summary" class="metric-grid summary-grid">
-          <div class="metric-card">
-            <span class="metric-label">输入 Token</span>
-            <strong class="metric-value">{{ formatTokens(summary.total_input_tokens) }}</strong>
-          </div>
-          <div class="metric-card">
-            <span class="metric-label">输出 Token</span>
-            <strong class="metric-value">{{ formatTokens(summary.total_output_tokens) }}</strong>
-          </div>
-          <div class="metric-card">
-            <span class="metric-label">请求次数</span>
-            <strong class="metric-value">{{ summary.total_requests.toLocaleString() }}</strong>
-          </div>
-        </div>
-      </section>
-
-      <section class="surface-panel">
         <h2 class="panel-heading">Token 用量趋势</h2>
-        <p class="panel-copy">蓝色为输入，深色为输出。</p>
         <div v-if="chartData.length > 0" ref="tokenChartRef" class="chart-container" />
         <div v-else class="usage-empty">
           <p>当前所选周期没有可绘制的趋势数据。</p>
@@ -76,7 +76,6 @@
 
     <section v-else class="surface-panel empty-panel">
       <p>当前所选周期内还没有用量数据。</p>
-      <n-button secondary @click="loadData">重新加载</n-button>
     </section>
   </div>
 </template>
@@ -128,13 +127,22 @@ let tokenChart: echarts.ECharts | null = null
 let chartResizeObserver: ResizeObserver | null = null
 
 const accountIds = computed(() => accountStore.accounts.map((account) => account.id))
+const totalAccountCount = computed(() => accountStore.accounts.length)
 
 const summary = computed(() =>
   usageStore.getSummaryForAccounts(accountIds.value, selectedPeriod.value),
 )
 
+const todaySummary = computed(() =>
+  usageStore.getSummaryForAccounts(accountIds.value, 'day'),
+)
+
 const chartData = computed<ChartDataPoint[]>(() =>
   usageStore.getChartDataForAccounts(accountIds.value, selectedPeriod.value),
+)
+
+const todayTotalTokens = computed(
+  () => (todaySummary.value?.total_input_tokens ?? 0) + (todaySummary.value?.total_output_tokens ?? 0),
 )
 
 const summaryRows = computed<UsageSummaryRow[]>(() =>
@@ -211,6 +219,9 @@ async function loadData() {
   loading.value = true
   try {
     await usageStore.loadUsageForAccounts(accountIds.value, selectedPeriod.value)
+    if (selectedPeriod.value !== 'day') {
+      await usageStore.loadUsageForAccounts(accountIds.value, 'day')
+    }
     await nextTick()
     if (chartResizeObserver && tokenChartRef.value) {
       chartResizeObserver.observe(tokenChartRef.value)
@@ -375,8 +386,7 @@ onUnmounted(() => {
 <style scoped>
 .toolbar-header {
   display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
+  align-items: center;
   gap: 14px;
 }
 
@@ -398,8 +408,13 @@ onUnmounted(() => {
   color: var(--app-ink-tertiary);
 }
 
-.summary-grid {
-  margin-top: 14px;
+.dashboard-metric-grid {
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 12px;
+}
+
+.metric-card-compact {
+  padding: 14px 16px;
 }
 
 .chart-container {

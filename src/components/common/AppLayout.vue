@@ -248,16 +248,18 @@ const renderIcon = (svgPath: string) => () =>
 
 const menuOptions: MenuOption[] = [
   {
+    label: '仪表盘',
+    key: 'Usage',
+    icon: renderIcon(
+      'M4 13a8 8 0 1 1 16 0M12 13l4-4M12 13v5',
+    ),
+  },
+  {
     label: '账号列表',
     key: 'AccountList',
     icon: renderIcon(
       'M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zm11 2v6m-3-3h6',
     ),
-  },
-  {
-    label: '用量统计',
-    key: 'Usage',
-    icon: renderIcon('M3 3v18h18M7 16l4-4 4 4 4-4'),
   },
   {
     label: 'Codex 配置',

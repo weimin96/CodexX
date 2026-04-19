@@ -21,6 +21,7 @@ const SHORT_CONVERSATION_MODEL: &str = "gpt-5.3-codex";
 const SHORT_CONVERSATION_MODEL_LABEL: &str = "GPT-5.3-Codex";
 const LOW_REASONING_OVERRIDE: &str = "model_reasoning_effort=\"low\"";
 const CODEX_QUOTA_EXHAUSTED_EVENT: &str = "codex-quota-exhausted";
+const QUOTA_EXHAUSTED_THRESHOLD: f64 = 99.9;
 
 #[derive(Debug, Clone, Serialize)]
 struct CodexQuotaExhaustedEvent {
@@ -523,14 +524,36 @@ async fn refresh_quota_and_emit_exhausted_event(
 }
 
 fn codex_quota_exhausted(account: &Account) -> bool {
-    let five_hour_exhausted = account
-        .codex_usage_5h
-        .as_ref()
-        .is_some_and(|window| window.used_percent >= 100.0);
-    let weekly_exhausted = account
-        .codex_usage_week
-        .as_ref()
-        .is_some_and(|window| window.used_percent >= 100.0);
+    let five_hour_exhausted = quota_window_exhausted(
+        account
+            .codex_usage_5h
+            .as_ref()
+            .map(|window| window.used_percent),
+    );
+    let weekly_exhausted = quota_window_exhausted(
+        account
+            .codex_usage_week
+            .as_ref()
+            .map(|window| window.used_percent),
+    );
 
     five_hour_exhausted || weekly_exhausted
+}
+
+// 资料接口返回的 used_percent 可能带有浮点误差，接近 100% 也按用尽处理，避免提醒漏报。
+fn quota_window_exhausted(used_percent: Option<f64>) -> bool {
+    used_percent.is_some_and(|value| value >= QUOTA_EXHAUSTED_THRESHOLD)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::quota_window_exhausted;
+
+    #[test]
+    fn treats_near_hundred_percent_as_exhausted() {
+        assert!(quota_window_exhausted(Some(100.0)));
+        assert!(quota_window_exhausted(Some(99.95)));
+        assert!(!quota_window_exhausted(Some(99.0)));
+        assert!(!quota_window_exhausted(None));
+    }
 }

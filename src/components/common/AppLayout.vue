@@ -289,6 +289,7 @@ function handleNav(key: string) {
 }
 
 const nonDragSelector = 'button, a, input, textarea, select, [role="button"]'
+const QUOTA_EXHAUSTED_THRESHOLD = 99.9
 type WindowResizeDirection =
   | 'North'
   | 'South'
@@ -366,10 +367,12 @@ function handleQuotaExhausted(payload: CodexQuotaExhaustedEvent) {
   }
 
   const exhaustedWindows = [
-    payload.five_hour_used_percent !== undefined && payload.five_hour_used_percent >= 100
+    payload.five_hour_used_percent !== undefined &&
+    payload.five_hour_used_percent >= QUOTA_EXHAUSTED_THRESHOLD
       ? '5 小时额度'
       : '',
-    payload.weekly_used_percent !== undefined && payload.weekly_used_percent >= 100
+    payload.weekly_used_percent !== undefined &&
+    payload.weekly_used_percent >= QUOTA_EXHAUSTED_THRESHOLD
       ? '7 天额度'
       : '',
   ].filter(Boolean)

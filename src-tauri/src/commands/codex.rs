@@ -249,7 +249,7 @@ fn select_quota_ready_account(
             .ok_or_else(|| AppError::AccountNotFound(account_id.to_string()))?;
         if !has_full_five_hour_quota(account) {
             return Err(AppError::InvalidInput(
-                "该账号 5 小时剩余额度不是 100%，不能触发对话".to_string(),
+                "该账号 5 小时剩余额度不是 100%，不能一键预热".to_string(),
             ));
         }
         return Ok(account.clone());

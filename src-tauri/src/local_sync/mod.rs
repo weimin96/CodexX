@@ -225,14 +225,7 @@ impl LocalAuthSyncService {
         };
 
         let identity = Self::extract_oauth_identity(tokens);
-        let account_hint = identity
-            .account_id
-            .as_deref()
-            .map(Self::shorten_account_hint);
-        let organization = match account_hint {
-            Some(account_id) => Some(format!("本地文件同步 · {}", account_id)),
-            None => Some("本地文件同步".to_string()),
-        };
+        let organization = Some("本地文件同步".to_string());
         let usage_error = if identity.account_id.is_none() {
             Some("auth.json 缺少 account_id，无法请求 Codex 用量接口".to_string())
         } else {
@@ -346,18 +339,6 @@ impl LocalAuthSyncService {
 
     fn non_empty_text<'a>(value: Option<&'a str>) -> Option<&'a str> {
         value.map(str::trim).filter(|text| !text.is_empty())
-    }
-
-    fn shorten_account_hint(account_id: &str) -> String {
-        let mut chars = account_id.chars();
-        let prefix: String = chars.by_ref().take(6).collect();
-        let remaining = chars.count();
-
-        if remaining == 0 {
-            prefix
-        } else {
-            format!("{}...", prefix)
-        }
     }
 }
 

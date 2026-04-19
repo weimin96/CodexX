@@ -139,6 +139,7 @@ import type { DataTableColumns } from 'naive-ui'
 import { useAccountStore } from '@/stores/account'
 import { useUsageStore } from '@/stores/usage'
 import type { ChartDataPoint, UsagePeriod } from '@/types'
+import { resolveAccountDisplayName } from '@/utils/account-display'
 
 echarts.use([
   LineChart,
@@ -165,7 +166,10 @@ let costChart: echarts.ECharts | null = null
 let chartResizeObserver: ResizeObserver | null = null
 
 const accountOptions = computed(() =>
-  accountStore.accounts.map((account) => ({ label: account.name, value: account.id })),
+  accountStore.accounts.map((account) => ({
+    label: resolveAccountDisplayName(account),
+    value: account.id,
+  })),
 )
 
 const summary = computed(() =>
@@ -192,7 +196,7 @@ const periodLabel = computed(
 const activeAccountLabel = computed(() => {
   if (!selectedAccountId.value) return '未选择'
   const account = accountStore.accounts.find((item) => item.id === selectedAccountId.value)
-  return account?.name ?? '未知账号'
+  return account ? resolveAccountDisplayName(account) : '未知账号'
 })
 
 function formatTokens(value: number): string {

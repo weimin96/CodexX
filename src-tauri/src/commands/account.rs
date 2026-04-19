@@ -17,9 +17,6 @@ pub async fn create_account(
     let db = state.db.lock().await;
     let repo = AccountRepository::new(&db);
     let account = repo.create(resolved_input)?;
-    // 新账号创建后写入演示用量，保持首页统计在空数据场景下可展示。
-    let usage_repo = crate::usage::UsageRepository::new(&db);
-    let _ = usage_repo.seed_demo_data(&account.id);
     Ok(serde_json::to_value(account)?)
 }
 
@@ -55,6 +52,16 @@ pub async fn get_account(state: State<'_, AppState>, id: String) -> Result<Value
     let repo = AccountRepository::new(&db);
     let account = repo.get_by_id(&id)?;
     Ok(serde_json::to_value(account)?)
+}
+
+#[tauri::command]
+pub async fn get_account_credential(
+    state: State<'_, AppState>,
+    id: String,
+) -> Result<String, AppError> {
+    let db = state.db.lock().await;
+    let repo = AccountRepository::new(&db);
+    repo.get_credential(&id)
 }
 
 #[tauri::command]
@@ -151,7 +158,9 @@ pub async fn sync_local_auth_file(
     Ok(serde_json::to_value(result)?)
 }
 
-async fn resolve_create_account_input(input: CreateAccountInput) -> Result<CreateAccountInput, AppError> {
+async fn resolve_create_account_input(
+    input: CreateAccountInput,
+) -> Result<CreateAccountInput, AppError> {
     let CreateAccountInput {
         name,
         auth_type,
@@ -168,7 +177,8 @@ async fn resolve_create_account_input(input: CreateAccountInput) -> Result<Creat
 
     // 新增账号不再要求用户手填名称，优先使用凭证可解析出的身份信息，避免账号列表混入临时占位名。
     if resolved_name.is_none() || resolved_email.is_none() || resolved_organization.is_none() {
-        if let Ok(identity) = auth::resolve_credential_identity(&auth_type, &credential_value).await {
+        if let Ok(identity) = auth::resolve_credential_identity(&auth_type, &credential_value).await
+        {
             if resolved_name.is_none() {
                 resolved_name = identity.name;
             }

@@ -21,6 +21,29 @@
   --app-shadow: rgba(0, 0, 0, 0.22) 3px 5px 30px 0px;
   --app-scrollbar-thumb: rgba(29, 29, 31, 0.18);
   --app-scrollbar-thumb-hover: rgba(29, 29, 31, 0.3);
+  --app-titlebar-bg: rgba(255, 255, 255, 0.84);
+  --app-titlebar-ink: rgba(29, 29, 31, 0.78);
+  --app-titlebar-ink-strong: #1d1d1f;
+  --app-titlebar-muted: rgba(29, 29, 31, 0.56);
+  --app-titlebar-hover: rgba(29, 29, 31, 0.08);
+  --app-titlebar-close-hover: rgba(196, 49, 75, 0.14);
+  --app-sidebar-bg: #fcfcfd;
+  --app-sidebar-border: rgba(29, 29, 31, 0.08);
+  --app-sidebar-ink: rgba(29, 29, 31, 0.78);
+  --app-sidebar-ink-strong: #1d1d1f;
+  --app-sidebar-muted: rgba(29, 29, 31, 0.56);
+  --app-sidebar-panel: #f1f2f5;
+  --app-sidebar-panel-hover: #e8eaf0;
+  --app-hero-bg: linear-gradient(180deg, #ffffff 0%, #f7f7fa 100%);
+  --app-hero-ink: #1d1d1f;
+  --app-hero-stat-bg: rgba(29, 29, 31, 0.04);
+  --app-hero-link: #0066cc;
+  --app-feature-surface: #f2f4f7;
+  --app-feature-surface-muted: #ffffff;
+  --app-feature-ink: #1d1d1f;
+  --app-feature-ink-secondary: rgba(29, 29, 31, 0.72);
+  --app-feature-ink-tertiary: rgba(29, 29, 31, 0.56);
+  --app-feature-border: rgba(29, 29, 31, 0.08);
   --app-radius-hero: 36px;
   --app-radius-panel: 28px;
   --app-radius-card: 24px;
@@ -83,6 +106,29 @@
   --app-shadow: rgba(0, 0, 0, 0.45) 0 12px 36px 0;
   --app-scrollbar-thumb: rgba(255, 255, 255, 0.16);
   --app-scrollbar-thumb-hover: rgba(255, 255, 255, 0.26);
+  --app-titlebar-bg: rgba(0, 0, 0, 0.82);
+  --app-titlebar-ink: rgba(255, 255, 255, 0.78);
+  --app-titlebar-ink-strong: #ffffff;
+  --app-titlebar-muted: rgba(255, 255, 255, 0.56);
+  --app-titlebar-hover: rgba(255, 255, 255, 0.08);
+  --app-titlebar-close-hover: rgba(196, 49, 75, 0.88);
+  --app-sidebar-bg: #050505;
+  --app-sidebar-border: rgba(255, 255, 255, 0.08);
+  --app-sidebar-ink: rgba(255, 255, 255, 0.78);
+  --app-sidebar-ink-strong: #ffffff;
+  --app-sidebar-muted: rgba(255, 255, 255, 0.56);
+  --app-sidebar-panel: #101114;
+  --app-sidebar-panel-hover: #17191d;
+  --app-hero-bg: #050505;
+  --app-hero-ink: #ffffff;
+  --app-hero-stat-bg: rgba(255, 255, 255, 0.06);
+  --app-hero-link: #ffffff;
+  --app-feature-surface: #050505;
+  --app-feature-surface-muted: rgba(255, 255, 255, 0.08);
+  --app-feature-ink: #ffffff;
+  --app-feature-ink-secondary: rgba(255, 255, 255, 0.72);
+  --app-feature-ink-tertiary: rgba(255, 255, 255, 0.56);
+  --app-feature-border: rgba(255, 255, 255, 0.08);
   --status-unknown: rgba(255, 255, 255, 0.56);
   --status-unknown-soft: rgba(255, 255, 255, 0.08);
 }
@@ -171,8 +217,8 @@ a {
   gap: 18px;
   padding: 20px clamp(18px, 2.4vw, 28px);
   border-radius: 24px;
-  background: var(--app-black);
-  color: var(--app-white);
+  background: var(--app-hero-bg);
+  color: var(--app-hero-ink);
   box-shadow: var(--app-shadow);
 }
 
@@ -234,7 +280,7 @@ a {
 .hero-stat {
   padding: 12px 14px;
   border-radius: 18px;
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--app-hero-stat-bg);
   backdrop-filter: saturate(180%) blur(12px);
 }
 
@@ -275,8 +321,8 @@ a {
 }
 
 .surface-panel.surface-panel-dark {
-  background: var(--app-dark-surface);
-  color: var(--app-white);
+  background: var(--app-feature-surface);
+  color: var(--app-feature-ink);
 }
 
 .surface-panel.surface-panel-muted {
@@ -301,7 +347,7 @@ a {
 }
 
 .surface-panel-dark .panel-copy {
-  color: rgba(255, 255, 255, 0.72);
+  color: var(--app-feature-ink-secondary);
 }
 
 .metric-grid {
@@ -317,7 +363,7 @@ a {
 }
 
 .surface-panel-dark .metric-card {
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--app-feature-surface-muted);
 }
 
 .metric-label {
@@ -328,7 +374,7 @@ a {
 }
 
 .surface-panel-dark .metric-label {
-  color: rgba(255, 255, 255, 0.56);
+  color: var(--app-feature-ink-tertiary);
 }
 
 .metric-value {
@@ -437,7 +483,7 @@ a {
 }
 
 .page-hero .glass-link.secondary {
-  color: var(--app-white);
+  color: var(--app-hero-link);
 }
 
 .empty-panel {

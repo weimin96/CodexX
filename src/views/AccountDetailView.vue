@@ -4,17 +4,17 @@
       <n-breadcrumb-item @click="router.push('/accounts')" style="cursor: pointer;">
         账号列表
       </n-breadcrumb-item>
-      <n-breadcrumb-item>{{ account.name }}</n-breadcrumb-item>
+      <n-breadcrumb-item>{{ displayName }}</n-breadcrumb-item>
     </n-breadcrumb>
 
     <section class="page-hero page-hero-light">
       <div class="page-hero-copy">
         <span class="page-eyebrow">账号</span>
-        <h1 class="page-title">{{ account.name }}</h1>
+        <h1 class="page-title">{{ displayName }}</h1>
         <p class="page-subtitle">
           {{ AUTH_TYPE_LABELS[account.auth_type] }}
           <template v-if="account.email"> · {{ account.email }}</template>
-          <template v-if="account.organization"> · {{ account.organization }}</template>
+          <template v-if="displayOrganization"> · {{ displayOrganization }}</template>
         </p>
         <div class="page-hero-actions">
           <n-button secondary :loading="checking" @click="handleCheck">检测状态</n-button>
@@ -34,7 +34,7 @@
 
       <div class="hero-detail-panel">
         <div class="hero-avatar" :style="{ background: account.color }">
-          {{ account.avatar_text ?? account.name[0]?.toUpperCase() }}
+          {{ displayAvatarText }}
         </div>
         <div class="hero-status">
           <StatusDot :status="account.status" show-label />
@@ -120,12 +120,57 @@
       <p class="panel-copy">查看凭证状态与刷新结果。</p>
       <div class="auth-grid">
         <div class="auth-credential-card">
-          <span class="auth-label">凭证遮罩</span>
-          <strong class="auth-value">{{ '•'.repeat(32) }}</strong>
+          <div class="auth-credential-head">
+            <span class="auth-label">凭证遮罩</span>
+            <button
+              type="button"
+              class="credential-visibility-toggle"
+              :title="credentialVisible ? '隐藏凭证' : '显示凭证'"
+              @click="handleToggleCredentialVisibility"
+            >
+              <svg
+                v-if="credentialVisible"
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+              >
+                <path
+                  d="M3 3l18 18M10.58 10.58A2 2 0 0 0 12 14a2 2 0 0 0 1.42-.58M9.88 5.09A10.94 10.94 0 0 1 12 5c5 0 9.27 3.11 11 7-0.56 1.26-1.42 2.42-2.51 3.41M6.61 6.61C4.62 7.84 3.08 9.71 2 12c1.73 3.89 6 7 10 7 1.58 0 3.1-.35 4.47-.98"
+                  stroke="currentColor"
+                  stroke-width="1.6"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                />
+              </svg>
+              <svg
+                v-else
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+              >
+                <path
+                  d="M2 12c1.73-3.89 6-7 10-7s8.27 3.11 10 7c-1.73 3.89-6 7-10 7S3.73 15.89 2 12z"
+                  stroke="currentColor"
+                  stroke-width="1.6"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                />
+                <circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="1.6" />
+              </svg>
+            </button>
+          </div>
+          <strong class="auth-value auth-value-mono">{{ credentialDisplayValue }}</strong>
+          <span class="auth-note">
+            {{ credentialVisible ? '仅在当前窗口临时显示。' : '点击眼睛图标显示凭证。' }}
+          </span>
         </div>
-        <div class="auth-credential-card">
+        <div class="auth-credential-card auth-action-card">
           <span class="auth-label">刷新操作</span>
-          <n-button secondary :loading="refreshing" @click="handleRefreshToken">
+          <strong class="auth-action-title">刷新 Token</strong>
+          <span class="auth-note">用于校验当前登录状态并更新结果。</span>
+          <n-button type="primary" class="refresh-action-button" :loading="refreshing" @click="handleRefreshToken">
             刷新 Token
           </n-button>
         </div>
@@ -192,11 +237,16 @@ import { useRoute, useRouter } from 'vue-router'
 import { useMessage } from 'naive-ui'
 import { useAccountStore } from '@/stores/account'
 import { useUsageStore } from '@/stores/usage'
-import { authService } from '@/services'
+import { accountService, authService } from '@/services'
 import { AUTH_TYPE_LABELS } from '@/types'
 import type { AuthCheckResult } from '@/types'
 import StatusDot from '@/components/common/StatusDot.vue'
 import { format, parseISO } from 'date-fns'
+import {
+  resolveAccountAvatarText,
+  resolveAccountDisplayName,
+  resolveAccountOrganizationDisplay,
+} from '@/utils/account-display'
 
 const route = useRoute()
 const router = useRouter()
@@ -206,6 +256,13 @@ const usageStore = useUsageStore()
 
 const accountId = computed(() => route.params.id as string)
 const account = computed(() => accountStore.accounts.find((item) => item.id === accountId.value))
+const displayName = computed(() => (account.value ? resolveAccountDisplayName(account.value) : ''))
+const displayOrganization = computed(() =>
+  account.value ? resolveAccountOrganizationDisplay(account.value) : null,
+)
+const displayAvatarText = computed(() =>
+  account.value ? resolveAccountAvatarText(account.value) : '?',
+)
 
 const checking = computed(() => accountStore.checkingStatus.has(accountId.value))
 const usageLoading = ref(false)
@@ -215,6 +272,9 @@ const showEditModal = ref(false)
 const editLoading = ref(false)
 const refreshing = ref(false)
 const authResult = ref<AuthCheckResult | null>(null)
+const credentialVisible = ref(false)
+const credentialLoading = ref(false)
+const credentialPreview = ref('')
 
 const authAlertType = computed(() => {
   if (!authResult.value) return 'default'
@@ -224,6 +284,18 @@ const authAlertType = computed(() => {
     invalid: 'error',
     unknown: 'default',
   }[authResult.value.status] as 'success' | 'warning' | 'error' | 'default'
+})
+
+const credentialDisplayValue = computed(() => {
+  if (credentialLoading.value) {
+    return '正在读取...'
+  }
+
+  if (!credentialVisible.value) {
+    return '•'.repeat(32)
+  }
+
+  return credentialPreview.value || '未读取到凭证'
 })
 
 const PRESET_COLORS = [
@@ -250,7 +322,7 @@ const editForm = ref({
 onMounted(async () => {
   if (account.value) {
     editForm.value = {
-      name: account.value.name,
+      name: resolveAccountDisplayName(account.value),
       email: account.value.email ?? '',
       organization: account.value.organization ?? '',
       color: account.value.color,
@@ -304,6 +376,57 @@ async function handleRefreshToken() {
   } finally {
     refreshing.value = false
   }
+}
+
+async function handleToggleCredentialVisibility() {
+  if (credentialVisible.value) {
+    credentialVisible.value = false
+    return
+  }
+
+  if (credentialPreview.value) {
+    credentialVisible.value = true
+    return
+  }
+
+  credentialLoading.value = true
+  try {
+    const credential = await accountService.getAccountCredential(accountId.value)
+    credentialPreview.value = extractCredentialPreview(credential)
+    credentialVisible.value = true
+  } catch {
+    message.error('读取凭证失败')
+  } finally {
+    credentialLoading.value = false
+  }
+}
+
+function extractCredentialPreview(credential: string): string {
+  const trimmedCredential = credential.trim()
+  if (!trimmedCredential) {
+    return ''
+  }
+
+  if (!trimmedCredential.startsWith('{')) {
+    return trimmedCredential
+  }
+
+  try {
+    const parsedCredential = JSON.parse(trimmedCredential)
+    const accessToken = parsedCredential?.tokens?.access_token
+    if (typeof accessToken === 'string' && accessToken.trim()) {
+      return accessToken.trim()
+    }
+
+    const apiKey = parsedCredential?.OPENAI_API_KEY
+    if (typeof apiKey === 'string' && apiKey.trim()) {
+      return apiKey.trim()
+    }
+  } catch {
+    return trimmedCredential
+  }
+
+  return trimmedCredential
 }
 
 async function handleEdit() {
@@ -408,11 +531,21 @@ function goToUsage() {
 
 .usage-empty p {
   margin: 0;
-  color: rgba(255, 255, 255, 0.72);
+  color: var(--app-feature-ink-secondary);
 }
 
 .usage-metrics {
   margin-top: 14px;
+}
+
+.usage-metrics :deep(.metric-card) {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.usage-metrics :deep(.metric-value) {
+  margin-top: 0;
 }
 
 .detail-link {
@@ -443,6 +576,34 @@ function goToUsage() {
   gap: 8px;
 }
 
+.auth-credential-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.credential-visibility-toggle {
+  width: 30px;
+  height: 30px;
+  border: none;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 113, 227, 0.08);
+  color: var(--app-blue);
+  cursor: pointer;
+  transition:
+    background-color 0.18s ease,
+    transform 0.18s ease;
+}
+
+.credential-visibility-toggle:hover {
+  background: rgba(0, 113, 227, 0.14);
+  transform: translateY(-1px);
+}
+
 .auth-label {
   font-size: 11px;
   line-height: 1.33;
@@ -454,6 +615,35 @@ function goToUsage() {
   font-size: 16px;
   line-height: 1.2;
   letter-spacing: 0.12px;
+}
+
+.auth-value-mono {
+  font-family: ui-monospace, SFMono-Regular, "SFMono-Regular", Consolas, monospace;
+  font-size: 13px;
+  line-height: 1.6;
+  letter-spacing: 0;
+  word-break: break-all;
+}
+
+.auth-note {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--app-ink-secondary);
+}
+
+.auth-action-card {
+  justify-content: space-between;
+}
+
+.auth-action-title {
+  font-family: var(--font-display);
+  font-size: 18px;
+  line-height: 1.2;
+  letter-spacing: 0.12px;
+}
+
+.refresh-action-button {
+  width: 100%;
 }
 
 .color-row {

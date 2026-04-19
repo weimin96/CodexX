@@ -110,6 +110,33 @@ export interface UsageQuery {
   period: UsagePeriod
 }
 
+export interface CodexExecInput {
+  account_id: string
+  prompt: string
+  working_directory?: string
+  model?: string
+  profile?: string
+  sandbox?: string
+}
+
+export interface CodexInteractiveInput {
+  account_id: string
+  prompt?: string
+  working_directory?: string
+  model?: string
+  profile?: string
+  sandbox?: string
+}
+
+export interface CodexLaunchResult {
+  session_id: string
+  status: string
+  exit_code?: number
+  usage_event_count: number
+  message: string
+  stderr_preview?: string
+}
+
 // ============================================================
 // 设置类型
 // ============================================================

@@ -424,8 +424,12 @@ function handleCreated(account: Account) {
 }
 
 function getErrorMessage(error: unknown, fallback: string) {
-  if (error instanceof Error && error.message) return error.message
-  if (typeof error === 'string' && error) return error
+  if (error instanceof Error && error.message) {
+    return error.message.replace(/^Invalid input:\s*/i, '').trim() || fallback
+  }
+  if (typeof error === 'string' && error) {
+    return error.replace(/^Invalid input:\s*/i, '').trim() || fallback
+  }
   return fallback
 }
 

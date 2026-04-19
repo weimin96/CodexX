@@ -14,8 +14,12 @@
               :title="statusDisplay.title"
             />
             <span v-if="account.is_default" class="label-pill label-pill-contrast">正在使用</span>
-            <span v-if="account.codex_plan_type" class="label-pill label-pill-blue">
-              {{ formatPlanType(account.codex_plan_type) }}
+            <span
+              v-if="account.codex_plan_type"
+              class="label-pill"
+              :class="`label-pill-plan-${planTone}`"
+            >
+              {{ planLabel }}
             </span>
           </div>
           <div v-if="displayEmail" class="card-subtitle">{{ displayEmail }}</div>
@@ -56,6 +60,7 @@
       <AccountQuotaChart
         :five-hour="account.codex_usage_5h"
         :one-week="account.codex_usage_week"
+        :plan-type="account.codex_plan_type"
         :featured="account.is_default"
       />
     </div>
@@ -85,6 +90,10 @@ import {
   resolveAccountAvatarText,
   resolveAccountDisplayName,
 } from '@/utils/account-display'
+import {
+  formatAccountPlanType,
+  resolveAccountPlanTone,
+} from '@/utils/account-plan'
 import {
   resolveAccountStatusDiagnostic,
   resolveAccountStatusDisplay,
@@ -122,6 +131,8 @@ const statusDisplay = computed(() => resolveAccountStatusDisplay(props.account))
 const displayStatusMessage = computed(() => resolveAccountStatusMessage(props.account))
 const statusDiagnostic = computed(() => resolveAccountStatusDiagnostic(props.account))
 const canTriggerConversation = computed(() => hasFullFiveHourQuota(props.account))
+const planLabel = computed(() => formatAccountPlanType(props.account.codex_plan_type))
+const planTone = computed(() => resolveAccountPlanTone(props.account.codex_plan_type))
 const cardActionOptions = computed<DropdownOption[]>(() => {
   const options: DropdownOption[] = [
     {
@@ -217,12 +228,6 @@ function hasCodexUsage(account: Account): boolean {
 
 function hasFullFiveHourQuota(account: Account): boolean {
   return Boolean(account.codex_usage_5h && account.codex_usage_5h.used_percent <= 0.000_001)
-}
-
-function formatPlanType(planType: string): string {
-  const normalized = planType.trim()
-  if (!normalized) return '未知计划'
-  return normalized.toUpperCase()
 }
 
 function renderActionIcon(path: string) {
@@ -411,9 +416,24 @@ function formatUsageError(error?: string): string {
   color: #ffffff;
 }
 
-.label-pill-blue {
+.label-pill-plan-green {
+  background: rgba(52, 199, 89, 0.14);
+  color: #248a3d;
+}
+
+.label-pill-plan-blue {
   background: rgba(0, 113, 227, 0.12);
   color: var(--app-blue);
+}
+
+.label-pill-plan-purple {
+  background: rgba(139, 92, 246, 0.14);
+  color: #6e44d9;
+}
+
+.label-pill-plan-neutral {
+  background: rgba(29, 29, 31, 0.08);
+  color: var(--app-ink);
 }
 
 .usage-panel {

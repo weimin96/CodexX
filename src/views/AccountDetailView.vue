@@ -45,18 +45,22 @@
         </div>
         <div class="hero-pill-list">
           <span v-if="account.is_default" class="hero-pill hero-pill-dark">默认账号</span>
-          <span v-if="account.codex_plan_type" class="hero-pill hero-pill-blue">
-            {{ formatPlanType(account.codex_plan_type) }}
+          <span
+            v-if="account.codex_plan_type"
+            class="hero-pill"
+            :class="`hero-pill-plan-${planTone}`"
+          >
+            {{ planLabel }}
           </span>
           <span class="hero-pill">创建于 {{ formatDate(account.created_at) }}</span>
         </div>
         <div v-if="hasCodexUsage" class="detail-quota-grid">
-          <div class="detail-quota-item">
+          <div v-if="showFiveHourQuota" class="detail-quota-item">
             <span>5 小时剩余</span>
             <strong>{{ formatRemainingUsageWindow(account.codex_usage_5h) }}</strong>
           </div>
           <div class="detail-quota-item">
-            <span>周剩余</span>
+            <span>7 天剩余</span>
             <strong>{{ formatRemainingUsageWindow(account.codex_usage_week) }}</strong>
           </div>
           <div v-if="nextUsageResetAt" class="detail-quota-reset">
@@ -273,6 +277,11 @@ import {
   resolveAccountOrganizationDisplay,
 } from '@/utils/account-display'
 import {
+  formatAccountPlanType,
+  resolveAccountPlanTone,
+  supportsFiveHourQuota,
+} from '@/utils/account-plan'
+import {
   resolveAccountStatusDiagnostic,
   resolveAccountStatusDisplay,
   resolveAccountStatusMessage,
@@ -296,6 +305,9 @@ const displayAvatarText = computed(() =>
 const statusDisplay = computed(() => resolveAccountStatusDisplay(account.value))
 const displayStatusMessage = computed(() => resolveAccountStatusMessage(account.value))
 const statusDiagnostic = computed(() => resolveAccountStatusDiagnostic(account.value))
+const planLabel = computed(() => formatAccountPlanType(account.value?.codex_plan_type))
+const planTone = computed(() => resolveAccountPlanTone(account.value?.codex_plan_type))
+const showFiveHourQuota = computed(() => supportsFiveHourQuota(account.value?.codex_plan_type))
 
 const checking = computed(() => accountStore.checkingStatus.has(accountId.value))
 const usageLoading = ref(false)
@@ -394,11 +406,6 @@ function formatTokens(value: number): string {
   if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`
   if (value >= 1_000) return `${(value / 1_000).toFixed(1)}K`
   return String(value)
-}
-
-function formatPlanType(planType: string): string {
-  const normalized = planType.trim()
-  return normalized ? normalized.toUpperCase() : '未知计划'
 }
 
 function formatRemainingUsageWindow(window?: CodexUsageWindow): string {
@@ -581,9 +588,24 @@ function goToUsage() {
   color: #ffffff;
 }
 
-.hero-pill-blue {
+.hero-pill-plan-green {
+  background: rgba(52, 199, 89, 0.14);
+  color: #248a3d;
+}
+
+.hero-pill-plan-blue {
   background: rgba(0, 113, 227, 0.12);
   color: var(--app-blue);
+}
+
+.hero-pill-plan-purple {
+  background: rgba(139, 92, 246, 0.14);
+  color: #6e44d9;
+}
+
+.hero-pill-plan-neutral {
+  background: rgba(29, 29, 31, 0.08);
+  color: var(--app-ink);
 }
 
 .detail-quota-grid {

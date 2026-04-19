@@ -10,13 +10,9 @@
     <VChart class="quota-line-chart" :option="chartOption" autoresize />
 
     <div class="quota-reset-line">
-      <span class="quota-reset-item">
-        <span class="quota-reset-label">{{ quotaItems[0].label }}重置</span>
-        <span class="quota-reset-value">{{ quotaItems[0].resetLabel }}</span>
-      </span>
-      <span class="quota-reset-item">
-        <span class="quota-reset-label">{{ quotaItems[1].label }}重置</span>
-        <span class="quota-reset-value">{{ quotaItems[1].resetLabel }}</span>
+      <span v-for="item in quotaItems" :key="`${item.label}-reset`" class="quota-reset-item">
+        <span class="quota-reset-label">{{ item.label }}重置</span>
+        <span class="quota-reset-value">{{ item.resetLabel }}</span>
       </span>
     </div>
   </div>
@@ -31,12 +27,14 @@ import { LineChart } from 'echarts/charts'
 import { GridComponent, TooltipComponent } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
 import type { CodexUsageWindow } from '@/types'
+import { supportsFiveHourQuota } from '@/utils/account-plan'
 
 echarts.use([LineChart, GridComponent, TooltipComponent, CanvasRenderer])
 
 const props = defineProps<{
   fiveHour?: CodexUsageWindow
   oneWeek?: CodexUsageWindow
+  planType?: string
   featured?: boolean
 }>()
 
@@ -56,10 +54,53 @@ interface QuotaLineViewModel {
 
 const featured = computed(() => Boolean(props.featured))
 
-const quotaItems = computed<QuotaLineViewModel[]>(() => [
-  buildQuotaLine('5小时', '5小时剩余', props.fiveHour, '#34c759', 'rgba(52, 199, 89, 0.18)', 0, 96),
-  buildQuotaLine('7天', '7天剩余', props.oneWeek, '#0071e3', 'rgba(0, 113, 227, 0.16)', 104, 200),
-])
+const quotaItems = computed<QuotaLineViewModel[]>(() => {
+  const definitions: Array<{
+    label: string
+    title: string
+    window: CodexUsageWindow | undefined
+    color: string
+    trackColor: string
+  }> = []
+
+  if (supportsFiveHourQuota(props.planType)) {
+    definitions.push({
+      label: '5小时',
+      title: '5小时剩余',
+      window: props.fiveHour,
+      color: '#34c759',
+      trackColor: 'rgba(52, 199, 89, 0.18)',
+    })
+  }
+
+  definitions.push({
+    label: '7天',
+    title: '7天剩余',
+    window: props.oneWeek,
+    color: '#0071e3',
+    trackColor: 'rgba(0, 113, 227, 0.16)',
+  })
+
+  const positions =
+    definitions.length === 1
+      ? [{ xStart: 0, xEnd: 200 }]
+      : [
+          { xStart: 0, xEnd: 96 },
+          { xStart: 104, xEnd: 200 },
+        ]
+
+  return definitions.map((definition, index) =>
+    buildQuotaLine(
+      definition.label,
+      definition.title,
+      definition.window,
+      definition.color,
+      definition.trackColor,
+      positions[index].xStart,
+      positions[index].xEnd,
+    ),
+  )
+})
 
 const chartOption = computed<NonNullable<Parameters<echarts.ECharts['setOption']>[0]>>(() => {
   const items = quotaItems.value
@@ -204,7 +245,7 @@ function formatResetTime(value?: number): string {
 
 .quota-summary {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
   gap: 10px;
 }
 
@@ -250,7 +291,7 @@ function formatResetTime(value?: number): string {
 
 .quota-reset-line {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
   column-gap: 10px;
   row-gap: 4px;
   font-size: 10px;

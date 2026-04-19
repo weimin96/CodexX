@@ -172,6 +172,11 @@ export interface CodexConfigSnapshot {
   backup_path?: string
 }
 
+export interface CodexConfigFieldUpdate {
+  key: string
+  value: string
+}
+
 export interface CodexLaunchResult {
   session_id: string
   status: string

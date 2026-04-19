@@ -4,18 +4,9 @@
       <div class="toolbar-header">
         <div class="toolbar-copy">
           <h2 class="panel-heading">Codex 配置</h2>
-          <p class="panel-supporting">编辑用户级 config.toml，保存前会校验 TOML 格式。</p>
         </div>
         <div class="config-actions">
           <n-button secondary :loading="loading" @click="loadConfig">重新加载</n-button>
-          <n-button
-            type="primary"
-            :disabled="!isDirty || saving"
-            :loading="saving"
-            @click="handleSaveConfig"
-          >
-            保存配置
-          </n-button>
         </div>
       </div>
 
@@ -28,10 +19,6 @@
           <span>文件状态</span>
           <strong>{{ snapshot?.exists ? '已存在' : '未创建' }}</strong>
         </div>
-        <div class="config-meta-item">
-          <span>已解析字段</span>
-          <strong>{{ parsedEntries.length }}</strong>
-        </div>
       </div>
 
       <n-alert v-if="snapshot?.backup_path" type="success" :show-icon="false">
@@ -43,82 +30,81 @@
       </n-alert>
     </section>
 
-    <section class="codex-config-grid">
-      <div class="surface-panel editor-panel">
-        <div class="panel-inline-head">
-          <div>
-            <h2 class="panel-heading">TOML 编辑</h2>
-            <p class="panel-copy">未知字段和注释会按原文保留。</p>
-          </div>
-          <span class="dirty-pill" :class="{ active: isDirty }">
-            {{ isDirty ? '未保存' : '已同步' }}
-          </span>
-        </div>
-
-        <n-input
-          v-model:value="rawText"
-          type="textarea"
-          class="config-editor"
-          placeholder="model = &quot;gpt-5.4&quot;"
-          :autosize="{ minRows: 20, maxRows: 32 }"
-          :input-props="{ spellcheck: 'false' }"
-        />
-      </div>
-
-      <div class="surface-panel parsed-panel">
-        <div class="panel-inline-head">
-          <div>
-            <h2 class="panel-heading">当前解析</h2>
-            <p class="panel-copy">显示上次加载或保存后的有效字段。</p>
-          </div>
-        </div>
-
-        <n-data-table
-          :columns="parsedColumns"
-          :data="parsedEntries"
-          :pagination="{ pageSize: 8 }"
-          size="small"
-          striped
-        />
-      </div>
-    </section>
-
     <section class="surface-panel section-grid">
-      <div class="toolbar-header">
-        <div class="toolbar-copy">
-          <h2 class="panel-heading">官方字段参考</h2>
-          <p class="panel-supporting">字段来自 OpenAI Codex Config Reference，动态段用尖括号表示。</p>
-        </div>
-        <div class="doc-links">
-          <a
-            v-for="link in docLinks"
-            :key="link.href"
-            :href="link.href"
-            target="_blank"
-            rel="noreferrer"
-          >
-            {{ link.label }}
-          </a>
-        </div>
-      </div>
-
-      <div class="reference-groups">
+      <div class="config-form-groups">
         <section
           v-for="group in officialConfigGroups"
           :key="group.title"
-          class="reference-group"
+          class="config-form-group"
         >
-          <div class="reference-group-head">
+          <div class="config-form-group-head">
             <h3>{{ group.title }}</h3>
             <p>{{ group.description }}</p>
           </div>
-          <div class="field-list">
-            <div v-for="field in group.fields" :key="field.key" class="field-row">
-              <div class="field-title-row">
+          <div class="config-field-list">
+            <div v-for="field in group.fields" :key="field.key" class="config-field-row">
+              <div class="config-field-title-row">
                 <code>{{ field.key }}</code>
                 <span>{{ field.type }}</span>
               </div>
               <p>{{ field.description }}</p>
+
+              <n-input
+                v-if="isDynamicField(field)"
+                :value="dynamicFieldKeys[field.key] ?? ''"
+                size="small"
+                placeholder="填写实际字段名后保存，例如 mcp_servers.local.command"
+                @update:value="(value) => setDynamicFieldKey(field, value)"
+              />
+
+              <n-select
+                v-if="fieldOptions(field).length > 0"
+                :value="selectFieldValue(field)"
+                :options="fieldOptions(field)"
+                size="small"
+                clearable
+                :disabled="fieldSavingKey === resolvedFieldKey(field)"
+                @update:value="(value) => handleFieldValueChange(field, value)"
+              />
+              <n-switch
+                v-else-if="fieldControlKind(field) === 'boolean'"
+                :value="Boolean(fieldValue(field))"
+                :disabled="fieldSavingKey === resolvedFieldKey(field)"
+                @update:value="(value) => handleFieldValueChange(field, value)"
+              />
+              <n-input-number
+                v-else-if="fieldControlKind(field) === 'number'"
+                :value="numberFieldValue(field)"
+                size="small"
+                :disabled="fieldSavingKey === resolvedFieldKey(field)"
+                @update:value="handleNumberFieldUpdate(field, $event)"
+                @blur="() => saveField(field)"
+              />
+              <n-input
+                v-else-if="fieldControlKind(field) === 'toml'"
+                :value="stringFieldValue(field)"
+                type="textarea"
+                size="small"
+                placeholder="输入 TOML 值，例如 [&quot;AGENTS.md&quot;]"
+                :autosize="{ minRows: 2, maxRows: 5 }"
+                :disabled="fieldSavingKey === resolvedFieldKey(field)"
+                @update:value="(value) => setFieldValue(field, value)"
+                @blur="() => saveField(field)"
+              />
+              <n-input
+                v-else
+                :value="stringFieldValue(field)"
+                size="small"
+                placeholder="留空会保存为空字符串"
+                :disabled="fieldSavingKey === resolvedFieldKey(field)"
+                @update:value="(value) => setFieldValue(field, value)"
+                @blur="() => saveField(field)"
+                @keyup.enter="() => saveField(field)"
+              />
+
+              <div class="config-field-state">
+                {{ fieldStateText(field) }}
+              </div>
             </div>
           </div>
         </section>
@@ -129,10 +115,9 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { useDialog, useMessage } from 'naive-ui'
-import type { DataTableColumns } from 'naive-ui'
+import { useMessage } from 'naive-ui'
 import { codexConfigService } from '@/services'
-import type { CodexConfigEntry, CodexConfigSnapshot } from '@/types'
+import type { CodexConfigSnapshot } from '@/types'
 
 interface ConfigReferenceField {
   key: string
@@ -147,27 +132,14 @@ interface ConfigReferenceGroup {
 }
 
 const message = useMessage()
-const dialog = useDialog()
 const loading = ref(false)
-const saving = ref(false)
 const snapshot = ref<CodexConfigSnapshot | null>(null)
-const rawText = ref('')
+const fieldValues = ref<Record<string, string | number | boolean | null>>({})
+const dynamicFieldKeys = ref<Record<string, string>>({})
+const fieldSavingKey = ref<string | null>(null)
+const lastSavedFieldKey = ref<string | null>(null)
 
 const configPath = computed(() => snapshot.value?.path ?? '~/.codex/config.toml')
-const parsedEntries = computed(() => snapshot.value?.parsed_entries ?? [])
-const isDirty = computed(() => rawText.value !== (snapshot.value?.raw_text ?? ''))
-
-const parsedColumns: DataTableColumns<CodexConfigEntry> = [
-  { title: '键', key: 'key', width: 220, ellipsis: { tooltip: true } },
-  { title: '类型', key: 'value_type', width: 96 },
-  { title: '当前值', key: 'value', ellipsis: { tooltip: true } },
-]
-
-const docLinks = [
-  { label: 'Config Basics', href: 'https://developers.openai.com/codex/config-basic' },
-  { label: 'Advanced Config', href: 'https://developers.openai.com/codex/config-advanced' },
-  { label: 'Config Reference', href: 'https://developers.openai.com/codex/config-reference' },
-]
 
 const officialConfigGroups: ConfigReferenceGroup[] = [
   {
@@ -327,40 +299,12 @@ async function loadConfig() {
   loading.value = true
   try {
     const nextSnapshot = await codexConfigService.readConfig()
-    snapshot.value = nextSnapshot
-    rawText.value = nextSnapshot.raw_text
+    applySnapshot(nextSnapshot)
   } catch (error) {
     console.warn('读取 Codex 配置失败', error)
     message.error(formatError(error, '读取 Codex 配置失败'))
   } finally {
     loading.value = false
-  }
-}
-
-function handleSaveConfig() {
-  dialog.warning({
-    title: '保存 Codex 配置',
-    content: '保存会覆盖用户级 config.toml。应用会先校验 TOML 格式，并在同目录保留 .bak 备份。',
-    positiveText: '保存',
-    negativeText: '取消',
-    onPositiveClick: async () => {
-      await saveConfig()
-    },
-  })
-}
-
-async function saveConfig() {
-  saving.value = true
-  try {
-    const nextSnapshot = await codexConfigService.saveConfig(rawText.value)
-    snapshot.value = nextSnapshot
-    rawText.value = nextSnapshot.raw_text
-    message.success('Codex 配置已保存')
-  } catch (error) {
-    console.warn('保存 Codex 配置失败', error)
-    message.error(formatError(error, '保存 Codex 配置失败'))
-  } finally {
-    saving.value = false
   }
 }
 
@@ -374,6 +318,226 @@ function formatError(error: unknown, fallback: string): string {
   }
 
   return fallback
+}
+
+function applySnapshot(nextSnapshot: CodexConfigSnapshot) {
+  snapshot.value = nextSnapshot
+  const nextValues: Record<string, string | number | boolean | null> = {}
+  const entryMap = new Map(nextSnapshot.parsed_entries.map((entry) => [entry.key, entry]))
+
+  for (const group of officialConfigGroups) {
+    for (const field of group.fields) {
+      if (isDynamicField(field)) {
+        if (!(field.key in fieldValues.value)) {
+          nextValues[field.key] = defaultFieldValue(field)
+        } else {
+          nextValues[field.key] = fieldValues.value[field.key]
+        }
+        continue
+      }
+
+      const entry = entryMap.get(field.key)
+      nextValues[field.key] = entry ? normalizeEntryValue(field, entry.value) : defaultFieldValue(field)
+    }
+  }
+
+  fieldValues.value = nextValues
+}
+
+function isDynamicField(field: ConfigReferenceField): boolean {
+  return /[<>*]/.test(field.key)
+}
+
+function resolvedFieldKey(field: ConfigReferenceField): string {
+  if (!isDynamicField(field)) {
+    return field.key
+  }
+
+  return dynamicFieldKeys.value[field.key]?.trim() || field.key
+}
+
+function setDynamicFieldKey(field: ConfigReferenceField, value: string) {
+  dynamicFieldKeys.value = {
+    ...dynamicFieldKeys.value,
+    [field.key]: value,
+  }
+}
+
+function fieldControlKind(field: ConfigReferenceField): 'string' | 'number' | 'boolean' | 'toml' {
+  if (fieldOptions(field).length > 0) {
+    return 'string'
+  }
+
+  if (
+    field.type.includes('array') ||
+    field.type.includes('map') ||
+    field.type.includes('table') ||
+    field.type.includes('various') ||
+    field.type.includes('null')
+  ) {
+    return 'toml'
+  }
+
+  if (field.type.includes('boolean')) {
+    return 'boolean'
+  }
+
+  if (field.type.includes('number') || field.type.includes('integer')) {
+    return 'number'
+  }
+
+  return 'string'
+}
+
+function fieldOptions(field: ConfigReferenceField) {
+  if (!field.type.includes('|')) {
+    return []
+  }
+
+  const options = field.type
+    .split('|')
+    .map((option) => option.trim())
+    .filter(Boolean)
+
+  if (
+    options.some((option) =>
+      ['array', 'table', 'map', 'boolean', 'null', 'various'].some((complexType) =>
+        option.includes(complexType),
+      ),
+    )
+  ) {
+    return []
+  }
+
+  return options.map((option) => ({
+      label: option,
+      value: option,
+    }))
+}
+
+function fieldValue(field: ConfigReferenceField) {
+  return fieldValues.value[field.key] ?? defaultFieldValue(field)
+}
+
+function stringFieldValue(field: ConfigReferenceField): string {
+  const value = fieldValue(field)
+  return typeof value === 'string' ? value : value == null ? '' : String(value)
+}
+
+function selectFieldValue(field: ConfigReferenceField): string | null {
+  const value = fieldValue(field)
+  return typeof value === 'string' && value ? value : null
+}
+
+function numberFieldValue(field: ConfigReferenceField): number | null {
+  const value = fieldValue(field)
+  if (typeof value === 'number') {
+    return value
+  }
+
+  const parsed = Number(value)
+  return Number.isFinite(parsed) ? parsed : null
+}
+
+function handleNumberFieldUpdate(field: ConfigReferenceField, value: number | null) {
+  setFieldValue(field, value)
+}
+
+function setFieldValue(field: ConfigReferenceField, value: string | number | boolean | null) {
+  fieldValues.value = {
+    ...fieldValues.value,
+    [field.key]: value,
+  }
+}
+
+async function handleFieldValueChange(
+  field: ConfigReferenceField,
+  value: string | number | boolean | null,
+) {
+  setFieldValue(field, value)
+  await saveField(field)
+}
+
+async function saveField(field: ConfigReferenceField) {
+  const key = resolvedFieldKey(field)
+  if (isDynamicField(field) && key === field.key) {
+    message.warning('请先填写实际字段名')
+    return
+  }
+
+  const value = buildTomlValue(field, fieldValue(field))
+  if (!value) {
+    message.warning('请填写有效配置值')
+    return
+  }
+
+  fieldSavingKey.value = key
+  try {
+    const nextSnapshot = await codexConfigService.saveConfigField({ key, value })
+    applySnapshot(nextSnapshot)
+    lastSavedFieldKey.value = key
+    message.success(`已保存 ${key}`)
+  } catch (error) {
+    console.warn('保存 Codex 配置字段失败', error)
+    message.error(formatError(error, `保存 ${key} 失败`))
+  } finally {
+    fieldSavingKey.value = null
+  }
+}
+
+function buildTomlValue(
+  field: ConfigReferenceField,
+  value: string | number | boolean | null,
+): string | null {
+  const kind = fieldControlKind(field)
+  if (kind === 'boolean') {
+    return Boolean(value) ? 'true' : 'false'
+  }
+
+  if (kind === 'number') {
+    const parsed = typeof value === 'number' ? value : Number(value)
+    return Number.isFinite(parsed) ? String(parsed) : null
+  }
+
+  if (kind === 'toml') {
+    const text = String(value ?? '').trim()
+    return text || null
+  }
+
+  return JSON.stringify(String(value ?? ''))
+}
+
+function normalizeEntryValue(field: ConfigReferenceField, value: string) {
+  if (fieldControlKind(field) === 'boolean') {
+    return value === 'true'
+  }
+
+  if (fieldControlKind(field) === 'number') {
+    const parsed = Number(value)
+    return Number.isFinite(parsed) ? parsed : null
+  }
+
+  return value
+}
+
+function defaultFieldValue(field: ConfigReferenceField): string | number | boolean | null {
+  const kind = fieldControlKind(field)
+  if (kind === 'boolean') return false
+  if (kind === 'number') return null
+  return ''
+}
+
+function fieldStateText(field: ConfigReferenceField): string {
+  const key = resolvedFieldKey(field)
+  if (fieldSavingKey.value === key) {
+    return '保存中'
+  }
+
+  if (lastSavedFieldKey.value === key) {
+    return '已保存'
+  }
+
+  return isDynamicField(field) ? '动态字段需填写实际字段名' : '修改后自动保存该字段'
 }
 </script>
 
@@ -414,7 +578,7 @@ function formatError(error: unknown, fallback: string): string {
 
 .config-meta-grid {
   display: grid;
-  grid-template-columns: minmax(0, 2fr) minmax(120px, 0.6fr) minmax(120px, 0.6fr);
+  grid-template-columns: minmax(0, 2fr) minmax(120px, 0.6fr);
   gap: 10px;
 }
 
@@ -482,43 +646,43 @@ function formatError(error: unknown, fallback: string): string {
   line-height: 1.55;
 }
 
-.reference-groups {
+.config-form-groups {
   display: grid;
   gap: 16px;
 }
 
-.reference-group {
+.config-form-group {
   display: grid;
   gap: 10px;
 }
 
-.reference-group-head {
+.config-form-group-head {
   display: flex;
   flex-direction: column;
   gap: 4px;
 }
 
-.reference-group-head h3 {
+.config-form-group-head h3 {
   margin: 0;
   font-size: 15px;
   line-height: 1.3;
   color: var(--app-ink);
 }
 
-.reference-group-head p {
+.config-form-group-head p {
   margin: 0;
   font-size: 12px;
   line-height: 1.43;
   color: var(--app-ink-secondary);
 }
 
-.field-list {
+.config-field-list {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
 }
 
-.field-row {
+.config-field-row {
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -529,7 +693,7 @@ function formatError(error: unknown, fallback: string): string {
   background: var(--app-surface-muted);
 }
 
-.field-title-row {
+.config-field-title-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -537,7 +701,7 @@ function formatError(error: unknown, fallback: string): string {
   min-width: 0;
 }
 
-.field-title-row code {
+.config-field-title-row code {
   min-width: 0;
   color: var(--app-ink);
   font-size: 12px;
@@ -547,23 +711,30 @@ function formatError(error: unknown, fallback: string): string {
   white-space: nowrap;
 }
 
-.field-title-row span {
+.config-field-title-row span {
   flex-shrink: 0;
   color: var(--app-ink-tertiary);
   font-size: 11px;
   line-height: 1.33;
 }
 
-.field-row p {
+.config-field-row p {
   margin: 0;
   color: var(--app-ink-secondary);
   font-size: 12px;
   line-height: 1.43;
 }
 
+.config-field-state {
+  min-height: 16px;
+  color: var(--app-ink-tertiary);
+  font-size: 11px;
+  line-height: 1.33;
+}
+
 @media (max-width: 1100px) {
   .codex-config-grid,
-  .field-list {
+  .config-field-list {
     grid-template-columns: 1fr;
   }
 

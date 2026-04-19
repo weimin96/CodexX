@@ -1,6 +1,6 @@
 use crate::codex_runtime::resolve_codex_home;
 use crate::error::{AppError, AppResult};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use toml::Value as TomlValue;
 
@@ -18,6 +18,12 @@ pub struct CodexConfigSnapshot {
     pub raw_text: String,
     pub parsed_entries: Vec<CodexConfigEntry>,
     pub backup_path: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CodexConfigFieldUpdate {
+    pub key: String,
+    pub value: String,
 }
 
 pub fn read_user_codex_config() -> AppResult<CodexConfigSnapshot> {
@@ -38,6 +44,31 @@ pub fn save_user_codex_config(raw_text: &str) -> AppResult<CodexConfigSnapshot> 
     validate_config_text(&normalized_text)?;
     let backup_path = write_config_with_backup(&config_path, &normalized_text)?;
 
+    build_snapshot(
+        config_path,
+        true,
+        normalized_text,
+        backup_path.map(|path| path.to_string_lossy().to_string()),
+    )
+}
+
+pub fn save_user_codex_config_field(
+    input: CodexConfigFieldUpdate,
+) -> AppResult<CodexConfigSnapshot> {
+    validate_config_key(&input.key)?;
+    validate_config_value(&input.value)?;
+
+    let current_snapshot = read_user_codex_config()?;
+    let next_text = replace_or_insert_config_field(
+        &current_snapshot.raw_text,
+        input.key.trim(),
+        input.value.trim(),
+    );
+    let normalized_text = normalize_config_text(&next_text);
+    validate_config_text(&normalized_text)?;
+
+    let config_path = user_config_path()?;
+    let backup_path = write_config_with_backup(&config_path, &normalized_text)?;
     build_snapshot(
         config_path,
         true,
@@ -136,6 +167,121 @@ fn validate_config_text(raw_text: &str) -> AppResult<()> {
     parse_config_document(raw_text).map(|_| ())
 }
 
+fn validate_config_key(key: &str) -> AppResult<()> {
+    let normalized = key.trim();
+    if normalized.is_empty() {
+        return Err(AppError::InvalidInput("配置字段名不能为空".to_string()));
+    }
+
+    validate_config_text(&format!("{normalized} = true\n"))
+}
+
+fn validate_config_value(value: &str) -> AppResult<()> {
+    let normalized = value.trim();
+    if normalized.is_empty() {
+        return Err(AppError::InvalidInput("配置字段值不能为空".to_string()));
+    }
+
+    validate_config_text(&format!("__codex_manager_value__ = {normalized}\n"))
+}
+
+fn replace_or_insert_config_field(raw_text: &str, key: &str, value: &str) -> String {
+    let mut lines = raw_text
+        .lines()
+        .map(ToString::to_string)
+        .collect::<Vec<_>>();
+    let key_parts = key.split('.').collect::<Vec<_>>();
+    let leaf_key = key_parts.last().copied().unwrap_or(key);
+    let parent_table = if key_parts.len() > 1 {
+        Some(key_parts[..key_parts.len() - 1].join("."))
+    } else {
+        None
+    };
+    let mut current_table = String::new();
+    let mut parent_table_insert_index = None;
+
+    for index in 0..lines.len() {
+        let trimmed = lines[index].trim();
+        if let Some(table_name) = parse_table_header(trimmed) {
+            current_table = table_name.to_string();
+            continue;
+        }
+
+        if parent_table.as_deref() == Some(current_table.as_str()) {
+            parent_table_insert_index = Some(index + 1);
+        }
+
+        let Some(assignment_key) = parse_assignment_key(trimmed) else {
+            continue;
+        };
+        let matches_root_key = current_table.is_empty() && assignment_key == key;
+        let matches_dotted_key = assignment_key == key;
+        let matches_table_leaf =
+            parent_table.as_deref() == Some(current_table.as_str()) && assignment_key == leaf_key;
+        if matches_root_key || matches_dotted_key || matches_table_leaf {
+            lines[index] = replace_assignment_value(&lines[index], value);
+            return join_config_lines(lines);
+        }
+    }
+
+    let new_line = if parent_table_insert_index.is_some() {
+        format!("{leaf_key} = {value}")
+    } else {
+        format!("{key} = {value}")
+    };
+
+    if let Some(index) = parent_table_insert_index {
+        lines.insert(index, new_line);
+    } else {
+        if !lines.is_empty() && lines.last().is_some_and(|line| !line.trim().is_empty()) {
+            lines.push(String::new());
+        }
+        lines.push(new_line);
+    }
+
+    join_config_lines(lines)
+}
+
+fn parse_table_header(line: &str) -> Option<&str> {
+    if line.starts_with("[[") || !line.starts_with('[') || !line.ends_with(']') {
+        return None;
+    }
+
+    line.strip_prefix('[')?.strip_suffix(']').map(str::trim)
+}
+
+fn parse_assignment_key(line: &str) -> Option<&str> {
+    if line.is_empty() || line.starts_with('#') || line.starts_with('[') {
+        return None;
+    }
+
+    line.split_once('=')
+        .map(|(key, _)| key.trim())
+        .filter(|key| !key.is_empty())
+}
+
+fn replace_assignment_value(line: &str, value: &str) -> String {
+    let Some((left, right)) = line.split_once('=') else {
+        return line.to_string();
+    };
+    let indent = left.len() - left.trim_start().len();
+    let key = left.trim();
+    let comment = right
+        .find('#')
+        .map(|index| format!(" {}", right[index..].trim()))
+        .unwrap_or_default();
+
+    format!("{}{} = {}{}", " ".repeat(indent), key, value, comment)
+}
+
+fn join_config_lines(lines: Vec<String>) -> String {
+    if lines.is_empty() {
+        String::new()
+    } else {
+        format!("{}\n", lines.join("\n"))
+    }
+}
+
 fn write_config_with_backup(config_path: &Path, raw_text: &str) -> AppResult<Option<PathBuf>> {
     if let Some(parent) = config_path.parent() {
         std::fs::create_dir_all(parent)?;
@@ -206,5 +352,36 @@ writable_roots = ["C:\\work"]
         let result = validate_config_text("model = ");
 
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn updates_existing_field_without_rewriting_other_lines() {
+        let next_text = replace_or_insert_config_field(
+            r#"# 保留注释
+model = "gpt-5.2" # 当前模型
+[sandbox_workspace_write]
+network_access = false
+"#,
+            "model",
+            "\"gpt-5.4\"",
+        );
+
+        assert!(next_text.contains("# 保留注释"));
+        assert!(next_text.contains("model = \"gpt-5.4\" # 当前模型"));
+        assert!(next_text.contains("network_access = false"));
+    }
+
+    #[test]
+    fn inserts_nested_field_inside_existing_table() {
+        let next_text = replace_or_insert_config_field(
+            r#"[sandbox_workspace_write]
+writable_roots = ["C:\\work"]
+"#,
+            "sandbox_workspace_write.network_access",
+            "true",
+        );
+
+        assert!(next_text.contains("[sandbox_workspace_write]\nwritable_roots"));
+        assert!(next_text.contains("network_access = true"));
     }
 }

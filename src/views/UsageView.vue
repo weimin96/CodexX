@@ -111,14 +111,19 @@
 
             <div class="account-detail-share">
               <div class="account-detail-share-track">
-                <span
-                  class="account-detail-share-segment input"
-                  :style="{ width: segmentWidth(row.input_tokens, row.total_tokens) }"
-                />
-                <span
-                  class="account-detail-share-segment output"
-                  :style="{ width: segmentWidth(row.output_tokens, row.total_tokens) }"
-                />
+                <div
+                  class="account-detail-share-fill"
+                  :style="{ width: segmentWidth(row.total_tokens, totalTokensInPeriod) }"
+                >
+                  <span
+                    class="account-detail-share-segment input"
+                    :style="{ width: segmentWidth(row.input_tokens, row.total_tokens) }"
+                  />
+                  <span
+                    class="account-detail-share-segment output"
+                    :style="{ width: segmentWidth(row.output_tokens, row.total_tokens) }"
+                  />
+                </div>
               </div>
               <span class="account-detail-share-note">
                 占整体 Token {{ formatShare(row.total_tokens, totalTokensInPeriod) }}
@@ -273,7 +278,7 @@ function segmentWidth(value: number, total: number): string {
     return '0%'
   }
 
-  return `${(value / total) * 100}%`
+  return `${Math.min(100, Math.max(0, (value / total) * 100))}%`
 }
 
 const CHART_COLORS = {
@@ -624,15 +629,15 @@ onUnmounted(() => {
 
 .account-detail-grid {
   display: grid;
-  grid-template-columns: 1fr;
-  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 10px;
 }
 
 .account-detail-card {
   display: grid;
-  gap: 14px;
-  padding: 16px;
-  border-radius: 22px;
+  gap: 10px;
+  padding: 12px;
+  border-radius: 18px;
   border: 1px solid rgba(29, 29, 31, 0.08);
   background: var(--app-surface-muted);
 }
@@ -663,7 +668,7 @@ onUnmounted(() => {
 }
 
 .account-detail-card-copy h3 {
-  font-size: 18px;
+  font-size: 15px;
   line-height: 1.28;
   color: var(--app-ink);
 }
@@ -684,7 +689,7 @@ onUnmounted(() => {
 }
 
 .account-detail-card-total strong {
-  font-size: 22px;
+  font-size: 18px;
   line-height: 1.2;
   color: var(--app-ink);
 }
@@ -692,20 +697,20 @@ onUnmounted(() => {
 .account-detail-metric-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 10px;
+  gap: 6px;
 }
 
 .account-detail-metric {
   display: grid;
   gap: 4px;
-  padding: 12px;
-  border-radius: 18px;
+  padding: 8px;
+  border-radius: 14px;
   background: var(--app-surface);
 }
 
 .account-detail-metric strong {
   font-family: var(--font-display);
-  font-size: 18px;
+  font-size: 14px;
   line-height: 1.24;
   color: var(--app-ink);
 }
@@ -716,11 +721,17 @@ onUnmounted(() => {
 }
 
 .account-detail-share-track {
-  display: flex;
   overflow: hidden;
   height: 8px;
   border-radius: 999px;
   background: rgba(29, 29, 31, 0.08);
+}
+
+.account-detail-share-fill {
+  display: flex;
+  height: 100%;
+  border-radius: inherit;
+  overflow: hidden;
 }
 
 .account-detail-share-segment {
@@ -751,7 +762,6 @@ onUnmounted(() => {
     align-items: stretch;
   }
 
-  .account-detail-grid,
   .account-detail-metric-grid {
     grid-template-columns: 1fr;
   }

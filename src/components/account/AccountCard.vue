@@ -39,7 +39,7 @@
             <template #icon>
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
                 <path
-                  d="M5 12h.01M12 12h.01M19 12h.01"
+                  d="M12 5h.01M12 12h.01M12 19h.01"
                   stroke="currentColor"
                   stroke-width="2.4"
                   stroke-linecap="round"
@@ -115,16 +115,15 @@ const statusDiagnostic = computed(() => resolveAccountStatusDiagnostic(props.acc
 const cardActionOptions = computed<DropdownOption[]>(() => {
   const options: DropdownOption[] = [
     {
-      label: () => renderActionLabel('查看详情', 'var(--app-blue)'),
+      label: '查看详情',
       key: 'detail',
       icon: () =>
         renderActionIcon(
           'M9 6h11M9 12h11M9 18h11M4 6h.01M4 12h.01M4 18h.01',
-          'var(--app-blue)',
         ),
     },
     {
-      label: () => renderActionLabel(props.checking ? '检测中' : '检测状态', '#1f8f5f'),
+      label: props.checking ? '检测中' : '检测状态',
       key: 'check',
       disabled: props.checking,
       icon: () =>
@@ -135,7 +134,6 @@ const cardActionOptions = computed<DropdownOption[]>(() => {
             height: 16,
             viewBox: '0 0 24 24',
             fill: 'none',
-            style: { color: '#1f8f5f' },
           },
           [
             h('path', {
@@ -159,12 +157,11 @@ const cardActionOptions = computed<DropdownOption[]>(() => {
 
   if (!props.account.is_default) {
     options.push({
-      label: () => renderActionLabel('设为默认', '#7254d1'),
+      label: '设为默认',
       key: 'set-default',
       icon: () =>
         renderActionIcon(
           'M12 3.5l2.63 5.33 5.87.85-4.25 4.14 1 5.84L12 17.1l-5.25 2.76 1-5.84-4.25-4.14 5.87-.85L12 3.5z',
-          '#7254d1',
         ),
     })
   }
@@ -175,12 +172,11 @@ const cardActionOptions = computed<DropdownOption[]>(() => {
       key: 'card-action-divider',
     },
     {
-      label: () => renderActionLabel('删除账号', 'var(--status-error)'),
+      label: '删除账号',
       key: 'delete',
       icon: () =>
         renderActionIcon(
           'M4 7h16M9 11v6M15 11v6M10 4h4l1 2H9l1-2zm-3 3 1 12h8l1-12',
-          'var(--status-error)',
         ),
     },
   )
@@ -198,20 +194,7 @@ function formatPlanType(planType: string): string {
   return normalized.toUpperCase()
 }
 
-function renderActionLabel(text: string, color: string) {
-  return h(
-    'span',
-    {
-      style: {
-        color,
-        fontWeight: 500,
-      },
-    },
-    text,
-  )
-}
-
-function renderActionIcon(path: string, color: string) {
+function renderActionIcon(path: string) {
   return h(
     'svg',
     {
@@ -219,7 +202,6 @@ function renderActionIcon(path: string, color: string) {
       height: 16,
       viewBox: '0 0 24 24',
       fill: 'none',
-      style: { color },
     },
     h('path', {
       d: path,

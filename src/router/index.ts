@@ -29,7 +29,7 @@ const router = createRouter({
       path: '/codex',
       name: 'CodexLaunch',
       component: () => import('@/views/CodexLaunchView.vue'),
-      meta: { title: 'Codex 启动' },
+      meta: { title: '启动器' },
     },
     {
       path: '/settings',

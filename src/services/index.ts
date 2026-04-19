@@ -7,6 +7,7 @@ import type {
   UsageSummary,
   ChartDataPoint,
   UsageQuery,
+  CodexCliLaunchInput,
   CodexExecInput,
   CodexInteractiveInput,
   CodexLaunchResult,
@@ -190,6 +191,20 @@ export const usageService = {
       throw new Error('受控启动 Codex 仅在 Tauri 环境中可用')
     }
     return invoke<CodexLaunchResult>('open_codex_interactive_session', { input })
+  },
+
+  async launchCodexCli(input: CodexCliLaunchInput): Promise<CodexLaunchResult> {
+    if (!isTauri) {
+      throw new Error('受控启动 Codex 仅在 Tauri 环境中可用')
+    }
+    return invoke<CodexLaunchResult>('launch_codex_cli', { input })
+  },
+
+  async launchCodexApp(): Promise<CodexLaunchResult> {
+    if (!isTauri) {
+      throw new Error('受控启动 Codex 仅在 Tauri 环境中可用')
+    }
+    return invoke<CodexLaunchResult>('launch_codex_app')
   },
 
   async clearUsageData(): Promise<void> {

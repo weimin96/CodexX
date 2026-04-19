@@ -31,6 +31,12 @@ pub struct CodexInteractiveInput {
     pub sandbox: Option<String>,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct CodexCliLaunchInput {
+    pub working_directory: Option<String>,
+    pub model: Option<String>,
+}
+
 #[derive(Debug, Serialize)]
 pub struct CodexLaunchResult {
     pub session_id: String,
@@ -295,6 +301,45 @@ pub fn open_interactive_codex(
     Ok(())
 }
 
+pub fn open_codex_cli_terminal(
+    target: &CodexCommandTarget,
+    input: &CodexCliLaunchInput,
+) -> AppResult<()> {
+    let mut args = Vec::new();
+    append_common_codex_args(&mut args, CodexCommonOptions::from_cli_launch_input(input));
+
+    let mut command = target.build_interactive_command(&args)?;
+    if let Some(working_directory) =
+        normalize_existing_directory(input.working_directory.as_deref())?
+    {
+        command.current_dir(working_directory);
+    }
+
+    command.spawn()?;
+    Ok(())
+}
+
+pub fn open_codex_desktop_app() -> AppResult<()> {
+    #[cfg(target_os = "windows")]
+    {
+        let mut command = std::process::Command::new("explorer.exe");
+        command
+            .arg(r"shell:AppsFolder\OpenAI.Codex_2p2nqsd0c76g0!App")
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+        command.spawn()?;
+        Ok(())
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        Err(AppError::Other(
+            "当前平台暂不支持启动 Codex App".to_string(),
+        ))
+    }
+}
+
 pub fn prompt_preview(value: Option<&str>) -> Option<String> {
     value
         .map(str::trim)
@@ -331,6 +376,15 @@ impl<'a> CodexCommonOptions<'a> {
             model: input.model.as_deref(),
             profile: input.profile.as_deref(),
             sandbox: input.sandbox.as_deref(),
+        }
+    }
+
+    fn from_cli_launch_input(input: &'a CodexCliLaunchInput) -> Self {
+        Self {
+            working_directory: input.working_directory.as_deref(),
+            model: input.model.as_deref(),
+            profile: None,
+            sandbox: None,
         }
     }
 }

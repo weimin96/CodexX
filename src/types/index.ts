@@ -128,6 +128,11 @@ export interface CodexInteractiveInput {
   sandbox?: string
 }
 
+export interface CodexCliLaunchInput {
+  working_directory?: string
+  model?: string
+}
+
 export interface CodexLaunchResult {
   session_id: string
   status: string

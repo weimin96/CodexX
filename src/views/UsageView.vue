@@ -1,31 +1,10 @@
 <template>
   <div class="app-page">
-    <section class="page-hero">
-      <div class="page-hero-copy">
-        <h1 class="page-title">用量统计</h1>
-        <p class="page-subtitle">查看趋势与费用。</p>
-      </div>
-      <div class="hero-stats">
-        <div class="hero-stat">
-          <span class="hero-stat-label">账号</span>
-          <strong class="hero-stat-value">{{ activeAccountLabel }}</strong>
-        </div>
-        <div class="hero-stat">
-          <span class="hero-stat-label">周期</span>
-          <strong class="hero-stat-value">{{ periodLabel }}</strong>
-        </div>
-        <div class="hero-stat">
-          <span class="hero-stat-label">记录</span>
-          <strong class="hero-stat-value">{{ chartData.length }}</strong>
-        </div>
-      </div>
-    </section>
-
     <section class="surface-panel section-grid">
       <div class="toolbar-header">
         <div>
-          <h2 class="panel-heading">条件</h2>
-          <p class="panel-copy">选择账号与时间范围。</p>
+          <h1 class="panel-heading">用量统计</h1>
+          <p class="panel-copy">按时间范围查看全部账号的 Token 用量。</p>
         </div>
         <n-button secondary :loading="loading" @click="loadData">刷新数据</n-button>
       </div>
@@ -38,16 +17,6 @@
             <n-radio-button value="week">本周</n-radio-button>
             <n-radio-button value="month">本月</n-radio-button>
           </n-radio-group>
-        </div>
-
-        <div class="control-block">
-          <span class="control-label">账号</span>
-          <n-select
-            v-model:value="selectedAccountId"
-            :options="accountOptions"
-            placeholder="请选择账号"
-            @update:value="loadData"
-          />
         </div>
 
         <div class="control-block">
@@ -65,10 +34,9 @@
       <p>正在加载数据。</p>
     </section>
 
-    <template v-else-if="chartData.length > 0">
+    <template v-else-if="chartData.length > 0 || summaryRows.length > 0">
       <section class="surface-panel">
         <h2 class="panel-heading">摘要</h2>
-        <p class="panel-copy">当前周期汇总。</p>
         <div v-if="summary" class="metric-grid summary-grid">
           <div class="metric-card">
             <span class="metric-label">输入 Token</span>
@@ -82,33 +50,23 @@
             <span class="metric-label">请求次数</span>
             <strong class="metric-value">{{ summary.total_requests.toLocaleString() }}</strong>
           </div>
-          <div class="metric-card">
-            <span class="metric-label">费用估算</span>
-            <strong class="metric-value">${{ summary.total_cost.toFixed(4) }}</strong>
-          </div>
-        </div>
-      </section>
-
-      <section class="two-column-grid">
-        <div class="surface-panel">
-          <h2 class="panel-heading">Token 用量趋势</h2>
-          <p class="panel-copy">蓝色为输入，深色为输出。</p>
-          <div ref="tokenChartRef" class="chart-container" />
-        </div>
-
-        <div class="surface-panel surface-panel-dark">
-          <h2 class="panel-heading">费用趋势</h2>
-          <p class="panel-copy">逐日费用估算。</p>
-          <div ref="costChartRef" class="chart-container chart-container-sm" />
         </div>
       </section>
 
       <section class="surface-panel">
-        <h2 class="panel-heading">明细数据</h2>
-        <p class="panel-copy">逐日记录。</p>
+        <h2 class="panel-heading">Token 用量趋势</h2>
+        <p class="panel-copy">蓝色为输入，深色为输出。</p>
+        <div v-if="chartData.length > 0" ref="tokenChartRef" class="chart-container" />
+        <div v-else class="usage-empty">
+          <p>当前所选周期没有可绘制的趋势数据。</p>
+        </div>
+      </section>
+
+      <section class="surface-panel">
+        <h2 class="panel-heading">账号明细</h2>
         <n-data-table
           :columns="tableColumns"
-          :data="chartData"
+          :data="summaryRows"
           :pagination="{ pageSize: 10 }"
           size="small"
           striped
@@ -117,7 +75,7 @@
     </template>
 
     <section v-else class="surface-panel empty-panel">
-      <p>当前账号在所选周期内还没有用量数据。</p>
+      <p>当前所选周期内还没有用量数据。</p>
       <n-button secondary @click="loadData">重新加载</n-button>
     </section>
   </div>
@@ -150,53 +108,66 @@ echarts.use([
   CanvasRenderer,
 ])
 
+interface UsageSummaryRow {
+  account_id: string
+  account_name: string
+  input_tokens: number
+  output_tokens: number
+  request_count: number
+}
+
 const accountStore = useAccountStore()
 const usageStore = useUsageStore()
 
-const selectedAccountId = ref<string>('')
 const selectedPeriod = ref<UsagePeriod>('month')
 const chartType = ref<'line' | 'bar'>('line')
 const loading = ref(false)
 
 const tokenChartRef = ref<HTMLElement | null>(null)
-const costChartRef = ref<HTMLElement | null>(null)
 let tokenChart: echarts.ECharts | null = null
-let costChart: echarts.ECharts | null = null
 let chartResizeObserver: ResizeObserver | null = null
 
-const accountOptions = computed(() =>
-  accountStore.accounts.map((account) => ({
-    label: resolveAccountDisplayName(account),
-    value: account.id,
-  })),
-)
+const accountIds = computed(() => accountStore.accounts.map((account) => account.id))
 
 const summary = computed(() =>
-  selectedAccountId.value
-    ? usageStore.getSummary(selectedAccountId.value, selectedPeriod.value)
-    : null,
+  usageStore.getSummaryForAccounts(accountIds.value, selectedPeriod.value),
 )
 
 const chartData = computed<ChartDataPoint[]>(() =>
-  selectedAccountId.value
-    ? usageStore.getChartData(selectedAccountId.value, selectedPeriod.value)
-    : [],
+  usageStore.getChartDataForAccounts(accountIds.value, selectedPeriod.value),
 )
 
-const periodLabel = computed(
-  () =>
-    ({
-      day: '今日',
-      week: '本周',
-      month: '本月',
-    })[selectedPeriod.value],
-)
+const summaryRows = computed<UsageSummaryRow[]>(() =>
+  accountStore.accounts
+    .map((account) => {
+      const accountSummary = usageStore.getSummary(account.id, selectedPeriod.value)
+      if (!accountSummary) {
+        return null
+      }
 
-const activeAccountLabel = computed(() => {
-  if (!selectedAccountId.value) return '未选择'
-  const account = accountStore.accounts.find((item) => item.id === selectedAccountId.value)
-  return account ? resolveAccountDisplayName(account) : '未知账号'
-})
+      const totalTokens =
+        accountSummary.total_input_tokens +
+        accountSummary.total_output_tokens +
+        accountSummary.total_requests
+      if (totalTokens <= 0) {
+        return null
+      }
+
+      return {
+        account_id: account.id,
+        account_name: resolveAccountDisplayName(account),
+        input_tokens: accountSummary.total_input_tokens,
+        output_tokens: accountSummary.total_output_tokens,
+        request_count: accountSummary.total_requests,
+      }
+    })
+    .filter((row): row is UsageSummaryRow => Boolean(row))
+    .sort((left, right) => {
+      const leftWeight = left.input_tokens + left.output_tokens + left.request_count
+      const rightWeight = right.input_tokens + right.output_tokens + right.request_count
+      return rightWeight - leftWeight
+    }),
+)
 
 function formatTokens(value: number): string {
   if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(2)}M`
@@ -207,11 +178,14 @@ function formatTokens(value: number): string {
 const CHART_COLORS = {
   input: '#0071e3',
   output: '#1d1d1f',
-  cost: 'rgba(255, 255, 255, 0.82)',
 }
 
-const tableColumns: DataTableColumns<ChartDataPoint> = [
-  { title: '日期', key: 'date', sorter: 'default' },
+const tableColumns: DataTableColumns<UsageSummaryRow> = [
+  {
+    title: '账号名',
+    key: 'account_name',
+    sorter: (first, second) => first.account_name.localeCompare(second.account_name),
+  },
   {
     title: '输入 Token',
     key: 'input_tokens',
@@ -229,20 +203,18 @@ const tableColumns: DataTableColumns<ChartDataPoint> = [
     key: 'request_count',
     sorter: (first, second) => first.request_count - second.request_count,
   },
-  {
-    title: '费用 ($)',
-    key: 'cost',
-    render: (row) => row.cost.toFixed(6),
-    sorter: (first, second) => first.cost - second.cost,
-  },
 ]
 
 async function loadData() {
-  if (!selectedAccountId.value) return
+  if (accountIds.value.length === 0) return
+
   loading.value = true
   try {
-    await usageStore.loadUsage(selectedAccountId.value, selectedPeriod.value)
+    await usageStore.loadUsageForAccounts(accountIds.value, selectedPeriod.value)
     await nextTick()
+    if (chartResizeObserver && tokenChartRef.value) {
+      chartResizeObserver.observe(tokenChartRef.value)
+    }
     renderCharts()
   } finally {
     loading.value = false
@@ -305,10 +277,9 @@ function getBaseChartOptions() {
 }
 
 function renderCharts() {
-  if (!tokenChartRef.value || !costChartRef.value) return
+  if (!tokenChartRef.value || chartData.value.length === 0) return
 
   if (!tokenChart) tokenChart = echarts.init(tokenChartRef.value)
-  if (!costChart) costChart = echarts.init(costChartRef.value)
 
   const baseOptions = getBaseChartOptions()
   const seriesType = chartType.value
@@ -373,61 +344,6 @@ function renderCharts() {
     },
     true,
   )
-
-  costChart.setOption(
-    {
-      ...baseOptions,
-      tooltip: {
-        trigger: 'axis',
-        backgroundColor: '#1d1d1f',
-        borderColor: 'rgba(255, 255, 255, 0.08)',
-        borderWidth: 1,
-        textStyle: { color: '#ffffff' },
-      },
-      legend: undefined,
-      xAxis: {
-        ...baseOptions.xAxis,
-        axisLine: { lineStyle: { color: 'rgba(255, 255, 255, 0.12)' } },
-        axisLabel: { color: 'rgba(255, 255, 255, 0.56)', fontSize: 11 },
-      },
-      yAxis: {
-        type: 'value',
-        splitLine: { lineStyle: { color: 'rgba(255, 255, 255, 0.08)' } },
-        axisLabel: {
-          color: 'rgba(255, 255, 255, 0.56)',
-          fontSize: 11,
-          formatter: (value: number) => `$${value.toFixed(4)}`,
-        },
-      },
-      dataZoom:
-        chartData.value.length > 14
-          ? [
-              { type: 'inside' },
-              {
-                type: 'slider',
-                height: 18,
-                bottom: 5,
-                borderColor: 'rgba(255, 255, 255, 0.08)',
-                backgroundColor: 'rgba(255, 255, 255, 0.04)',
-                fillerColor: 'rgba(255, 255, 255, 0.14)',
-                handleStyle: { color: '#ffffff' },
-              },
-            ]
-          : [],
-      series: [
-        {
-          name: '费用',
-          type: 'bar',
-          data: chartData.value.map((item) => item.cost),
-          itemStyle: {
-            color: CHART_COLORS.cost,
-            borderRadius: [8, 8, 0, 0],
-          },
-        },
-      ],
-    },
-    true,
-  )
 }
 
 watch(chartType, () => {
@@ -439,28 +355,20 @@ onMounted(async () => {
     await accountStore.loadAccounts()
   }
 
-  const activeAccount = accountStore.activeAccount
-  if (activeAccount) {
-    selectedAccountId.value = activeAccount.id
-    await loadData()
-  } else if (accountOptions.value.length > 0) {
-    selectedAccountId.value = accountOptions.value[0].value
+  if (accountIds.value.length > 0) {
     await loadData()
   }
 
   chartResizeObserver = new ResizeObserver(() => {
     tokenChart?.resize()
-    costChart?.resize()
   })
 
   if (tokenChartRef.value) chartResizeObserver.observe(tokenChartRef.value)
-  if (costChartRef.value) chartResizeObserver.observe(costChartRef.value)
 })
 
 onUnmounted(() => {
   chartResizeObserver?.disconnect()
   tokenChart?.dispose()
-  costChart?.dispose()
 })
 </script>
 
@@ -474,7 +382,7 @@ onUnmounted(() => {
 
 .controls-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
 }
 
@@ -500,8 +408,16 @@ onUnmounted(() => {
   margin-top: 14px;
 }
 
-.chart-container-sm {
-  height: 250px;
+.usage-empty {
+  min-height: 120px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.usage-empty p {
+  margin: 0;
+  color: var(--app-ink-secondary);
 }
 
 @media (max-width: 960px) {

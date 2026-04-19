@@ -1,6 +1,6 @@
 <template>
   <div class="app-page codex-config-page">
-    <section class="surface-panel section-grid">
+    <section v-if="showConfigBanner" class="surface-panel section-grid">
       <n-alert v-if="snapshot?.backup_path" type="success" :show-icon="false">
         已保存，原配置备份到 {{ snapshot.backup_path }}。
       </n-alert>
@@ -149,6 +149,9 @@ const fieldSavingKey = ref<string | null>(null)
 const lastSavedFieldKey = ref<string | null>(null)
 
 const configPath = computed(() => snapshot.value?.path ?? '~/.codex/config.toml')
+const showConfigBanner = computed(
+  () => Boolean(snapshot.value?.backup_path) || Boolean(snapshot.value && !snapshot.value.exists),
+)
 
 const officialConfigGroups: ConfigReferenceGroup[] = [
   {

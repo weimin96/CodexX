@@ -39,6 +39,7 @@ export const useSettingsStore = defineStore('settings', () => {
     language: 'zh-CN',
     check_interval: '300',
     autostart: 'false',
+    token_keepalive_enabled: 'false',
   })
   const loading = ref(false)
   const loaded = ref(false)

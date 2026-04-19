@@ -36,6 +36,12 @@ pub async fn get_settings(state: State<'_, AppState>) -> Result<Value, AppError>
     if !map.contains_key("autostart") {
         map.insert("autostart".to_string(), Value::String("false".to_string()));
     }
+    if !map.contains_key("token_keepalive_enabled") {
+        map.insert(
+            "token_keepalive_enabled".to_string(),
+            Value::String("false".to_string()),
+        );
+    }
     Ok(Value::Object(map))
 }
 

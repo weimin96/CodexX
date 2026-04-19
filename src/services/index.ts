@@ -308,6 +308,7 @@ export const settingsService = {
         language: 'zh-CN',
         check_interval: '300',
         autostart: 'false',
+        token_keepalive_enabled: 'false',
       }
     }
     return invoke<AppSettings>('get_settings')

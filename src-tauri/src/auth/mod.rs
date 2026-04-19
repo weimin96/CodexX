@@ -1,5 +1,6 @@
 use base64::engine::general_purpose::{URL_SAFE, URL_SAFE_NO_PAD};
 use base64::Engine;
+use chrono::{DateTime, Duration as ChronoDuration, Utc};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -75,6 +76,12 @@ pub struct AuthCheckResult {
     pub status: AuthStatus,
     pub message: Option<String>,
     pub expires_at: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct OAuthCredentialRefreshResult {
+    pub credential_value: String,
+    pub refreshed_at: String,
 }
 
 pub struct AuthService {
@@ -284,6 +291,43 @@ impl AuthService {
         }
     }
 
+    pub async fn refresh_oauth_credential(
+        &self,
+        credential: &str,
+    ) -> AppResult<OAuthCredentialRefreshResult> {
+        let mut auth_json = parse_refreshable_oauth_credential(credential)?;
+        let refresh_token = oauth_refresh_token_from_credential(&auth_json)?;
+        let token_url = format!("{OAUTH_ISSUER}/oauth/token");
+        let response = self
+            .client
+            .post(&token_url)
+            .form(&[
+                ("grant_type", "refresh_token"),
+                ("refresh_token", refresh_token.as_str()),
+                ("client_id", OAUTH_CLIENT_ID),
+            ])
+            .send()
+            .await?;
+
+        let status = response.status();
+        if !status.is_success() {
+            let body = response.text().await.unwrap_or_default();
+            return Err(AppError::AuthFailed(format!(
+                "刷新 OAuth Token 失败 {}: {}",
+                status.as_u16(),
+                truncate_error_body(&body, 160)
+            )));
+        }
+
+        let token_response: OAuthRefreshTokenResponse = response.json().await?;
+        let refreshed_at = Utc::now().to_rfc3339();
+        apply_oauth_refresh_response(&mut auth_json, token_response, &refreshed_at)?;
+        Ok(OAuthCredentialRefreshResult {
+            credential_value: serde_json::to_string(&auth_json)?,
+            refreshed_at,
+        })
+    }
+
     async fn validate_session(
         &self,
         account: &Account,
@@ -322,6 +366,20 @@ impl AuthService {
             })
         }
     }
+}
+
+pub fn oauth_credential_refresh_due(credential: &str, min_age: ChronoDuration) -> bool {
+    let Ok(value) = serde_json::from_str::<Value>(credential) else {
+        return false;
+    };
+    let Some(last_refresh) = value.get("last_refresh").and_then(Value::as_str) else {
+        return true;
+    };
+    let Ok(last_refresh) = DateTime::parse_from_rfc3339(last_refresh) else {
+        return true;
+    };
+
+    Utc::now().signed_duration_since(last_refresh.with_timezone(&Utc)) >= min_age
 }
 
 impl Default for AuthService {
@@ -401,11 +459,7 @@ fn build_auth_json_from_oauth_tokens(
     token_response: OAuthTokenResponse,
 ) -> AppResult<CompletedOAuthLogin> {
     let id_token_claims = decode_jwt_payload(&token_response.id_token)?;
-    let account_id = id_token_claims
-        .get("https://api.openai.com/auth")
-        .and_then(Value::as_object)
-        .and_then(|auth| auth.get("chatgpt_account_id"))
-        .and_then(Value::as_str)
+    let account_id = chatgpt_account_id_from_claims(&id_token_claims)
         .ok_or_else(|| AppError::InvalidInput("无法从 OAuth 登录结果识别账号 ID".to_string()))?
         .to_string();
     let email = id_token_claims
@@ -435,6 +489,95 @@ fn build_auth_json_from_oauth_tokens(
         email,
         name,
     })
+}
+
+fn parse_refreshable_oauth_credential(credential: &str) -> AppResult<Value> {
+    let value = serde_json::from_str::<Value>(credential).map_err(|_| {
+        AppError::InvalidInput("该 OAuth 账号不是标准 auth.json，无法刷新".to_string())
+    })?;
+    let has_tokens = value.get("tokens").and_then(Value::as_object).is_some();
+    if !has_tokens {
+        return Err(AppError::InvalidInput(
+            "该 OAuth 账号缺少 tokens 对象，无法刷新".to_string(),
+        ));
+    }
+    Ok(value)
+}
+
+fn oauth_refresh_token_from_credential(auth_json: &Value) -> AppResult<String> {
+    auth_json
+        .get("tokens")
+        .and_then(Value::as_object)
+        .and_then(|tokens| tokens.get("refresh_token"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|token| !token.is_empty())
+        .map(ToString::to_string)
+        .ok_or_else(|| {
+            AppError::InvalidInput("该 OAuth 账号缺少 refresh_token，请重新登录".to_string())
+        })
+}
+
+fn apply_oauth_refresh_response(
+    auth_json: &mut Value,
+    token_response: OAuthRefreshTokenResponse,
+    refreshed_at: &str,
+) -> AppResult<()> {
+    let object = auth_json
+        .as_object_mut()
+        .ok_or_else(|| AppError::InvalidInput("OAuth auth.json 根结构无效".to_string()))?;
+    let tokens = object
+        .get_mut("tokens")
+        .and_then(Value::as_object_mut)
+        .ok_or_else(|| AppError::InvalidInput("OAuth auth.json 缺少 tokens 对象".to_string()))?;
+
+    tokens.insert(
+        "access_token".to_string(),
+        Value::String(token_response.access_token),
+    );
+
+    if let Some(refresh_token) = token_response
+        .refresh_token
+        .filter(|token| !token.trim().is_empty())
+    {
+        tokens.insert("refresh_token".to_string(), Value::String(refresh_token));
+    }
+
+    if let Some(id_token) = token_response
+        .id_token
+        .filter(|token| !token.trim().is_empty())
+    {
+        if let Ok(claims) = decode_jwt_payload(&id_token) {
+            if let Some(account_id) = chatgpt_account_id_from_claims(&claims) {
+                tokens.insert(
+                    "account_id".to_string(),
+                    Value::String(account_id.to_string()),
+                );
+            }
+        }
+        tokens.insert("id_token".to_string(), Value::String(id_token));
+    }
+
+    object.insert(
+        "last_refresh".to_string(),
+        Value::String(refreshed_at.to_string()),
+    );
+    object.insert(
+        "auth_mode".to_string(),
+        Value::String("chatgpt".to_string()),
+    );
+    object
+        .entry("OPENAI_API_KEY".to_string())
+        .or_insert(Value::Null);
+    Ok(())
+}
+
+fn chatgpt_account_id_from_claims(claims: &Value) -> Option<&str> {
+    claims
+        .get("https://api.openai.com/auth")
+        .and_then(Value::as_object)
+        .and_then(|auth| auth.get("chatgpt_account_id"))
+        .and_then(Value::as_str)
 }
 
 pub(crate) fn decode_jwt_payload(token: &str) -> AppResult<Value> {
@@ -639,4 +782,83 @@ struct OAuthTokenResponse {
     access_token: String,
     refresh_token: String,
     id_token: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct OAuthRefreshTokenResponse {
+    access_token: String,
+    refresh_token: Option<String>,
+    id_token: Option<String>,
+}
+
+#[cfg(test)]
+mod token_refresh_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn refresh_due_when_last_refresh_is_missing() {
+        let credential = json!({
+            "auth_mode": "chatgpt",
+            "tokens": {
+                "access_token": "access",
+                "refresh_token": "refresh"
+            }
+        })
+        .to_string();
+
+        assert!(oauth_credential_refresh_due(
+            &credential,
+            ChronoDuration::minutes(30),
+        ));
+    }
+
+    #[test]
+    fn refresh_not_due_for_recent_refresh() {
+        let credential = json!({
+            "auth_mode": "chatgpt",
+            "last_refresh": Utc::now().to_rfc3339(),
+            "tokens": {
+                "access_token": "access",
+                "refresh_token": "refresh"
+            }
+        })
+        .to_string();
+
+        assert!(!oauth_credential_refresh_due(
+            &credential,
+            ChronoDuration::minutes(30),
+        ));
+    }
+
+    #[test]
+    fn refresh_response_preserves_existing_refresh_token_when_absent() {
+        let mut credential = json!({
+            "tokens": {
+                "access_token": "old-access",
+                "refresh_token": "old-refresh",
+                "id_token": "old-id",
+                "account_id": "old-account"
+            }
+        });
+
+        apply_oauth_refresh_response(
+            &mut credential,
+            OAuthRefreshTokenResponse {
+                access_token: "new-access".to_string(),
+                refresh_token: None,
+                id_token: None,
+            },
+            "2026-04-19T00:00:00Z",
+        )
+        .unwrap();
+
+        let tokens = credential.get("tokens").unwrap();
+        assert_eq!(tokens.get("access_token").unwrap(), "new-access");
+        assert_eq!(tokens.get("refresh_token").unwrap(), "old-refresh");
+        assert_eq!(
+            credential.get("last_refresh").unwrap(),
+            "2026-04-19T00:00:00Z"
+        );
+    }
 }

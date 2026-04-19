@@ -182,6 +182,7 @@ const accountStore = useAccountStore()
 const settingsStore = useSettingsStore()
 const { activeAccount } = storeToRefs(accountStore)
 const quotaAlertShownKeys = new Set<string>()
+let startupAccountRefreshStarted = false
 
 const currentRoute = computed(() => route.name as string)
 const activeAccountDisplayName = computed(() =>
@@ -313,6 +314,8 @@ onMounted(async () => {
       console.warn('状态事件监听失败', error)
     }
   }
+
+  void refreshAccountsOnFirstStartup()
 })
 
 function handleQuotaExhausted(payload: CodexQuotaExhaustedEvent) {
@@ -386,6 +389,19 @@ async function runStartupAutoUpdateCheck() {
     })
   } catch (error) {
     console.warn('启动自动检查更新失败', error)
+  }
+}
+
+async function refreshAccountsOnFirstStartup() {
+  if (startupAccountRefreshStarted || accountStore.accounts.length === 0) {
+    return
+  }
+
+  startupAccountRefreshStarted = true
+  try {
+    await accountStore.checkAllStatus()
+  } catch (error) {
+    console.warn('首次启动刷新账号信息失败', error)
   }
 }
 </script>

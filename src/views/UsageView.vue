@@ -232,19 +232,27 @@ async function loadData() {
   if (accountIds.value.length === 0) return
 
   loading.value = true
+  let shouldRenderChart = false
   try {
     await usageStore.loadUsageForAccounts(accountIds.value, selectedPeriod.value)
     if (selectedPeriod.value !== 'day') {
       await usageStore.loadUsageForAccounts(accountIds.value, 'day')
     }
-    await nextTick()
-    if (chartResizeObserver && tokenChartRef.value) {
-      chartResizeObserver.observe(tokenChartRef.value)
-    }
-    renderCharts()
+    shouldRenderChart = true
   } finally {
     loading.value = false
   }
+
+  if (!shouldRenderChart) {
+    return
+  }
+
+  await nextTick()
+  if (chartResizeObserver && tokenChartRef.value) {
+    chartResizeObserver.disconnect()
+    chartResizeObserver.observe(tokenChartRef.value)
+  }
+  renderCharts()
 }
 
 function onPeriodChange() {

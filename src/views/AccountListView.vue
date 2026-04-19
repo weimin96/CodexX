@@ -14,7 +14,7 @@
           <div class="search-row">
             <n-input
               v-model:value="searchQuery"
-              placeholder="搜索账号名称、邮箱、组织..."
+              placeholder="搜索账号名称、邮箱..."
               clearable
             >
               <template #prefix>
@@ -267,8 +267,7 @@ const filteredAccounts = computed(() => {
     list = list.filter(
       (account) =>
         resolveAccountDisplayName(account).toLowerCase().includes(query) ||
-        account.email?.toLowerCase().includes(query) ||
-        account.organization?.toLowerCase().includes(query),
+        account.email?.toLowerCase().includes(query),
     )
   }
   return list

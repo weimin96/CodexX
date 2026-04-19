@@ -121,7 +121,30 @@ export const useAccountStore = defineStore('account', () => {
     }
   }
 
-  function updateAccountStatusFromEvent(accountId: string, status: string, message?: string) {
+  function upsertAccountSnapshot(snapshot: Account) {
+    const existingIndex = accounts.value.findIndex((account) => account.id === snapshot.id)
+    if (existingIndex >= 0) {
+      accounts.value[existingIndex] = snapshot
+    } else {
+      accounts.value.push(snapshot)
+    }
+
+    if (!activeAccountId.value && snapshot.is_default) {
+      activeAccountId.value = snapshot.id
+    }
+  }
+
+  function updateAccountStatusFromEvent(
+    accountId: string,
+    status: string,
+    message?: string,
+    accountSnapshot?: Account,
+  ) {
+    if (accountSnapshot) {
+      upsertAccountSnapshot(accountSnapshot)
+      return
+    }
+
     const acc = accounts.value.find((a) => a.id === accountId)
     if (acc) {
       acc.status = status as Account['status']
@@ -147,6 +170,7 @@ export const useAccountStore = defineStore('account', () => {
     syncLocalAuthFile,
     checkAccountStatus,
     checkAllStatus,
+    upsertAccountSnapshot,
     updateAccountStatusFromEvent,
   }
 })

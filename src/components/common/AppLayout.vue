@@ -105,7 +105,11 @@
                 {{ activeAccount ? AUTH_TYPE_LABELS[activeAccount.auth_type] : '等待选择' }}
               </div>
             </div>
-            <StatusDot :status="activeAccount?.status ?? 'unknown'" />
+            <StatusDot
+              :status="activeAccountStatusDisplay.tone"
+              :label="activeAccountStatusDisplay.label"
+              :title="activeAccountStatusDisplay.title"
+            />
           </button>
         </div>
 
@@ -166,6 +170,7 @@ import { useAccountStore } from '@/stores/account'
 import { AUTH_TYPE_LABELS } from '@/types'
 import StatusDot from '@/components/common/StatusDot.vue'
 import { resolveAccountAvatarText, resolveAccountDisplayName } from '@/utils/account-display'
+import { resolveAccountStatusDisplay } from '@/utils/account-status'
 
 const router = useRouter()
 const route = useRoute()
@@ -179,6 +184,7 @@ const activeAccountDisplayName = computed(() =>
 const activeAccountAvatarText = computed(() =>
   activeAccount.value ? resolveAccountAvatarText(activeAccount.value) : '?',
 )
+const activeAccountStatusDisplay = computed(() => resolveAccountStatusDisplay(activeAccount.value))
 
 const renderIcon = (svgPath: string) => () =>
   h(NIcon, null, {
@@ -277,13 +283,14 @@ onMounted(async () => {
 
   if (isTauri.value) {
     try {
-      await listen<{ account_id: string; status: string; message?: string }>(
+      await listen<{ account_id: string; status: string; message?: string; account?: import('@/types').Account }>(
         'account-status-updated',
         ({ payload }) => {
           accountStore.updateAccountStatusFromEvent(
             payload.account_id,
             payload.status,
             payload.message,
+            payload.account,
           )
         },
       )

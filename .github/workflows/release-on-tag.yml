@@ -1,0 +1,72 @@
+name: Tag 发布
+
+on:
+  push:
+    tags:
+      - '*'
+
+permissions:
+  contents: write
+
+jobs:
+  publish-tauri:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.platform }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Windows 安装包
+            platform: windows-latest
+            args: ''
+          - name: macOS Intel 安装包
+            platform: macos-latest
+            args: --target x86_64-apple-darwin
+            rustTargets: x86_64-apple-darwin
+          - name: macOS Apple Silicon 安装包
+            platform: macos-latest
+            args: --target aarch64-apple-darwin
+            rustTargets: aarch64-apple-darwin
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 安装 pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: 安装 Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: 安装 Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: 安装 macOS 构建目标
+        if: startsWith(matrix.platform, 'macos')
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rustTargets }}
+
+      - name: 安装前端依赖
+        run: pnpm install --frozen-lockfile
+
+      # 当前仓库的 updater 仍是占位配置，因此这里先只负责安装包发布。
+      - name: 构建并上传到 GitHub Release
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: CodexX ${{ github.ref_name }}
+          releaseBody: |
+            自动发布于 GitHub Actions。
+
+            请在下方 Assets 中下载对应平台的安装包。
+          releaseDraft: false
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          args: ${{ matrix.args }}

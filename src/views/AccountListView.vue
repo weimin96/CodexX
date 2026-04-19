@@ -366,7 +366,7 @@ const accountActionOptions = computed<DropdownOption[]>(() => [
     key: 'trigger-conversation',
     disabled: triggeringConversation.value || !hasAccounts.value,
     props: {
-      title: '触发5小时刷新',
+      title: '触发5小时倒计时',
     },
     icon: () => renderDropdownIcon('M21 15a4 4 0 0 1-4 4H7l-4 4V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4v8z'),
   },

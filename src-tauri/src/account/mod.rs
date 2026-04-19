@@ -434,6 +434,85 @@ impl<'a> AccountRepository<'a> {
         Ok(())
     }
 
+    pub fn merge_accounts(&self, target_id: &str, source_id: &str) -> AppResult<()> {
+        if target_id == source_id {
+            return Ok(());
+        }
+
+        let conn = self.db.get_conn();
+        let tx = conn.unchecked_transaction()?;
+
+        let source_exists = tx
+            .query_row(
+                "SELECT COUNT(1) FROM accounts WHERE id = ?1",
+                params![source_id],
+                |row| row.get::<_, i64>(0),
+            )
+            .optional()?
+            .unwrap_or(0)
+            > 0;
+        if !source_exists {
+            tx.commit()?;
+            return Ok(());
+        }
+
+        let source_is_default = tx
+            .query_row(
+                "SELECT is_default FROM accounts WHERE id = ?1",
+                params![source_id],
+                |row| row.get::<_, i32>(0),
+            )
+            .optional()?
+            .unwrap_or(0)
+            != 0;
+        let target_has_credentials = tx
+            .query_row(
+                "SELECT COUNT(1) FROM credentials WHERE account_id = ?1",
+                params![target_id],
+                |row| row.get::<_, i64>(0),
+            )
+            .optional()?
+            .unwrap_or(0)
+            > 0;
+
+        if target_has_credentials {
+            tx.execute(
+                "DELETE FROM credentials WHERE account_id = ?1",
+                params![source_id],
+            )?;
+        } else {
+            tx.execute(
+                "UPDATE credentials SET account_id = ?1 WHERE account_id = ?2",
+                params![target_id, source_id],
+            )?;
+        }
+
+        tx.execute(
+            "UPDATE usage_records SET account_id = ?1 WHERE account_id = ?2",
+            params![target_id, source_id],
+        )?;
+        tx.execute(
+            "UPDATE codex_launch_sessions SET account_id = ?1 WHERE account_id = ?2",
+            params![target_id, source_id],
+        )?;
+        tx.execute(
+            "UPDATE api_usage_events SET account_id = ?1 WHERE account_id = ?2",
+            params![target_id, source_id],
+        )?;
+
+        if source_is_default {
+            tx.execute("UPDATE accounts SET is_default = 0 WHERE is_default = 1", [])?;
+            tx.execute(
+                "UPDATE accounts SET is_default = 1, updated_at = ?1 WHERE id = ?2",
+                params![Utc::now().to_rfc3339(), target_id],
+            )?;
+        }
+
+        tx.execute("DELETE FROM accounts WHERE id = ?1", params![source_id])?;
+        tx.commit()?;
+        Ok(())
+    }
+
     pub fn update_codex_profile(&self, id: &str, profile: &CodexAccountProfile) -> AppResult<()> {
         let now = Utc::now().to_rfc3339();
         let replace_windows = if profile.usage_error.is_none() { 1 } else { 0 };

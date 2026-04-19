@@ -50,6 +50,17 @@
             @update:value="handleCheckIntervalChange"
           />
         </div>
+
+        <div class="setting-item">
+          <div class="setting-copy">
+            <div class="setting-title">Token 定期保活</div>
+            <div class="setting-description">启用后仅刷新 OAuth 账号的 accessToken 和 refreshToken，成功后写回本机加密库。</div>
+          </div>
+          <n-switch
+            :value="settingsStore.settings.token_keepalive_enabled === 'true'"
+            @update:value="handleTokenKeepaliveChange"
+          />
+        </div>
       </div>
     </section>
 
@@ -251,6 +262,17 @@ async function handleAutostartChange(enabled: boolean) {
     autosaveState.value = 'error'
     message.error(enabled ? '开启开机自启失败' : '关闭开机自启失败')
   }
+}
+
+async function handleTokenKeepaliveChange(enabled: boolean) {
+  if (String(enabled) === settingsStore.settings.token_keepalive_enabled) {
+    return
+  }
+
+  await persistSettingsChange(
+    { token_keepalive_enabled: String(enabled) },
+    enabled ? '开启 Token 保活失败' : '关闭 Token 保活失败',
+  )
 }
 
 async function persistSettingsChange(

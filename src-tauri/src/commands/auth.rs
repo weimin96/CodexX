@@ -11,6 +11,7 @@ use crate::auth::{
     self, AuthService, OAuthCallbackFinishedEvent, OAuthLoginResult, PendingOAuthLogin,
 };
 use crate::error::AppError;
+use crate::local_sync::LocalAuthSyncService;
 use crate::{AppState, OAuthCallbackListenerHandle};
 
 const OAUTH_CALLBACK_FINISHED_EVENT: &str = "oauth-callback-finished";
@@ -30,6 +31,33 @@ pub async fn refresh_token(
     };
 
     let auth_service = AuthService::new();
+    if account.auth_type == AuthType::OAuthToken {
+        let refresh_result = auth_service.refresh_oauth_credential(&credential).await?;
+        {
+            let db = state.db.lock().await;
+            let repo = AccountRepository::new(&db);
+            repo.update_credential(
+                &account_id,
+                &refresh_result.credential_value,
+                Some("oauth_json"),
+            )?;
+            if account.is_default {
+                LocalAuthSyncService::write_account_to_default_auth_file(&repo, &account_id)?;
+            }
+        }
+
+        let mut result = auth_service
+            .validate_credential(&account, &refresh_result.credential_value)
+            .await?;
+        if matches!(&result.status, auth::AuthStatus::Valid) {
+            result.message = Some(format!(
+                "Token 已刷新并验证有效，刷新时间 {}",
+                refresh_result.refreshed_at
+            ));
+        }
+        return Ok(serde_json::to_value(result)?);
+    }
+
     let result = auth_service
         .validate_credential(&account, &credential)
         .await?;

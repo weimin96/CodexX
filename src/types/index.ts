@@ -196,6 +196,7 @@ export interface AppSettings {
   language: string
   check_interval: string
   autostart: string
+  token_keepalive_enabled: string
 }
 
 // ============================================================

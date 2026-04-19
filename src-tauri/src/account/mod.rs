@@ -278,6 +278,37 @@ impl<'a> AccountRepository<'a> {
         self.get_by_id(&input.id)
     }
 
+    pub fn update_credential(
+        &self,
+        account_id: &str,
+        credential_value: &str,
+        credential_type: Option<&str>,
+    ) -> AppResult<()> {
+        let encrypted = security::encrypt(credential_value)?;
+        let now = Utc::now().to_rfc3339();
+        let affected = if let Some(credential_type) = credential_type {
+            self.db.get_conn().execute(
+                "UPDATE credentials
+                 SET credential_type = ?1, encrypted_value = ?2, updated_at = ?3
+                 WHERE account_id = ?4",
+                params![credential_type, encrypted, now, account_id],
+            )?
+        } else {
+            self.db.get_conn().execute(
+                "UPDATE credentials
+                 SET encrypted_value = ?1, updated_at = ?2
+                 WHERE account_id = ?3",
+                params![encrypted, now, account_id],
+            )?
+        };
+
+        if affected == 0 {
+            return Err(AppError::AccountNotFound(account_id.to_string()));
+        }
+
+        Ok(())
+    }
+
     pub fn upsert_synced_account(&self, input: UpsertSyncedAccountInput) -> AppResult<Account> {
         let UpsertSyncedAccountInput {
             stable_id,

@@ -244,9 +244,19 @@ const summaryRows = computed<UsageSummaryRow[]>(() =>
 )
 
 function formatTokens(value: number): string {
-  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(2)}M`
-  if (value >= 1_000) return `${(value / 1_000).toFixed(1)}K`
-  return String(value)
+  const units = [
+    { threshold: 1_000_000_000_000, label: 'T' },
+    { threshold: 1_000_000_000, label: 'B' },
+    { threshold: 1_000_000, label: 'M' },
+    { threshold: 1_000, label: 'K' },
+  ]
+
+  const compactUnit = units.find((unit) => value >= unit.threshold)
+  if (!compactUnit) {
+    return Math.round(value).toLocaleString()
+  }
+
+  return `${(value / compactUnit.threshold).toFixed(1)} ${compactUnit.label}`
 }
 
 function formatShare(value: number, total: number): string {
@@ -268,7 +278,7 @@ function segmentWidth(value: number, total: number): string {
 
 const CHART_COLORS = {
   input: '#0071e3',
-  output: '#4b5563',
+  output: '#06b6d4',
 }
 
 async function loadData() {
@@ -410,8 +420,8 @@ function renderCharts() {
                     x2: 0,
                     y2: 1,
                     colorStops: [
-                      { offset: 0, color: 'rgba(75, 85, 99, 0.16)' },
-                      { offset: 1, color: 'rgba(75, 85, 99, 0)' },
+                      { offset: 0, color: 'rgba(6, 182, 212, 0.16)' },
+                      { offset: 1, color: 'rgba(6, 182, 212, 0)' },
                     ],
                   },
                 }

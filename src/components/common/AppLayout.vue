@@ -90,37 +90,37 @@
 
     <div class="app-body" :class="{ 'app-body-collapsed': sidebarCollapsed }">
       <aside class="sidebar" :class="{ collapsed: sidebarCollapsed }">
-        <div class="sidebar-toolbar">
-          <button
-            class="sidebar-toggle-button"
-            type="button"
-            :title="sidebarCollapsed ? '展开侧边栏' : '收起侧边栏'"
-            :aria-label="sidebarCollapsed ? '展开侧边栏' : '收起侧边栏'"
-            @click="sidebarCollapsed = !sidebarCollapsed"
-          >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
-              <path
-                v-if="sidebarCollapsed"
-                d="M9 6l6 6-6 6"
-                stroke="currentColor"
-                stroke-width="1.8"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-              />
-              <path
-                v-else
-                d="M15 6l-6 6 6 6"
-                stroke="currentColor"
-                stroke-width="1.8"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-              />
-            </svg>
-          </button>
-        </div>
-
         <div class="sidebar-top">
-          <div v-if="!sidebarCollapsed" class="sidebar-section-label">当前账号</div>
+          <div class="sidebar-section-header" :class="{ collapsed: sidebarCollapsed }">
+            <div v-if="!sidebarCollapsed" class="sidebar-section-label">当前账号</div>
+            <button
+              class="sidebar-toggle-button"
+              type="button"
+              :title="sidebarCollapsed ? '展开侧边栏' : '收起侧边栏'"
+              :aria-label="sidebarCollapsed ? '展开侧边栏' : '收起侧边栏'"
+              @click="sidebarCollapsed = !sidebarCollapsed"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+                <path
+                  v-if="sidebarCollapsed"
+                  d="M9 6l6 6-6 6"
+                  stroke="currentColor"
+                  stroke-width="1.8"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                />
+                <path
+                  v-else
+                  d="M15 6l-6 6 6 6"
+                  stroke="currentColor"
+                  stroke-width="1.8"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                />
+              </svg>
+            </button>
+          </div>
+
           <button
             class="account-chip"
             :class="{ collapsed: sidebarCollapsed }"
@@ -654,16 +654,22 @@ async function refreshAccountsOnFirstStartup() {
   padding-inline: 12px;
 }
 
-.sidebar-toolbar {
+.sidebar-section-header {
   display: flex;
-  justify-content: flex-end;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.sidebar-section-header.collapsed {
+  justify-content: center;
 }
 
 .sidebar-toggle-button {
-  width: 30px;
-  height: 30px;
+  width: 36px;
+  height: 36px;
   border: none;
-  border-radius: 10px;
+  border-radius: 14px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -766,6 +772,19 @@ async function refreshAccountsOnFirstStartup() {
 .sidebar.collapsed .sidebar-navigation :deep(.n-menu-item-content) {
   justify-content: center;
   padding-inline: 0 !important;
+  padding-right: 0 !important;
+  grid-template-areas: "icon";
+  grid-template-columns: 1fr;
+  justify-items: center;
+}
+
+.sidebar.collapsed .sidebar-navigation :deep(.n-menu-item-content__icon) {
+  margin-right: 0 !important;
+}
+
+.sidebar.collapsed .sidebar-navigation :deep(.n-menu-item-content-header),
+.sidebar.collapsed .sidebar-navigation :deep(.n-menu-item-content__arrow) {
+  display: none !important;
 }
 
 .sidebar-footer {

@@ -282,9 +282,14 @@ const CHART_COLORS = {
 }
 
 async function loadData() {
-  if (accountIds.value.length === 0) return
+  if (accountIds.value.length === 0) {
+    disposeTokenChart()
+    return
+  }
 
   loading.value = true
+  // 加载态会卸载图表容器，旧实例必须释放，否则后续会继续渲染到已移除的 DOM。
+  disposeTokenChart()
   let shouldRenderChart = false
   try {
     await usageStore.loadUsageForAccounts(accountIds.value, selectedPeriod.value)
@@ -301,10 +306,7 @@ async function loadData() {
   }
 
   await nextTick()
-  if (chartResizeObserver && tokenChartRef.value) {
-    chartResizeObserver.disconnect()
-    chartResizeObserver.observe(tokenChartRef.value)
-  }
+  observeTokenChartContainer()
   renderCharts()
 }
 
@@ -364,7 +366,10 @@ function getBaseChartOptions() {
 }
 
 function renderCharts() {
-  if (!tokenChartRef.value || chartData.value.length === 0) return
+  if (!tokenChartRef.value || chartData.value.length === 0) {
+    disposeTokenChart()
+    return
+  }
 
   if (!tokenChart) tokenChart = echarts.init(tokenChartRef.value)
 
@@ -437,6 +442,17 @@ watch(chartType, () => {
   renderCharts()
 })
 
+function observeTokenChartContainer() {
+  if (!chartResizeObserver || !tokenChartRef.value) return
+  chartResizeObserver.disconnect()
+  chartResizeObserver.observe(tokenChartRef.value)
+}
+
+function disposeTokenChart() {
+  tokenChart?.dispose()
+  tokenChart = null
+}
+
 onMounted(async () => {
   if (accountStore.accounts.length === 0) {
     await accountStore.loadAccounts()
@@ -450,12 +466,12 @@ onMounted(async () => {
     tokenChart?.resize()
   })
 
-  if (tokenChartRef.value) chartResizeObserver.observe(tokenChartRef.value)
+  observeTokenChartContainer()
 })
 
 onUnmounted(() => {
   chartResizeObserver?.disconnect()
-  tokenChart?.dispose()
+  disposeTokenChart()
 })
 </script>
 

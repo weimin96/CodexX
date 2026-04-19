@@ -24,9 +24,9 @@
         <span class="meta-label">邮箱</span>
         <span class="meta-value">{{ account.email }}</span>
       </div>
-      <div v-if="account.organization" class="meta-item">
-        <span class="meta-label">组织</span>
-        <span class="meta-value">{{ account.organization }}</span>
+      <div v-if="displayOrganization" class="meta-item">
+        <span class="meta-label">{{ organizationLabel }}</span>
+        <span class="meta-value">{{ displayOrganization }}</span>
       </div>
       <div v-if="account.last_checked_at" class="meta-item">
         <span class="meta-label">最后检测</span>
@@ -78,6 +78,12 @@ import type { Account, CodexUsageWindow } from '@/types'
 import StatusDot from '@/components/common/StatusDot.vue'
 import { format, parseISO } from 'date-fns'
 import { computed } from 'vue'
+import {
+  resolveAccountAvatarText,
+  resolveAccountDisplayName,
+  resolveAccountOrganizationDisplay,
+  resolveAccountOrganizationLabel,
+} from '@/utils/account-display'
 
 const props = defineProps<{
   account: Account
@@ -91,8 +97,10 @@ defineEmits<{
   delete: []
 }>()
 
-const displayName = computed(() => resolveLegacyAccountName(props.account))
-const displayAvatarText = computed(() => resolveAvatarText(props.account, displayName.value))
+const displayName = computed(() => resolveAccountDisplayName(props.account))
+const displayAvatarText = computed(() => resolveAccountAvatarText(props.account))
+const displayOrganization = computed(() => resolveAccountOrganizationDisplay(props.account))
+const organizationLabel = computed(() => resolveAccountOrganizationLabel(props.account) ?? '组织')
 const displayUsageError = computed(() => formatUsageError(props.account.codex_usage_error))
 
 function formatDate(iso: string): string {
@@ -121,33 +129,6 @@ function formatPlanType(planType: string): string {
   const normalized = planType.trim()
   if (!normalized) return '未知计划'
   return normalized.toUpperCase()
-}
-
-function resolveLegacyAccountName(account: Account): string {
-  const normalizedName = account.name.trim()
-  if (!normalizedName) {
-    return account.email?.trim() || '未命名账号'
-  }
-
-  if (!normalizedName.startsWith('本地 auth.json')) {
-    return normalizedName
-  }
-
-  return account.email?.trim() || extractLegacyWrappedText(normalizedName) || '本地同步账号'
-}
-
-function extractLegacyWrappedText(value: string): string | null {
-  const matched = value.match(/[（(]([^（）()]+)[）)]/)
-  const candidate = matched?.[1]?.trim()
-  return candidate || null
-}
-
-function resolveAvatarText(account: Account, name: string): string {
-  if (!account.name.trim().startsWith('本地 auth.json') && account.avatar_text) {
-    return account.avatar_text
-  }
-
-  return name[0]?.toUpperCase() || account.avatar_text || '?'
 }
 
 function formatUsageError(error?: string): string {
@@ -192,8 +173,8 @@ function formatUsageError(error?: string): string {
 }
 
 .account-card.default {
-  background: var(--app-dark-surface);
-  color: var(--app-white);
+  background: var(--app-feature-surface);
+  color: var(--app-feature-ink);
 }
 
 .card-top {
@@ -254,7 +235,7 @@ function formatUsageError(error?: string): string {
 }
 
 .account-card.default .card-subtitle {
-  color: rgba(255, 255, 255, 0.72);
+  color: var(--app-feature-ink-secondary);
 }
 
 .label-pill {
@@ -274,8 +255,8 @@ function formatUsageError(error?: string): string {
 }
 
 .account-card.default .label-pill-contrast {
-  background: rgba(255, 255, 255, 0.12);
-  color: #ffffff;
+  background: var(--app-feature-surface-muted);
+  color: var(--app-feature-ink);
 }
 
 .label-pill-blue {
@@ -303,7 +284,7 @@ function formatUsageError(error?: string): string {
 }
 
 .account-card.default .meta-item {
-  border-bottom-color: rgba(255, 255, 255, 0.08);
+  border-bottom-color: var(--app-feature-border);
 }
 
 .meta-label {
@@ -326,7 +307,7 @@ function formatUsageError(error?: string): string {
 
 .account-card.default .meta-label,
 .account-card.default .meta-value {
-  color: rgba(255, 255, 255, 0.72);
+  color: var(--app-feature-ink-secondary);
 }
 
 .usage-grid {
@@ -342,7 +323,7 @@ function formatUsageError(error?: string): string {
 }
 
 .account-card.default .usage-card {
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--app-feature-surface-muted);
 }
 
 .usage-label {
@@ -362,7 +343,7 @@ function formatUsageError(error?: string): string {
 }
 
 .account-card.default .usage-label {
-  color: rgba(255, 255, 255, 0.56);
+  color: var(--app-feature-ink-tertiary);
 }
 
 .card-actions {

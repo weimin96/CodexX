@@ -236,6 +236,7 @@ import type {
 } from '@/types'
 import AccountCard from '@/components/account/AccountCard.vue'
 import CreateAccountModal from '@/components/account/CreateAccountModal.vue'
+import { resolveAccountDisplayName } from '@/utils/account-display'
 
 const router = useRouter()
 const message = useMessage()
@@ -284,7 +285,7 @@ const filteredAccounts = computed(() => {
     const query = searchQuery.value.toLowerCase()
     list = list.filter(
       (account) =>
-        account.name.toLowerCase().includes(query) ||
+        resolveAccountDisplayName(account).toLowerCase().includes(query) ||
         account.email?.toLowerCase().includes(query) ||
         account.organization?.toLowerCase().includes(query),
     )
@@ -351,9 +352,10 @@ async function handleSetDefault(id: string) {
 }
 
 function handleDelete(account: Account) {
+  const displayName = resolveAccountDisplayName(account)
   dialog.warning({
     title: '删除账号',
-    content: `确定要删除账号「${account.name}」吗？此操作不可撤销，相关数据将一并清除。`,
+    content: `确定要删除账号「${displayName}」吗？此操作不可撤销，相关数据将一并清除。`,
     positiveText: '确认删除',
     negativeText: '取消',
     onPositiveClick: async () => {
@@ -365,7 +367,7 @@ function handleDelete(account: Account) {
 
 function handleCreated(account: Account) {
   showCreateModal.value = false
-  message.success(`账号「${account.name}」创建成功`)
+  message.success(`账号「${resolveAccountDisplayName(account)}」创建成功`)
 }
 
 function handleExport() {

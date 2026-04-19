@@ -59,6 +59,45 @@ impl Database {
                 created_at TEXT NOT NULL
             );
 
+            CREATE TABLE IF NOT EXISTS codex_launch_sessions (
+                id TEXT PRIMARY KEY,
+                account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+                launch_mode TEXT NOT NULL,
+                executable TEXT,
+                working_directory TEXT,
+                prompt_preview TEXT,
+                status TEXT NOT NULL,
+                started_at TEXT NOT NULL,
+                completed_at TEXT,
+                exit_code INTEGER,
+                usage_event_count INTEGER NOT NULL DEFAULT 0,
+                error_message TEXT
+            );
+
+            CREATE TABLE IF NOT EXISTS api_usage_events (
+                id TEXT PRIMARY KEY,
+                account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+                session_id TEXT REFERENCES codex_launch_sessions(id) ON DELETE SET NULL,
+                source TEXT NOT NULL,
+                endpoint TEXT,
+                model TEXT,
+                response_id TEXT,
+                request_id TEXT,
+                status_code INTEGER,
+                input_tokens INTEGER NOT NULL DEFAULT 0,
+                output_tokens INTEGER NOT NULL DEFAULT 0,
+                total_tokens INTEGER NOT NULL DEFAULT 0,
+                cached_input_tokens INTEGER,
+                reasoning_tokens INTEGER,
+                estimated_cost REAL NOT NULL DEFAULT 0.0,
+                raw_usage_json TEXT,
+                is_complete INTEGER NOT NULL DEFAULT 1,
+                error_message TEXT,
+                started_at TEXT NOT NULL,
+                completed_at TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
+
             CREATE TABLE IF NOT EXISTS settings (
                 key TEXT PRIMARY KEY,
                 value TEXT NOT NULL,
@@ -67,6 +106,10 @@ impl Database {
 
             CREATE INDEX IF NOT EXISTS idx_usage_account_date 
                 ON usage_records(account_id, date);
+            CREATE INDEX IF NOT EXISTS idx_api_usage_account_completed
+                ON api_usage_events(account_id, completed_at);
+            CREATE INDEX IF NOT EXISTS idx_api_usage_session
+                ON api_usage_events(session_id);
             CREATE INDEX IF NOT EXISTS idx_credentials_account 
                 ON credentials(account_id);
         ",

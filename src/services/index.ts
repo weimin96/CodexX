@@ -7,6 +7,9 @@ import type {
   UsageSummary,
   ChartDataPoint,
   UsageQuery,
+  CodexExecInput,
+  CodexInteractiveInput,
+  CodexLaunchResult,
   AppSettings,
   StatusCheckResult,
   LocalAuthSyncResult,
@@ -48,6 +51,11 @@ export const accountService = {
   async getAccount(id: string): Promise<Account> {
     if (!isTauri) return {} as Account
     return invoke<Account>('get_account', { id })
+  },
+
+  async getAccountCredential(id: string): Promise<string> {
+    if (!isTauri) return ''
+    return invoke<string>('get_account_credential', { id })
   },
 
   async switchAccount(id: string): Promise<void> {
@@ -168,6 +176,25 @@ export const usageService = {
   async getUsageChartData(query: UsageQuery): Promise<ChartDataPoint[]> {
     if (!isTauri) return []
     return invoke<ChartDataPoint[]>('get_usage_chart_data', { query })
+  },
+
+  async runCodexExec(input: CodexExecInput): Promise<CodexLaunchResult> {
+    if (!isTauri) {
+      throw new Error('受控启动 Codex 仅在 Tauri 环境中可用')
+    }
+    return invoke<CodexLaunchResult>('run_codex_exec_session', { input })
+  },
+
+  async openCodexInteractive(input: CodexInteractiveInput): Promise<CodexLaunchResult> {
+    if (!isTauri) {
+      throw new Error('受控启动 Codex 仅在 Tauri 环境中可用')
+    }
+    return invoke<CodexLaunchResult>('open_codex_interactive_session', { input })
+  },
+
+  async clearUsageData(): Promise<void> {
+    if (!isTauri) return
+    return invoke('clear_usage_data')
   },
 }
 

@@ -156,6 +156,7 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { isTauri as detectTauriRuntime } from '@tauri-apps/api/core'
 import { useDialog, useMessage } from 'naive-ui'
+import { usageService } from '@/services'
 import { useSettingsStore } from '@/stores/settings'
 import type { AppSettings } from '@/types'
 
@@ -306,8 +307,14 @@ function handleClearUsage() {
     content: '此操作将删除所有账号的历史用量记录，且不可恢复。确定清除？',
     positiveText: '确认清除',
     negativeText: '取消',
-    onPositiveClick: () => {
-      message.success('用量数据已清除')
+    onPositiveClick: async () => {
+      try {
+        await usageService.clearUsageData()
+        message.success('用量数据已清除')
+      } catch (error) {
+        console.warn('清除用量数据失败', error)
+        message.error('清除用量数据失败')
+      }
     },
   })
 }

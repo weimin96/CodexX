@@ -97,10 +97,10 @@
               class="account-avatar"
               :style="{ background: activeAccount?.color ?? '#0071e3' }"
             >
-              {{ activeAccount?.avatar_text ?? '?' }}
+              {{ activeAccountAvatarText }}
             </div>
             <div class="account-chip-info">
-              <div class="account-chip-name">{{ activeAccount?.name ?? '未选账号' }}</div>
+              <div class="account-chip-name">{{ activeAccountDisplayName }}</div>
               <div class="account-chip-type">
                 {{ activeAccount ? AUTH_TYPE_LABELS[activeAccount.auth_type] : '等待选择' }}
               </div>
@@ -121,16 +121,25 @@
         </div>
 
         <div class="sidebar-footer">
-          <div class="sidebar-stat-card">
-            <span class="sidebar-stat-label">账号总数</span>
-            <strong class="sidebar-stat-value">{{ totalAccounts }}</strong>
-          </div>
-          <div class="sidebar-stat-card">
-            <span class="sidebar-stat-label">异常账号</span>
-            <strong class="sidebar-stat-value">
-              {{ accountsByStatus.error?.length ?? 0 }}
-            </strong>
-          </div>
+          <button
+            class="codex-launch-button"
+            :class="{ active: currentRoute === 'CodexLaunch' }"
+            type="button"
+            @click="router.push({ name: 'CodexLaunch' })"
+          >
+            <span class="codex-launch-icon">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+                <path
+                  d="M8 9l-4 3 4 3m8-6 4 3-4 3M14 5l-4 14"
+                  stroke="currentColor"
+                  stroke-width="1.8"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                />
+              </svg>
+            </span>
+            <span>Codex 启动</span>
+          </button>
         </div>
       </aside>
 
@@ -156,13 +165,20 @@ import { NIcon } from 'naive-ui'
 import { useAccountStore } from '@/stores/account'
 import { AUTH_TYPE_LABELS } from '@/types'
 import StatusDot from '@/components/common/StatusDot.vue'
+import { resolveAccountAvatarText, resolveAccountDisplayName } from '@/utils/account-display'
 
 const router = useRouter()
 const route = useRoute()
 const accountStore = useAccountStore()
-const { activeAccount, totalAccounts, accountsByStatus } = storeToRefs(accountStore)
+const { activeAccount } = storeToRefs(accountStore)
 
 const currentRoute = computed(() => route.name as string)
+const activeAccountDisplayName = computed(() =>
+  activeAccount.value ? resolveAccountDisplayName(activeAccount.value) : '未选账号',
+)
+const activeAccountAvatarText = computed(() =>
+  activeAccount.value ? resolveAccountAvatarText(activeAccount.value) : '?',
+)
 
 const renderIcon = (svgPath: string) => () =>
   h(NIcon, null, {
@@ -201,6 +217,10 @@ const menuOptions: MenuOption[] = [
 ]
 
 const currentSectionLabel = computed(() => {
+  if (currentRoute.value === 'CodexLaunch') {
+    return 'Codex 启动'
+  }
+
   const currentOption = menuOptions.find((option) => option.key === currentRoute.value)
   return typeof currentOption?.label === 'string' ? currentOption.label : 'Codex Manager'
 })
@@ -364,9 +384,10 @@ onMounted(async () => {
   align-items: center;
   gap: 12px;
   padding: 0 12px 0 16px;
-  background: rgba(0, 0, 0, 0.82);
-  color: rgba(255, 255, 255, 0.78);
+  background: var(--app-titlebar-bg);
+  color: var(--app-titlebar-ink);
   backdrop-filter: saturate(180%) blur(20px);
+  border-bottom: 1px solid var(--app-sidebar-border);
   flex-shrink: 0;
 }
 
@@ -387,8 +408,8 @@ onMounted(async () => {
   align-items: center;
   justify-content: center;
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.08);
-  color: #ffffff;
+  background: var(--app-titlebar-hover);
+  color: var(--app-titlebar-ink-strong);
 }
 
 .brand-copy {
@@ -402,14 +423,14 @@ onMounted(async () => {
   line-height: 1.33;
   letter-spacing: -0.12px;
   font-weight: 600;
-  color: #ffffff;
+  color: var(--app-titlebar-ink-strong);
 }
 
 .app-caption {
   font-size: 10px;
   line-height: 1.47;
   letter-spacing: -0.08px;
-  color: rgba(255, 255, 255, 0.56);
+  color: var(--app-titlebar-muted);
 }
 
 .titlebar-center {
@@ -418,7 +439,7 @@ onMounted(async () => {
   line-height: 1.33;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: rgba(255, 255, 255, 0.64);
+  color: var(--app-titlebar-muted);
 }
 
 .titlebar-right {
@@ -432,7 +453,7 @@ onMounted(async () => {
   border: none;
   border-radius: 50%;
   background: transparent;
-  color: rgba(255, 255, 255, 0.72);
+  color: var(--app-titlebar-ink);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -444,13 +465,13 @@ onMounted(async () => {
 }
 
 .win-btn:hover {
-  background: rgba(255, 255, 255, 0.08);
-  color: #ffffff;
+  background: var(--app-titlebar-hover);
+  color: var(--app-titlebar-ink-strong);
   transform: translateY(-1px);
 }
 
 .win-btn.close:hover {
-  background: rgba(196, 49, 75, 0.88);
+  background: var(--app-titlebar-close-hover);
 }
 
 .app-body {
@@ -466,8 +487,9 @@ onMounted(async () => {
   flex-direction: column;
   gap: 16px;
   padding: 18px 14px 14px;
-  background: var(--app-black);
-  color: rgba(255, 255, 255, 0.78);
+  background: var(--app-sidebar-bg);
+  color: var(--app-sidebar-ink);
+  border-right: 1px solid var(--app-sidebar-border);
   min-height: 0;
   overflow: hidden;
 }
@@ -484,7 +506,7 @@ onMounted(async () => {
   line-height: 1.33;
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: rgba(255, 255, 255, 0.56);
+  color: var(--app-sidebar-muted);
 }
 
 .account-chip {
@@ -495,7 +517,7 @@ onMounted(async () => {
   display: flex;
   align-items: center;
   gap: 12px;
-  background: var(--app-dark-surface-soft);
+  background: var(--app-sidebar-panel);
   color: inherit;
   text-align: left;
   cursor: pointer;
@@ -506,7 +528,7 @@ onMounted(async () => {
 
 .account-chip:hover {
   transform: translateY(-1px);
-  background: var(--app-dark-surface-elevated);
+  background: var(--app-sidebar-panel-hover);
 }
 
 .account-avatar {
@@ -531,7 +553,7 @@ onMounted(async () => {
   font-size: 14px;
   line-height: 1.24;
   font-weight: 600;
-  color: #ffffff;
+  color: var(--app-sidebar-ink-strong);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -541,7 +563,7 @@ onMounted(async () => {
   margin-top: 2px;
   font-size: 11px;
   line-height: 1.33;
-  color: rgba(255, 255, 255, 0.56);
+  color: var(--app-sidebar-muted);
 }
 
 .sidebar-navigation :deep(.n-menu-item-content) {
@@ -550,31 +572,41 @@ onMounted(async () => {
 
 .sidebar-footer {
   margin-top: auto;
-  display: grid;
-  gap: 8px;
 }
 
-.sidebar-stat-card {
-  padding: 12px;
-  border-radius: 18px;
-  background: rgba(255, 255, 255, 0.06);
-}
-
-.sidebar-stat-label {
-  display: block;
-  font-size: 11px;
+.codex-launch-button {
+  width: 100%;
+  min-height: 42px;
+  border: none;
+  border-radius: 16px;
+  padding: 0 12px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--app-sidebar-panel);
+  color: var(--app-sidebar-ink-strong);
+  font-size: 13px;
   line-height: 1.33;
-  color: rgba(255, 255, 255, 0.56);
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    background-color 0.18s ease,
+    color 0.18s ease,
+    transform 0.18s ease;
 }
 
-.sidebar-stat-value {
-  display: block;
-  margin-top: 4px;
-  font-family: var(--font-display);
-  font-size: 20px;
-  line-height: 1.2;
-  letter-spacing: 0.12px;
-  color: #ffffff;
+.codex-launch-button:hover,
+.codex-launch-button.active {
+  background: var(--app-sidebar-panel-hover);
+  color: var(--app-blue);
+  transform: translateY(-1px);
+}
+
+.codex-launch-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
 }
 
 .page-content {
@@ -622,9 +654,6 @@ onMounted(async () => {
     overflow-y: auto;
   }
 
-  .sidebar-footer {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
 }
 
 @media (max-width: 640px) {
@@ -636,8 +665,5 @@ onMounted(async () => {
     display: none;
   }
 
-  .sidebar-footer {
-    grid-template-columns: 1fr;
-  }
 }
 </style>

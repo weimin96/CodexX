@@ -87,9 +87,11 @@ pub fn run() {
             commands::account::get_account_credential,
             commands::account::switch_account,
             commands::account::set_default_account,
+            commands::account::export_account_auth_file,
             commands::account::export_accounts,
             commands::account::import_accounts,
             commands::account::sync_local_auth_file,
+            commands::account::sync_local_default_account,
             // Codex 启动命令
             commands::codex::run_codex_exec_session,
             commands::codex::open_codex_interactive_session,

@@ -11,7 +11,8 @@ pub async fn check_status(
     state: State<'_, AppState>,
     account_id: String,
 ) -> Result<Value, AppError> {
-    let (account, credential) = status_sync::load_account_and_credential(state.inner(), &account_id).await?;
+    let (account, credential) =
+        status_sync::load_account_and_credential(state.inner(), &account_id).await?;
     let outcome = status_sync::evaluate_account_refresh(&account, &credential).await?;
 
     {

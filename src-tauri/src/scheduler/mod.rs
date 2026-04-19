@@ -18,7 +18,10 @@ pub async fn start_scheduler(handle: AppHandle) {
             let repo = AccountRepository::new(&db);
 
             match repo.list_all() {
-                Ok(accounts) => accounts.into_iter().map(|account| account.id).collect::<Vec<_>>(),
+                Ok(accounts) => accounts
+                    .into_iter()
+                    .map(|account| account.id)
+                    .collect::<Vec<_>>(),
                 Err(_) => Vec::new(),
             }
         };
@@ -26,11 +29,15 @@ pub async fn start_scheduler(handle: AppHandle) {
         let app_state = handle.state::<AppState>();
 
         for account_id in account_ids {
-            let (account, credential) =
-                match status_sync::load_account_and_credential(app_state.inner(), &account_id).await {
-                    Ok(pair) => pair,
-                    Err(_) => continue,
-                };
+            let (account, credential) = match status_sync::load_account_and_credential(
+                app_state.inner(),
+                &account_id,
+            )
+            .await
+            {
+                Ok(pair) => pair,
+                Err(_) => continue,
+            };
             let outcome = match status_sync::evaluate_account_refresh(&account, &credential).await {
                 Ok(outcome) => outcome,
                 Err(_) => continue,

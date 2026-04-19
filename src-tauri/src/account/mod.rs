@@ -420,6 +420,14 @@ impl<'a> AccountRepository<'a> {
         Ok(())
     }
 
+    pub fn clear_default(&self) -> AppResult<()> {
+        self.db.get_conn().execute(
+            "UPDATE accounts SET is_default = 0, updated_at = ?1 WHERE is_default = 1",
+            params![Utc::now().to_rfc3339()],
+        )?;
+        Ok(())
+    }
+
     pub fn update_status(
         &self,
         id: &str,
@@ -501,7 +509,10 @@ impl<'a> AccountRepository<'a> {
         )?;
 
         if source_is_default {
-            tx.execute("UPDATE accounts SET is_default = 0 WHERE is_default = 1", [])?;
+            tx.execute(
+                "UPDATE accounts SET is_default = 0 WHERE is_default = 1",
+                [],
+            )?;
             tx.execute(
                 "UPDATE accounts SET is_default = 1, updated_at = ?1 WHERE id = ?2",
                 params![Utc::now().to_rfc3339(), target_id],

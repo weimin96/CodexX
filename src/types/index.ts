@@ -182,6 +182,27 @@ export interface LocalAuthSyncResult {
   codex_usage_error?: string
 }
 
+export interface LocalDefaultAccountSyncResult {
+  matched_account_id?: string | null
+  updated: boolean
+  skipped_reason?: string | null
+}
+
+export interface AccountExportResult {
+  exported_count: number
+  failed_count: number
+  output_path: string
+  errors: string[]
+}
+
+export interface AccountImportResult {
+  imported_count: number
+  skipped_count: number
+  failed_count: number
+  account_ids: string[]
+  errors: string[]
+}
+
 // ============================================================
 // 界面辅助类型
 // ============================================================

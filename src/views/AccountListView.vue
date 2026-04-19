@@ -82,56 +82,14 @@
           :checking="checkingStatus.has(account.id)"
           @detail="navigateToDetail(account.id)"
           @check="handleCheckStatus(account.id)"
-          @set-default="handleSetDefault(account.id)"
+          @switch-account="handleSwitchAccount(account.id)"
+          @export-auth="handleExportAccount(account)"
           @delete="handleDelete(account)"
         />
       </div>
     </section>
 
     <CreateAccountModal v-model:show="showCreateModal" @created="handleCreated" />
-
-    <n-modal v-model:show="showExportModal" preset="card" title="导出账号" style="width: 420px;">
-      <n-form>
-        <n-form-item label="加密密码">
-          <n-input
-            v-model:value="exportPassword"
-            type="password"
-            placeholder="请输入导出密码"
-            show-password-on="click"
-          />
-        </n-form-item>
-        <n-alert type="warning" style="margin-bottom: 12px;">
-          导出文件经过 AES-256-GCM 加密，请妥善保管密码。
-        </n-alert>
-        <n-button type="primary" block :loading="exportLoading" @click="doExport">
-          确认导出
-        </n-button>
-      </n-form>
-    </n-modal>
-
-    <n-modal v-model:show="showImportModal" preset="card" title="导入账号" style="width: 460px;">
-      <n-form>
-        <n-form-item label="加密文件内容">
-          <n-input
-            v-model:value="importData"
-            type="textarea"
-            :rows="4"
-            placeholder="粘贴导出的加密内容..."
-          />
-        </n-form-item>
-        <n-form-item label="解密密码">
-          <n-input
-            v-model:value="importPassword"
-            type="password"
-            show-password-on="click"
-            placeholder="请输入导出时的密码"
-          />
-        </n-form-item>
-        <n-button type="primary" block :loading="importLoading" @click="doImport">
-          确认导入
-        </n-button>
-      </n-form>
-    </n-modal>
 
     <n-modal
       :show="showOAuthModal"
@@ -234,12 +192,7 @@ const { accounts, loading, checkingStatus } = storeToRefs(accountStore)
 
 const searchQuery = ref('')
 const showCreateModal = ref(false)
-const showExportModal = ref(false)
-const showImportModal = ref(false)
 const showOAuthModal = ref(false)
-const exportPassword = ref('')
-const importData = ref('')
-const importPassword = ref('')
 const exportLoading = ref(false)
 const importLoading = ref(false)
 const checkingAll = ref(false)
@@ -290,13 +243,15 @@ const accountActionOptions = computed<DropdownOption[]>(() => [
     key: 'account-action-divider-1',
   },
   {
-    label: '导入',
+    label: importLoading.value ? '导入中' : '导入',
     key: 'import',
+    disabled: importLoading.value,
     icon: () => renderDropdownIcon('M12 3v12M7 8l5-5 5 5M5 21h14'),
   },
   {
-    label: '导出',
+    label: exportLoading.value ? '导出中' : '导出',
     key: 'export',
+    disabled: exportLoading.value || !hasAccounts.value,
     icon: () => renderDropdownIcon('M12 21V9M7 16l5 5 5-5M5 3h14'),
   },
   {
@@ -408,10 +363,10 @@ function handleAccountActionSelect(key: string | number) {
       void handleCheckAll()
       break
     case 'import':
-      showImportModal.value = true
+      void handleImportAccounts()
       break
     case 'export':
-      handleExport()
+      void handleExportAccounts()
       break
     case 'create':
       showCreateModal.value = true
@@ -419,9 +374,13 @@ function handleAccountActionSelect(key: string | number) {
   }
 }
 
-async function handleSetDefault(id: string) {
-  await accountStore.switchAccount(id)
-  message.success('已设为默认账号')
+async function handleSwitchAccount(id: string) {
+  try {
+    await accountStore.switchAccount(id)
+    message.success('已切换当前账号')
+  } catch (error) {
+    message.error(getErrorMessage(error, '切换账号失败'))
+  }
 }
 
 function handleDelete(account: Account) {
@@ -443,15 +402,102 @@ function handleCreated(account: Account) {
   message.success(`账号「${resolveAccountDisplayName(account)}」创建成功`)
 }
 
-function handleExport() {
-  exportPassword.value = ''
-  showExportModal.value = true
-}
-
 function getErrorMessage(error: unknown, fallback: string) {
   if (error instanceof Error && error.message) return error.message
   if (typeof error === 'string' && error) return error
   return fallback
+}
+
+async function handleExportAccount(account: Account) {
+  exportLoading.value = true
+  try {
+    const outputPath = await selectExportPath(
+      `${buildSafeFileName(resolveAccountDisplayName(account), 'account')}-auth.json`,
+      [{ name: 'auth.json', extensions: ['json'] }],
+    )
+    if (!outputPath) return
+
+    await accountService.exportAccountAuthFile(account.id, outputPath)
+    message.success('已导出 auth.json，文件内包含明文凭证')
+  } catch (error) {
+    message.error(getErrorMessage(error, '导出 auth.json 失败'))
+  } finally {
+    exportLoading.value = false
+  }
+}
+
+async function handleExportAccounts() {
+  exportLoading.value = true
+  try {
+    const outputPath = await selectExportPath('codex-accounts-auth.zip', [
+      { name: 'ZIP 压缩包', extensions: ['zip'] },
+    ])
+    if (!outputPath) return
+
+    const result = await accountService.exportAccounts(outputPath)
+    const skippedText = result.failed_count > 0 ? `，${result.failed_count} 个账号未导出` : ''
+    message.success(`已导出 ${result.exported_count} 个 auth.json${skippedText}`)
+  } catch (error) {
+    message.error(getErrorMessage(error, '批量导出失败'))
+  } finally {
+    exportLoading.value = false
+  }
+}
+
+async function handleImportAccounts() {
+  importLoading.value = true
+  try {
+    const inputPath = await selectImportPath()
+    if (!inputPath) return
+
+    const result = await accountService.importAccounts(inputPath)
+    await accountStore.loadAccounts()
+    const skippedText = result.skipped_count > 0 ? `，跳过 ${result.skipped_count} 个非 JSON 条目` : ''
+    const failedText = result.failed_count > 0 ? `，${result.failed_count} 个条目失败` : ''
+    message.success(`已导入或更新 ${result.imported_count} 个账号${skippedText}${failedText}`)
+  } catch (error) {
+    message.error(getErrorMessage(error, '导入失败'))
+  } finally {
+    importLoading.value = false
+  }
+}
+
+async function selectExportPath(
+  defaultPath: string,
+  filters: Array<{ name: string; extensions: string[] }>,
+): Promise<string | null> {
+  const { save } = await import('@tauri-apps/plugin-dialog')
+  const selectedPath = await save({
+    defaultPath,
+    filters,
+  })
+
+  return selectedPath || null
+}
+
+async function selectImportPath(): Promise<string | null> {
+  const { open } = await import('@tauri-apps/plugin-dialog')
+  const selectedPath = await open({
+    multiple: false,
+    filters: [
+      {
+        name: '认证文件',
+        extensions: ['json', 'zip'],
+      },
+    ],
+  })
+
+  return typeof selectedPath === 'string' ? selectedPath : null
+}
+
+function buildSafeFileName(value: string, fallback: string): string {
+  const normalized = value
+    .trim()
+    .replace(/[<>:"/\\|?*\u0000-\u001F]/g, '_')
+    .replace(/[. ]+$/g, '')
+    .slice(0, 80)
+
+  return normalized || fallback
 }
 
 async function handleSyncLocalAuth() {
@@ -591,41 +637,6 @@ function resetOAuthLoginState() {
   oauthCancelling.value = false
 }
 
-async function doExport() {
-  if (!exportPassword.value) {
-    message.warning('请输入导出密码')
-    return
-  }
-  exportLoading.value = true
-  try {
-    const encrypted = await accountService.exportAccounts(exportPassword.value)
-    await navigator.clipboard.writeText(encrypted)
-    showExportModal.value = false
-    message.success('导出成功，已复制到剪贴板')
-  } catch {
-    message.error('导出失败')
-  } finally {
-    exportLoading.value = false
-  }
-}
-
-async function doImport() {
-  if (!importData.value || !importPassword.value) {
-    message.warning('请填写完整信息')
-    return
-  }
-  importLoading.value = true
-  try {
-    const count = await accountService.importAccounts(importData.value.trim(), importPassword.value)
-    await accountStore.loadAccounts()
-    showImportModal.value = false
-    message.success(`成功导入 ${count} 个账号`)
-  } catch {
-    message.error('导入失败：密码错误或数据损坏')
-  } finally {
-    importLoading.value = false
-  }
-}
 </script>
 
 <style scoped>

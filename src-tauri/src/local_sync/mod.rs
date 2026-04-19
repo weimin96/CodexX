@@ -23,6 +23,13 @@ pub struct LocalAuthSyncResult {
     pub codex_usage_error: Option<String>,
 }
 
+#[derive(Debug, Serialize)]
+pub struct LocalDefaultAccountSyncResult {
+    pub matched_account_id: Option<String>,
+    pub updated: bool,
+    pub skipped_reason: Option<String>,
+}
+
 #[derive(Debug)]
 pub struct PreparedLocalAuthSync {
     resolved_path: PathBuf,
@@ -108,6 +115,35 @@ impl LocalAuthSyncService {
         Self::build_prepared_sync(resolved_path, auth_document)
     }
 
+    pub fn prepare_auth_text(
+        source_path: PathBuf,
+        raw_text: &str,
+    ) -> AppResult<PreparedLocalAuthSync> {
+        let raw: Value = serde_json::from_str(raw_text)?;
+        let fields: LocalAuthFileFields = serde_json::from_value(raw.clone())?;
+
+        Self::build_prepared_sync(
+            source_path,
+            LocalAuthFileDocument {
+                raw,
+                openai_api_key: fields.openai_api_key,
+                auth_mode: fields.auth_mode,
+                tokens: fields.tokens,
+            },
+        )
+    }
+
+    pub fn build_auth_json_for_existing_account(
+        repo: &AccountRepository<'_>,
+        account_id: &str,
+    ) -> AppResult<(Account, Value)> {
+        let account = repo.get_by_id(account_id)?;
+        let credential = repo.get_credential(account_id)?;
+        let auth_document = Self::build_auth_json_for_account(&account, &credential)?;
+
+        Ok((account, auth_document))
+    }
+
     pub async fn fetch_codex_profile(
         prepared: &PreparedLocalAuthSync,
     ) -> Option<CodexAccountProfile> {
@@ -140,6 +176,22 @@ impl LocalAuthSyncService {
         prepared: PreparedLocalAuthSync,
         codex_profile: Option<CodexAccountProfile>,
     ) -> AppResult<LocalAuthSyncResult> {
+        Self::sync_prepared_auth_inner(repo, prepared, codex_profile, true)
+    }
+
+    pub fn sync_prepared_auth_preserving_profile(
+        repo: &AccountRepository<'_>,
+        prepared: PreparedLocalAuthSync,
+    ) -> AppResult<LocalAuthSyncResult> {
+        Self::sync_prepared_auth_inner(repo, prepared, None, false)
+    }
+
+    fn sync_prepared_auth_inner(
+        repo: &AccountRepository<'_>,
+        prepared: PreparedLocalAuthSync,
+        codex_profile: Option<CodexAccountProfile>,
+        use_profile_seed: bool,
+    ) -> AppResult<LocalAuthSyncResult> {
         let merge_source_ids = Self::find_merge_source_ids(repo, &prepared)?;
         let PreparedLocalAuthSync {
             resolved_path,
@@ -154,7 +206,11 @@ impl LocalAuthSyncService {
             codex_profile_seed,
             codex_usage_source: _,
         } = prepared;
-        let profile = codex_profile.or(codex_profile_seed);
+        let profile = if use_profile_seed {
+            codex_profile.or(codex_profile_seed)
+        } else {
+            codex_profile
+        };
         let account = repo.upsert_synced_account(UpsertSyncedAccountInput {
             stable_id,
             name,
@@ -183,6 +239,53 @@ impl LocalAuthSyncService {
         })
     }
 
+    pub fn sync_default_account_marker(
+        repo: &AccountRepository<'_>,
+        prepared: &PreparedLocalAuthSync,
+    ) -> AppResult<LocalDefaultAccountSyncResult> {
+        let accounts = repo.list_all()?;
+        let matched_account_id = Self::find_matching_account_id(repo, prepared, &accounts)?;
+
+        if let Some(account_id) = matched_account_id {
+            let matched_account = accounts.iter().find(|account| account.id == account_id);
+            let was_default = matched_account.is_some_and(|account| account.is_default);
+            if !was_default {
+                repo.set_default(&account_id)?;
+            }
+
+            return Ok(LocalDefaultAccountSyncResult {
+                matched_account_id: Some(account_id),
+                updated: !was_default,
+                skipped_reason: None,
+            });
+        }
+
+        let had_default = accounts.iter().any(|account| account.is_default);
+        if had_default {
+            repo.clear_default()?;
+        }
+
+        Ok(LocalDefaultAccountSyncResult {
+            matched_account_id: None,
+            updated: had_default,
+            skipped_reason: Some("当前 auth.json 对应账号尚未导入".to_string()),
+        })
+    }
+
+    pub fn write_account_to_default_auth_file(
+        repo: &AccountRepository<'_>,
+        account_id: &str,
+    ) -> AppResult<Account> {
+        let account = repo.get_by_id(account_id)?;
+        let credential = repo.get_credential(account_id)?;
+        let auth_document = Self::build_auth_json_for_account(&account, &credential)?;
+        let auth_file_path = Self::resolve_auth_file_path(None)?;
+
+        Self::write_auth_document_with_backup(&auth_file_path, &auth_document)?;
+        repo.set_default(account_id)?;
+        repo.get_by_id(account_id)
+    }
+
     fn find_merge_source_ids(
         repo: &AccountRepository<'_>,
         prepared: &PreparedLocalAuthSync,
@@ -207,6 +310,33 @@ impl LocalAuthSyncService {
         candidate_ids.sort();
         candidate_ids.dedup();
         Ok(candidate_ids)
+    }
+
+    fn find_matching_account_id(
+        repo: &AccountRepository<'_>,
+        prepared: &PreparedLocalAuthSync,
+        accounts: &[Account],
+    ) -> AppResult<Option<String>> {
+        if let Some(account) = accounts
+            .iter()
+            .find(|account| account.id == prepared.stable_id)
+        {
+            return Ok(Some(account.id.clone()));
+        }
+
+        for account in accounts {
+            if account.auth_type != prepared.auth_type {
+                continue;
+            }
+
+            if prepared.can_recover_account(account)
+                || Self::is_same_local_sync_identity(repo, account, prepared)?
+            {
+                return Ok(Some(account.id.clone()));
+            }
+        }
+
+        Ok(None)
     }
 
     fn resolve_auth_file_path(auth_file_path: Option<&str>) -> AppResult<PathBuf> {
@@ -236,6 +366,80 @@ impl LocalAuthSyncService {
             "无法推断本地 auth.json 路径，请确认 CODEX_HOME 或 USERPROFILE 环境变量可用"
                 .to_string(),
         ))
+    }
+
+    fn build_auth_json_for_account(account: &Account, credential: &str) -> AppResult<Value> {
+        match account.auth_type {
+            AuthType::OAuthToken => {
+                let auth_json: Value = serde_json::from_str(credential).map_err(|_| {
+                    AppError::InvalidInput(
+                        "该 OAuth 账号缺少完整 auth.json，无法切换本地默认账号".to_string(),
+                    )
+                })?;
+                let has_access_token = auth_json
+                    .get("tokens")
+                    .and_then(Value::as_object)
+                    .and_then(|tokens| tokens.get("access_token"))
+                    .or_else(|| auth_json.get("access_token"))
+                    .and_then(Value::as_str)
+                    .and_then(|value| Self::non_empty_text(Some(value)))
+                    .is_some();
+
+                if !has_access_token {
+                    return Err(AppError::InvalidInput(
+                        "该 OAuth 账号没有可写回的访问令牌，无法切换本地默认账号".to_string(),
+                    ));
+                }
+
+                Ok(auth_json)
+            }
+            AuthType::ApiKey => {
+                let api_key = Self::non_empty_text(Some(credential)).ok_or_else(|| {
+                    AppError::InvalidInput(
+                        "该 API Key 账号凭证为空，无法切换本地默认账号".to_string(),
+                    )
+                })?;
+
+                Ok(serde_json::json!({
+                    "OPENAI_API_KEY": api_key,
+                    "auth_mode": "apikey",
+                    "last_refresh": Utc::now().to_rfc3339(),
+                }))
+            }
+            AuthType::CookieSession | AuthType::CliProfile => Err(AppError::InvalidInput(
+                "该账号类型不能写回 Codex auth.json".to_string(),
+            )),
+        }
+    }
+
+    fn write_auth_document_with_backup(path: &Path, document: &Value) -> AppResult<()> {
+        let parent = path.parent().ok_or_else(|| {
+            AppError::InvalidInput(format!(
+                "无法识别 auth.json 所在目录：{}",
+                path.to_string_lossy()
+            ))
+        })?;
+        std::fs::create_dir_all(parent)?;
+
+        let backup_path = path.with_file_name("auth.json.bak");
+        let temp_path = path.with_file_name(format!("auth.json.tmp-{}", std::process::id()));
+        let auth_text = serde_json::to_string_pretty(document)?;
+
+        std::fs::write(&temp_path, auth_text.as_bytes())?;
+        if path.exists() {
+            std::fs::copy(path, &backup_path)?;
+            std::fs::remove_file(path)?;
+        }
+
+        if let Err(error) = std::fs::rename(&temp_path, path) {
+            if backup_path.exists() {
+                let _ = std::fs::copy(&backup_path, path);
+            }
+            let _ = std::fs::remove_file(&temp_path);
+            return Err(error.into());
+        }
+
+        Ok(())
     }
 
     fn read_auth_document(path: &Path) -> AppResult<LocalAuthFileDocument> {
@@ -348,8 +552,11 @@ impl LocalAuthSyncService {
     ) -> AppResult<bool> {
         if account.id == prepared.legacy_path_stable_id {
             if let Ok(credential) = repo.get_credential(&account.id) {
-                if Self::extract_identity_stable_id_from_credential(&prepared.auth_type, &credential)
-                    .as_deref()
+                if Self::extract_identity_stable_id_from_credential(
+                    &prepared.auth_type,
+                    &credential,
+                )
+                .as_deref()
                     == Some(prepared.stable_id.as_str())
                 {
                     return Ok(true);
@@ -409,7 +616,10 @@ impl LocalAuthSyncService {
                             .map(ToString::to_string)
                     })?;
 
-                Some(Self::build_identity_stable_account_id("chatgpt", &account_id))
+                Some(Self::build_identity_stable_account_id(
+                    "chatgpt",
+                    &account_id,
+                ))
             }
             AuthType::CookieSession | AuthType::CliProfile => None,
         }

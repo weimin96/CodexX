@@ -6,9 +6,10 @@ use uuid::Uuid;
 
 use crate::account::{Account, AccountRepository};
 use crate::codex_runtime::{
-    open_codex_cli_terminal, open_codex_desktop_app, open_interactive_codex, prompt_preview,
-    read_codex_launcher_config, run_codex_exec, CodexAppLaunchInput, CodexCliLaunchInput,
-    CodexCommandTarget, CodexExecInput, CodexInteractiveInput, CodexLaunchResult,
+    close_codex_desktop_app, open_codex_cli_terminal, open_codex_desktop_app,
+    open_interactive_codex, prompt_preview, read_codex_launcher_config, run_codex_exec,
+    CodexAppLaunchInput, CodexCliLaunchInput, CodexCommandTarget, CodexExecInput,
+    CodexInteractiveInput, CodexLaunchResult,
 };
 use crate::error::AppError;
 use crate::local_sync::LocalAuthSyncService;
@@ -435,6 +436,11 @@ pub async fn launch_codex_app(
         message: "已启动 Codex App".to_string(),
         stderr_preview: None,
     })?)
+}
+
+#[tauri::command]
+pub async fn close_codex_app() -> Result<Value, AppError> {
+    Ok(serde_json::to_value(close_codex_desktop_app()?)?)
 }
 
 async fn prepare_launch_account(

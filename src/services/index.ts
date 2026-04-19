@@ -6,6 +6,7 @@ import type {
   AuthCheckResult,
   UsageSummary,
   ChartDataPoint,
+  CodexAppCloseResult,
   CodexAppLaunchInput,
   UsageQuery,
   UsageImportResult,
@@ -259,6 +260,13 @@ export const usageService = {
       throw new Error('受控启动 Codex 仅在 Tauri 环境中可用')
     }
     return invoke<CodexLaunchResult>('launch_codex_app', { input })
+  },
+
+  async closeCodexApp(): Promise<CodexAppCloseResult> {
+    if (!isTauri) {
+      throw new Error('关闭 Codex App 仅在 Tauri 环境中可用')
+    }
+    return invoke<CodexAppCloseResult>('close_codex_app')
   },
 
   async clearUsageData(): Promise<void> {

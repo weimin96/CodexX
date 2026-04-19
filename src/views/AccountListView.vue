@@ -5,26 +5,6 @@
       <p>正在加载账号。</p>
     </section>
 
-    <section v-else-if="!hasAccounts" class="surface-panel empty-panel">
-      <div class="empty-illustration">
-        <svg width="68" height="68" viewBox="0 0 24 24" fill="none">
-          <path
-            d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"
-            stroke="currentColor"
-            stroke-width="1.5"
-          />
-          <circle cx="9" cy="7" r="4" stroke="currentColor" stroke-width="1.5" />
-          <path
-            d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"
-            stroke="currentColor"
-            stroke-width="1.5"
-          />
-        </svg>
-      </div>
-      <p>还没有添加任何账号。</p>
-      <n-button type="primary" @click="showCreateModal = true">添加第一个账号</n-button>
-    </section>
-
     <section v-else class="surface-panel section-grid account-section">
       <div class="account-grid-header">
         <div>
@@ -70,7 +50,11 @@
         </div>
       </div>
 
-      <div v-if="filteredAccounts.length === 0" class="inline-empty-state">
+      <div v-if="!hasAccounts" class="inline-empty-state">
+        <p>还没有添加任何账号，请通过账号操作添加、导入或同步账号。</p>
+      </div>
+
+      <div v-else-if="filteredAccounts.length === 0" class="inline-empty-state">
         <p>没有匹配的账号。</p>
       </div>
 
@@ -690,17 +674,6 @@ function resetOAuthLoginState() {
 
 .search-row :deep(.n-input__input-el) {
   font-size: 13px;
-}
-
-.empty-illustration {
-  width: 92px;
-  height: 92px;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--app-surface-muted);
-  color: var(--app-ink-tertiary);
 }
 
 .account-grid {

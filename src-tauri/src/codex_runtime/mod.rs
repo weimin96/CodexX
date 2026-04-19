@@ -62,6 +62,7 @@ pub struct CodexModelOption {
 pub struct CodexLauncherConfig {
     pub default_model: Option<String>,
     pub model_options: Vec<CodexModelOption>,
+    pub trusted_project_paths: Vec<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -450,7 +451,9 @@ Write-Output $closedCount
 
 pub fn read_codex_launcher_config() -> AppResult<CodexLauncherConfig> {
     let codex_home = resolve_codex_home()?;
-    let default_model = read_default_model(&codex_home.join("config.toml"))?;
+    let config_path = codex_home.join("config.toml");
+    let default_model = read_default_model(&config_path)?;
+    let trusted_project_paths = read_trusted_project_paths(&config_path)?;
     let mut model_options = read_model_options(&codex_home.join("models_cache.json"))?;
 
     if let Some(default_model_value) = default_model.as_deref() {
@@ -460,6 +463,7 @@ pub fn read_codex_launcher_config() -> AppResult<CodexLauncherConfig> {
     Ok(CodexLauncherConfig {
         default_model,
         model_options,
+        trusted_project_paths,
     })
 }
 
@@ -794,13 +798,9 @@ pub fn resolve_codex_home() -> AppResult<PathBuf> {
 }
 
 fn read_default_model(config_path: &Path) -> AppResult<Option<String>> {
-    if !config_path.exists() {
+    let Some(config_value) = read_config_document(config_path)? else {
         return Ok(None);
-    }
-
-    let raw_text = std::fs::read_to_string(config_path)?;
-    let config_value: TomlValue = toml::from_str(&raw_text)
-        .map_err(|error| AppError::Other(format!("读取 Codex config.toml 失败: {error}")))?;
+    };
 
     Ok(config_value
         .get("model")
@@ -808,6 +808,48 @@ fn read_default_model(config_path: &Path) -> AppResult<Option<String>> {
         .map(str::trim)
         .filter(|text| !text.is_empty())
         .map(ToString::to_string))
+}
+
+fn read_trusted_project_paths(config_path: &Path) -> AppResult<Vec<String>> {
+    let Some(config_value) = read_config_document(config_path)? else {
+        return Ok(Vec::new());
+    };
+
+    let Some(projects) = config_value.get("projects").and_then(TomlValue::as_table) else {
+        return Ok(Vec::new());
+    };
+
+    let mut trusted_project_paths = Vec::new();
+    let mut seen_paths = BTreeSet::new();
+    for (project_path, project_config) in projects {
+        let trust_level = project_config
+            .get("trust_level")
+            .and_then(TomlValue::as_str)
+            .map(str::trim);
+        if trust_level != Some("trusted") {
+            continue;
+        }
+
+        let normalized_path = project_path.trim();
+        if normalized_path.is_empty() || !seen_paths.insert(normalized_path.to_string()) {
+            continue;
+        }
+
+        trusted_project_paths.push(normalized_path.to_string());
+    }
+
+    Ok(trusted_project_paths)
+}
+
+fn read_config_document(config_path: &Path) -> AppResult<Option<TomlValue>> {
+    if !config_path.exists() {
+        return Ok(None);
+    }
+
+    let raw_text = std::fs::read_to_string(config_path)?;
+    let config_value: TomlValue = toml::from_str(&raw_text)
+        .map_err(|error| AppError::Other(format!("读取 Codex config.toml 失败: {error}")))?;
+    Ok(Some(config_value))
 }
 
 fn read_model_options(models_cache_path: &Path) -> AppResult<Vec<CodexModelOption>> {
@@ -982,6 +1024,38 @@ review_model = "gpt-5.4"
         let default_model = read_default_model(&config_path).unwrap();
 
         assert_eq!(default_model.as_deref(), Some("gpt-5.4"));
+        let _ = std::fs::remove_dir_all(temp_dir);
+    }
+
+    #[test]
+    fn reads_trusted_project_paths_from_config_toml() {
+        let temp_dir = unique_temp_dir();
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        let config_path = temp_dir.join("config.toml");
+        std::fs::write(
+            &config_path,
+            r#"
+[projects.'C:\Users\pwm\Documents\trusted-a']
+trust_level = "trusted"
+
+[projects.'D:\workspace\blocked']
+trust_level = "untrusted"
+
+[projects.'E:\workspace\trusted-b']
+trust_level = "trusted"
+"#,
+        )
+        .unwrap();
+
+        let project_paths = read_trusted_project_paths(&config_path).unwrap();
+
+        assert_eq!(
+            project_paths,
+            vec![
+                "C:\\Users\\pwm\\Documents\\trusted-a".to_string(),
+                "E:\\workspace\\trusted-b".to_string(),
+            ]
+        );
         let _ = std::fs::remove_dir_all(temp_dir);
     }
 

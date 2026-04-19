@@ -94,6 +94,7 @@ pub fn run() {
             commands::codex::run_codex_exec_session,
             commands::codex::open_codex_interactive_session,
             commands::codex::launch_codex_cli,
+            commands::codex::get_codex_launcher_config,
             commands::codex::launch_codex_app,
             // 认证命令
             commands::auth::refresh_token,

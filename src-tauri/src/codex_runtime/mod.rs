@@ -3,12 +3,13 @@ use crate::usage::ApiUsageEventRecord;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::env;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use tokio::io::{AsyncBufReadExt, AsyncRead, BufReader};
 use tokio::process::Command;
+use toml::Value as TomlValue;
 use uuid::Uuid;
 
 #[derive(Debug, Deserialize)]
@@ -35,6 +36,18 @@ pub struct CodexInteractiveInput {
 pub struct CodexCliLaunchInput {
     pub working_directory: Option<String>,
     pub model: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct CodexModelOption {
+    pub label: String,
+    pub value: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct CodexLauncherConfig {
+    pub default_model: Option<String>,
+    pub model_options: Vec<CodexModelOption>,
 }
 
 #[derive(Debug, Serialize)]
@@ -162,7 +175,9 @@ impl CodexCommandTarget {
 
     fn build_interactive_command(&self, args: &[String]) -> AppResult<std::process::Command> {
         let mut command = std::process::Command::new("cmd");
-        command.arg("/C").arg("start").arg("Codex");
+        // start 的窗口标题必须显式加引号，否则会把 Codex 当成命令名，
+        // 后续真实可执行路径会被误传给 CLI 当作首个提示词。
+        command.arg("/C").arg("start").arg("\"Codex\"");
 
         match self.runner {
             CommandRunner::Direct => {
@@ -338,6 +353,21 @@ pub fn open_codex_desktop_app() -> AppResult<()> {
             "当前平台暂不支持启动 Codex App".to_string(),
         ))
     }
+}
+
+pub fn read_codex_launcher_config() -> AppResult<CodexLauncherConfig> {
+    let codex_home = resolve_codex_home()?;
+    let default_model = read_default_model(&codex_home.join("config.toml"))?;
+    let mut model_options = read_model_options(&codex_home.join("models_cache.json"))?;
+
+    if let Some(default_model_value) = default_model.as_deref() {
+        ensure_model_option(&mut model_options, default_model_value);
+    }
+
+    Ok(CodexLauncherConfig {
+        default_model,
+        model_options,
+    })
 }
 
 pub fn prompt_preview(value: Option<&str>) -> Option<String> {
@@ -635,6 +665,105 @@ fn find_powershell() -> AppResult<PathBuf> {
         .ok_or_else(|| AppError::Other("未找到 PowerShell，无法启动 codex.ps1".to_string()))
 }
 
+fn resolve_codex_home() -> AppResult<PathBuf> {
+    if let Ok(codex_home) = env::var("CODEX_HOME") {
+        if let Some(path) = normalize_text(Some(codex_home.as_str())) {
+            return Ok(PathBuf::from(path));
+        }
+    }
+
+    if let Ok(user_profile) = env::var("USERPROFILE") {
+        if let Some(path) = normalize_text(Some(user_profile.as_str())) {
+            return Ok(PathBuf::from(path).join(".codex"));
+        }
+    }
+
+    if let Ok(home) = env::var("HOME") {
+        if let Some(path) = normalize_text(Some(home.as_str())) {
+            return Ok(PathBuf::from(path).join(".codex"));
+        }
+    }
+
+    Err(AppError::InvalidInput(
+        "无法推断 Codex 配置目录，请确认 CODEX_HOME 或 USERPROFILE 环境变量可用"
+            .to_string(),
+    ))
+}
+
+fn read_default_model(config_path: &Path) -> AppResult<Option<String>> {
+    if !config_path.exists() {
+        return Ok(None);
+    }
+
+    let raw_text = std::fs::read_to_string(config_path)?;
+    let config_value: TomlValue = toml::from_str(&raw_text)
+        .map_err(|error| AppError::Other(format!("读取 Codex config.toml 失败: {error}")))?;
+
+    Ok(config_value
+        .get("model")
+        .and_then(TomlValue::as_str)
+        .map(str::trim)
+        .filter(|text| !text.is_empty())
+        .map(ToString::to_string))
+}
+
+fn read_model_options(models_cache_path: &Path) -> AppResult<Vec<CodexModelOption>> {
+    if !models_cache_path.exists() {
+        return Ok(Vec::new());
+    }
+
+    let raw_text = std::fs::read_to_string(models_cache_path)?;
+    let cache_value: Value = serde_json::from_str(&raw_text)?;
+    let mut model_options = Vec::new();
+    let mut seen_values = BTreeSet::new();
+
+    if let Some(models) = cache_value.get("models").and_then(Value::as_array) {
+        for model in models {
+            let Some(value) = model
+                .get("slug")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|text| !text.is_empty())
+            else {
+                continue;
+            };
+
+            if !seen_values.insert(value.to_string()) {
+                continue;
+            }
+
+            let label = model
+                .get("display_name")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|text| !text.is_empty())
+                .unwrap_or(value)
+                .to_string();
+
+            model_options.push(CodexModelOption {
+                label,
+                value: value.to_string(),
+            });
+        }
+    }
+
+    Ok(model_options)
+}
+
+fn ensure_model_option(model_options: &mut Vec<CodexModelOption>, value: &str) {
+    if model_options.iter().any(|option| option.value == value) {
+        return;
+    }
+
+    model_options.insert(
+        0,
+        CodexModelOption {
+            label: value.to_string(),
+            value: value.to_string(),
+        },
+    );
+}
+
 fn normalize_existing_directory(value: Option<&str>) -> AppResult<Option<PathBuf>> {
     let Some(text) = normalize_text(value) else {
         return Ok(None);
@@ -667,6 +796,7 @@ fn normalize_optional_text(value: Option<String>) -> Option<String> {
 mod tests {
     use super::*;
     use serde_json::json;
+    use std::time::{SystemTime, UNIX_EPOCH};
 
     #[test]
     fn parses_chat_completion_usage() {
@@ -730,5 +860,77 @@ mod tests {
         assert_eq!(candidates[0].total_tokens, 28);
         assert_eq!(candidates[0].cached_input_tokens, Some(4));
         assert_eq!(candidates[0].reasoning_tokens, Some(3));
+    }
+
+    #[test]
+    fn reads_default_model_from_config_toml() {
+        let temp_dir = unique_temp_dir();
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        let config_path = temp_dir.join("config.toml");
+        std::fs::write(
+            &config_path,
+            r#"
+model = "gpt-5.4"
+review_model = "gpt-5.4"
+"#,
+        )
+        .unwrap();
+
+        let default_model = read_default_model(&config_path).unwrap();
+
+        assert_eq!(default_model.as_deref(), Some("gpt-5.4"));
+        let _ = std::fs::remove_dir_all(temp_dir);
+    }
+
+    #[test]
+    fn reads_model_options_from_models_cache() {
+        let temp_dir = unique_temp_dir();
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        let models_cache_path = temp_dir.join("models_cache.json");
+        std::fs::write(
+            &models_cache_path,
+            serde_json::to_string(&json!({
+                "models": [
+                    {
+                        "slug": "gpt-5.4",
+                        "display_name": "gpt-5.4"
+                    },
+                    {
+                        "slug": "gpt-5.4-mini",
+                        "display_name": "GPT-5.4-Mini"
+                    }
+                ]
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        let model_options = read_model_options(&models_cache_path).unwrap();
+
+        assert_eq!(model_options.len(), 2);
+        assert_eq!(model_options[0].value, "gpt-5.4");
+        assert_eq!(model_options[1].label, "GPT-5.4-Mini");
+        let _ = std::fs::remove_dir_all(temp_dir);
+    }
+
+    #[test]
+    fn injects_default_model_when_models_cache_missing_it() {
+        let mut model_options = vec![CodexModelOption {
+            label: "gpt-5.4-mini".to_string(),
+            value: "gpt-5.4-mini".to_string(),
+        }];
+
+        ensure_model_option(&mut model_options, "gpt-5.4");
+
+        assert_eq!(model_options[0].value, "gpt-5.4");
+        assert_eq!(model_options[1].value, "gpt-5.4-mini");
+    }
+
+    fn unique_temp_dir() -> PathBuf {
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        std::env::temp_dir().join(format!("codex-manager-codex-runtime-tests-{suffix}"))
     }
 }

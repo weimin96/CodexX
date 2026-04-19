@@ -133,6 +133,16 @@ export interface CodexCliLaunchInput {
   model?: string
 }
 
+export interface CodexModelOption {
+  label: string
+  value: string
+}
+
+export interface CodexLauncherConfig {
+  default_model?: string
+  model_options: CodexModelOption[]
+}
+
 export interface CodexLaunchResult {
   session_id: string
   status: string

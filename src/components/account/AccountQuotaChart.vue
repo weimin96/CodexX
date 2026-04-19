@@ -1,28 +1,23 @@
 <template>
-  <div class="quota-grid">
-    <div
-      v-for="item in quotaItems"
-      :key="item.label"
-      class="quota-ring-card"
-      :class="{ featured }"
-    >
-      <div class="quota-head">
+  <div class="quota-line-card" :class="{ featured }">
+    <div class="quota-summary">
+      <div v-for="item in quotaItems" :key="item.label" class="quota-summary-item">
         <span class="quota-title">{{ item.label }}</span>
-        <span class="quota-caption">{{ item.remainingLabel }}</span>
+        <strong class="quota-value">{{ item.valueLabel }}</strong>
       </div>
+    </div>
 
-      <VChart class="quota-ring" :option="item.option" autoresize />
+    <VChart class="quota-line-chart" :option="chartOption" autoresize />
 
-      <div class="quota-meta">
-        <div class="quota-meta-row">
-          <span class="quota-meta-label">已用</span>
-          <span class="quota-meta-value">{{ item.usedLabel }}</span>
-        </div>
-        <div class="quota-meta-row">
-          <span class="quota-meta-label">重置</span>
-          <span class="quota-meta-value">{{ item.resetLabel }}</span>
-        </div>
-      </div>
+    <div class="quota-reset-line">
+      <span class="quota-reset-item">
+        <span class="quota-reset-label">{{ quotaItems[0].label }}重置</span>
+        <span class="quota-reset-value">{{ quotaItems[0].resetLabel }}</span>
+      </span>
+      <span class="quota-reset-item">
+        <span class="quota-reset-label">{{ quotaItems[1].label }}重置</span>
+        <span class="quota-reset-value">{{ quotaItems[1].resetLabel }}</span>
+      </span>
     </div>
   </div>
 </template>
@@ -32,12 +27,12 @@ import { computed } from 'vue'
 import { format } from 'date-fns'
 import VChart from 'vue-echarts'
 import * as echarts from 'echarts/core'
-import { GaugeChart } from 'echarts/charts'
-import { GraphicComponent, TooltipComponent } from 'echarts/components'
+import { LineChart } from 'echarts/charts'
+import { GridComponent, TooltipComponent } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
 import type { CodexUsageWindow } from '@/types'
 
-echarts.use([GaugeChart, GraphicComponent, TooltipComponent, CanvasRenderer])
+echarts.use([LineChart, GridComponent, TooltipComponent, CanvasRenderer])
 
 const props = defineProps<{
   fiveHour?: CodexUsageWindow
@@ -45,117 +40,130 @@ const props = defineProps<{
   featured?: boolean
 }>()
 
-interface QuotaRingViewModel {
+interface QuotaLineViewModel {
   label: string
+  xStart: number
+  xEnd: number
+  color: string
+  trackColor: string
   usedLabel: string
-  remainingLabel: string
+  valueLabel: string
   resetLabel: string
-  option: NonNullable<Parameters<echarts.ECharts['setOption']>[0]>
+  progressEnd: number
+  remainingPercent: number | null
 }
 
 const featured = computed(() => Boolean(props.featured))
 
-const quotaItems = computed<QuotaRingViewModel[]>(() => [
-  buildQuotaRing('5 小时', props.fiveHour, '#0071e3', featured.value),
-  buildQuotaRing('周', props.oneWeek, '#8b5cf6', featured.value),
+const quotaItems = computed<QuotaLineViewModel[]>(() => [
+  buildQuotaLine('5小时', props.fiveHour, '#34c759', 'rgba(52, 199, 89, 0.18)', 0, 96),
+  buildQuotaLine('7天', props.oneWeek, '#0071e3', 'rgba(0, 113, 227, 0.16)', 104, 200),
 ])
 
-function buildQuotaRing(
+const chartOption = computed<NonNullable<Parameters<echarts.ECharts['setOption']>[0]>>(() => {
+  const items = quotaItems.value
+  const textColor = featured.value ? '#ffffff' : '#1d1d1f'
+
+  return {
+    animation: false,
+    backgroundColor: 'transparent',
+    grid: {
+      left: 0,
+      right: 0,
+      top: 4,
+      bottom: 4,
+      containLabel: false,
+    },
+    tooltip: {
+      trigger: 'item',
+      backgroundColor: featured.value ? '#101114' : '#ffffff',
+      borderColor: featured.value ? 'rgba(255, 255, 255, 0.1)' : 'rgba(29, 29, 31, 0.08)',
+      borderWidth: 1,
+      textStyle: { color: textColor },
+      formatter: (params: unknown) => {
+        const seriesName =
+          typeof params === 'object' && params && 'seriesName' in params
+            ? String(params.seriesName)
+            : ''
+        const item = items.find((quotaItem) => quotaItem.label === seriesName)
+        if (!item) return ''
+
+        if (item.remainingPercent === null) {
+          return `${item.label}<br/>尚未提供额度`
+        }
+
+        return `${item.label}<br/>剩余 ${item.remainingPercent.toFixed(1)}%<br/>${item.usedLabel}`
+      },
+    },
+    xAxis: {
+      type: 'value',
+      min: 0,
+      max: 200,
+      show: false,
+    },
+    yAxis: {
+      type: 'value',
+      min: -0.5,
+      max: 0.5,
+      show: false,
+    },
+    series: items.flatMap((item) => [
+      {
+        name: `${item.label}轨道`,
+        type: 'line',
+        data: [
+          [item.xStart, 0],
+          [item.xEnd, 0],
+        ],
+        symbol: 'none',
+        silent: true,
+        lineStyle: {
+          width: 5,
+          color: item.trackColor,
+        },
+        z: 1,
+      },
+      {
+        name: item.label,
+        type: 'line',
+        data: [
+          [item.xStart, 0],
+          [item.progressEnd, 0],
+        ],
+        symbol: 'none',
+        lineStyle: {
+          width: 5,
+          color: item.color,
+        },
+        z: 2,
+      },
+    ]),
+  }
+})
+
+function buildQuotaLine(
   label: string,
   window: CodexUsageWindow | undefined,
-  ringColor: string,
-  isFeatured: boolean,
-): QuotaRingViewModel {
+  color: string,
+  trackColor: string,
+  xStart: number,
+  xEnd: number,
+): QuotaLineViewModel {
   const usedPercent = normalizePercent(window?.used_percent)
   const remainingPercent = usedPercent === null ? null : Math.max(0, 100 - usedPercent)
-  const textColor = isFeatured ? '#ffffff' : '#1d1d1f'
-  const subTextColor = isFeatured ? 'rgba(255, 255, 255, 0.68)' : 'rgba(29, 29, 31, 0.68)'
-  const backgroundColor = isFeatured ? 'rgba(255, 255, 255, 0.12)' : 'rgba(29, 29, 31, 0.08)'
+  const progressEnd = xStart + ((xEnd - xStart) * (remainingPercent ?? 0)) / 100
 
   return {
     label,
-    usedLabel: usedPercent === null ? '未同步' : `${usedPercent.toFixed(1)}%`,
-    remainingLabel: remainingPercent === null ? '未同步' : `剩余 ${remainingPercent.toFixed(1)}%`,
+    xStart,
+    xEnd,
+    color,
+    trackColor,
+    usedLabel: usedPercent === null ? '已用 未提供' : `已用 ${usedPercent.toFixed(1)}%`,
+    valueLabel: remainingPercent === null ? '未提供' : `${remainingPercent.toFixed(0)}%`,
     resetLabel: formatResetTime(window?.reset_at),
-    option: {
-      animation: false,
-      backgroundColor: 'transparent',
-      tooltip: {
-        trigger: 'item',
-        backgroundColor: isFeatured ? '#101114' : '#ffffff',
-        borderColor: isFeatured ? 'rgba(255, 255, 255, 0.1)' : 'rgba(29, 29, 31, 0.08)',
-        borderWidth: 1,
-        textStyle: { color: textColor },
-        formatter: remainingPercent === null
-          ? `${label}<br/>尚未同步额度`
-          : `${label}<br/>剩余 ${remainingPercent.toFixed(1)}%<br/>已用 ${usedPercent?.toFixed(1)}%`,
-      },
-      graphic: [
-        {
-          type: 'text',
-          left: 'center',
-          top: '43%',
-          style: {
-            text: remainingPercent === null ? '--' : `${remainingPercent.toFixed(0)}%`,
-            textAlign: 'center',
-            fill: textColor,
-            fontSize: 17,
-            fontWeight: 700,
-            fontFamily:
-              '"SF Pro Display", "SF Pro Text", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
-          },
-        },
-        {
-          type: 'text',
-          left: 'center',
-          top: '59%',
-          style: {
-            text: '剩余',
-            textAlign: 'center',
-            fill: subTextColor,
-            fontSize: 10,
-          },
-        },
-      ],
-      series: [
-        {
-          type: 'gauge',
-          radius: '88%',
-          center: ['50%', '50%'],
-          startAngle: 90,
-          endAngle: -270,
-          min: 0,
-          max: 100,
-          splitNumber: 100,
-          pointer: { show: false },
-          progress: {
-            show: true,
-            roundCap: true,
-            width: 12,
-            itemStyle: {
-              color: ringColor,
-            },
-          },
-          axisLine: {
-            roundCap: true,
-            lineStyle: {
-              width: 12,
-              color: [[1, backgroundColor]],
-            },
-          },
-          axisTick: { show: false },
-          splitLine: { show: false },
-          axisLabel: { show: false },
-          anchor: { show: false },
-          detail: { show: false },
-          data: [
-            {
-              value: normalizePercent(window?.used_percent) ?? 0,
-            },
-          ],
-        },
-      ],
-    },
+    progressEnd,
+    remainingPercent,
   }
 }
 
@@ -169,98 +177,116 @@ function normalizePercent(value?: number): number | null {
 
 function formatResetTime(value?: number): string {
   if (!Number.isFinite(value) || !value || value <= 0) {
-    return '未同步'
+    return '未提供'
   }
 
-  return format(new Date(value * 1000), 'MM-dd HH:mm')
+  return format(new Date(value * 1000), 'yyyy/MM/dd HH:mm')
 }
 </script>
 
 <style scoped>
-.quota-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
-}
-
-.quota-ring-card {
+.quota-line-card {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
   min-width: 0;
-  padding: 10px;
-  border-radius: 16px;
+  padding: 10px 12px;
+  border-radius: 14px;
   background: var(--app-surface-muted);
 }
 
-.quota-ring-card.featured {
+.quota-line-card.featured {
   background: var(--app-feature-surface-muted);
 }
 
-.quota-head {
+.quota-summary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.quota-summary-item {
   display: flex;
-  flex-direction: column;
-  gap: 2px;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
 }
 
 .quota-title {
   font-size: 11px;
   line-height: 1.33;
+  color: var(--app-ink-tertiary);
+  white-space: nowrap;
+}
+
+.quota-value {
+  min-width: 0;
+  font-size: 11px;
+  line-height: 1.33;
   font-weight: 600;
   color: var(--app-ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.quota-caption {
-  font-size: 10px;
-  line-height: 1.33;
-  color: var(--app-ink-tertiary);
-}
-
-.quota-ring-card.featured .quota-title {
-  color: var(--app-feature-ink);
-}
-
-.quota-ring-card.featured .quota-caption {
+.quota-line-card.featured .quota-title {
   color: var(--app-feature-ink-tertiary);
 }
 
-.quota-ring {
+.quota-line-card.featured .quota-value {
+  color: var(--app-feature-ink);
+}
+
+.quota-line-chart {
   width: 100%;
-  height: 100px;
+  height: 18px;
 }
 
-.quota-meta {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.quota-meta-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-}
-
-.quota-meta-label {
+.quota-reset-line {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  column-gap: 10px;
+  row-gap: 4px;
   font-size: 10px;
-  line-height: 1.33;
+  line-height: 1.35;
   color: var(--app-ink-tertiary);
 }
 
-.quota-meta-value {
-  font-size: 10px;
-  line-height: 1.33;
-  color: var(--app-ink-secondary);
+.quota-reset-item {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 4px;
+  min-width: 0;
 }
 
-.quota-ring-card.featured .quota-meta-label,
-.quota-ring-card.featured .quota-meta-value {
+.quota-reset-label,
+.quota-reset-value {
+  white-space: nowrap;
+}
+
+.quota-reset-label {
+  text-align: left;
+}
+
+.quota-reset-value {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: right;
+}
+
+.quota-line-card.featured .quota-reset-line {
   color: var(--app-feature-ink-tertiary);
 }
 
 @media (max-width: 640px) {
-  .quota-grid {
+  .quota-summary {
+    grid-template-columns: 1fr;
+    gap: 4px;
+  }
+
+  .quota-reset-line {
     grid-template-columns: 1fr;
   }
 }

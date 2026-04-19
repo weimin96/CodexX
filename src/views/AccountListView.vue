@@ -3,37 +3,32 @@
     <section class="page-hero">
       <div class="page-hero-copy">
         <h1 class="page-title">账号管理</h1>
-        <p class="page-subtitle">查看、同步和切换账号。</p>
         <div class="page-hero-actions">
-          <n-button type="primary" :loading="syncingLocalAuth" @click="handleSyncLocalAuth">
-            本地同步
-          </n-button>
-          <n-button secondary :loading="oauthPreparing || oauthOpening" @click="handlePrepareOAuthLogin">
-            OAuth 登录
-          </n-button>
-          <n-button secondary :loading="checkingAll" @click="handleCheckAll">
-            检测全部
-          </n-button>
-          <n-button secondary @click="showImportModal = true">导入</n-button>
-          <n-button secondary @click="handleExport">导出</n-button>
-          <n-button type="primary" secondary @click="showCreateModal = true">
-            新增账号
-          </n-button>
-        </div>
-      </div>
-
-      <div class="hero-stats">
-        <div class="hero-stat">
-          <span class="hero-stat-label">账号</span>
-          <strong class="hero-stat-value">{{ totalAccounts }}</strong>
-        </div>
-        <div class="hero-stat">
-          <span class="hero-stat-label">关注</span>
-          <strong class="hero-stat-value">{{ attentionAccountCount }}</strong>
-        </div>
-        <div class="hero-stat">
-          <span class="hero-stat-label">计划</span>
-          <strong class="hero-stat-value">{{ accountWithPlanCount }}</strong>
+          <n-dropdown
+            trigger="click"
+            :options="accountActionOptions"
+            @select="handleAccountActionSelect"
+          >
+            <n-button
+              circle
+              secondary
+              class="account-action-trigger"
+              title="账号操作"
+              aria-label="账号操作"
+            >
+              <template #icon>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+                  <path
+                    d="M5 12h.01M12 12h.01M19 12h.01"
+                    stroke="currentColor"
+                    stroke-width="2.4"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  />
+                </svg>
+              </template>
+            </n-button>
+          </n-dropdown>
         </div>
       </div>
     </section>
@@ -66,8 +61,7 @@
     <section v-else class="surface-panel section-grid account-section">
       <div class="account-grid-header">
         <div>
-          <h2 class="panel-heading">账号目录</h2>
-          <p class="panel-copy">共 {{ filteredAccounts.length }} 个账号。</p>
+          <h2 class="panel-heading">账号信息</h2>
         </div>
         <div class="search-row">
           <n-input
@@ -224,6 +218,7 @@ import { useRouter } from 'vue-router'
 import { listen } from '@tauri-apps/api/event'
 import type { UnlistenFn } from '@tauri-apps/api/event'
 import { useMessage, useDialog } from 'naive-ui'
+import type { DropdownOption } from 'naive-ui'
 import { useAccountStore } from '@/stores/account'
 import { accountService, authService } from '@/services'
 import { AUTH_TYPE_LABELS } from '@/types'
@@ -241,8 +236,7 @@ const router = useRouter()
 const message = useMessage()
 const dialog = useDialog()
 const accountStore = useAccountStore()
-const { accounts, loading, checkingStatus, totalAccounts, accountsByStatus } =
-  storeToRefs(accountStore)
+const { accounts, loading, checkingStatus } = storeToRefs(accountStore)
 
 const searchQuery = ref('')
 const showCreateModal = ref(false)
@@ -265,18 +259,53 @@ const oauthLogin = ref<PreparedOAuthLogin | null>(null)
 const oauthCallbackUrl = ref('')
 let oauthCallbackUnlisten: UnlistenFn | null = null
 
-const attentionAccountCount = computed(
-  () =>
-    (accountsByStatus.value.warning?.length ?? 0) +
-    (accountsByStatus.value.error?.length ?? 0) +
-    (accountsByStatus.value.expired?.length ?? 0),
-)
-
-const accountWithPlanCount = computed(
-  () => accounts.value.filter((account) => Boolean(account.codex_plan_type)).length,
-)
-
 const hasAccounts = computed(() => accounts.value.length > 0)
+
+type AccountActionKey =
+  | 'sync-local'
+  | 'oauth-login'
+  | 'check-all'
+  | 'import'
+  | 'export'
+  | 'create'
+
+const accountActionOptions = computed<DropdownOption[]>(() => [
+  {
+    label: syncingLocalAuth.value ? '本地同步中' : '本地同步',
+    key: 'sync-local',
+    disabled: syncingLocalAuth.value,
+  },
+  {
+    label: oauthPreparing.value || oauthOpening.value ? 'OAuth 登录中' : 'OAuth 登录',
+    key: 'oauth-login',
+    disabled: oauthPreparing.value || oauthOpening.value,
+  },
+  {
+    label: checkingAll.value ? '检测中' : '检测全部',
+    key: 'check-all',
+    disabled: checkingAll.value || !hasAccounts.value,
+  },
+  {
+    type: 'divider',
+    key: 'account-action-divider-1',
+  },
+  {
+    label: '导入',
+    key: 'import',
+  },
+  {
+    label: '导出',
+    key: 'export',
+  },
+  {
+    type: 'divider',
+    key: 'account-action-divider-2',
+  },
+  {
+    label: '新增账号',
+    key: 'create',
+  },
+])
 
 const filteredAccounts = computed(() => {
   let list = accounts.value
@@ -342,6 +371,29 @@ async function handleCheckAll() {
     message.error('检测失败')
   } finally {
     checkingAll.value = false
+  }
+}
+
+function handleAccountActionSelect(key: string | number) {
+  switch (key as AccountActionKey) {
+    case 'sync-local':
+      void handleSyncLocalAuth()
+      break
+    case 'oauth-login':
+      void handlePrepareOAuthLogin()
+      break
+    case 'check-all':
+      void handleCheckAll()
+      break
+    case 'import':
+      showImportModal.value = true
+      break
+    case 'export':
+      handleExport()
+      break
+    case 'create':
+      showCreateModal.value = true
+      break
   }
 }
 
@@ -560,24 +612,8 @@ async function doImport() {
   line-height: 1.08;
 }
 
-.page-subtitle {
-  font-size: 13px;
-}
-
-.hero-stat-label {
-  font-size: 10px;
-}
-
-.hero-stat-value {
-  font-size: 18px;
-}
-
 .panel-heading {
   font-size: 18px;
-}
-
-.panel-copy {
-  font-size: 12px;
 }
 
 .account-grid-header {
@@ -586,6 +622,10 @@ async function doImport() {
   justify-content: space-between;
   gap: 20px;
   flex-wrap: wrap;
+}
+
+.account-action-trigger {
+  color: var(--app-hero-ink);
 }
 
 .account-section {

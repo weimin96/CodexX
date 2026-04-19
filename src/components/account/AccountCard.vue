@@ -318,17 +318,6 @@ function formatUsageError(error?: string): string {
     var(--app-shadow);
 }
 
-.account-card.default::before {
-  content: '';
-  position: absolute;
-  top: -1px;
-  right: 14px;
-  left: 14px;
-  height: 3px;
-  border-radius: 0 0 999px 999px;
-  background: var(--app-blue);
-}
-
 .card-top {
   display: flex;
   align-items: flex-start;

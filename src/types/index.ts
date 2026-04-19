@@ -182,7 +182,7 @@ export const STATUS_LABELS: Record<AccountStatus, string> = {
   normal: '正常',
   warning: '警告',
   error: '异常',
-  unknown: '未知',
+  unknown: '待确认',
   expired: '已过期',
 }
 

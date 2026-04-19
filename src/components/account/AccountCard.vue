@@ -1,5 +1,5 @@
 <template>
-  <div class="account-card" :class="{ default: account.is_default }" @click="$emit('click')">
+  <div class="account-card" :class="{ default: account.is_default }">
     <div class="card-top">
       <div class="card-profile">
         <div class="avatar" :style="{ background: account.color }">
@@ -8,92 +8,170 @@
         <div class="card-copy">
           <div class="card-name-row">
             <h3 class="card-name">{{ displayName }}</h3>
+            <StatusDot
+              :status="statusDisplay.tone"
+              :label="statusDisplay.label"
+              :title="statusDisplay.title"
+            />
             <span v-if="account.is_default" class="label-pill label-pill-contrast">默认</span>
             <span v-if="account.codex_plan_type" class="label-pill label-pill-blue">
               {{ formatPlanType(account.codex_plan_type) }}
             </span>
           </div>
-          <div class="card-subtitle">{{ AUTH_TYPE_LABELS[account.auth_type] }}</div>
+          <div v-if="displayEmail" class="card-subtitle">{{ displayEmail }}</div>
+          <div v-else class="card-subtitle">{{ AUTH_TYPE_LABELS[account.auth_type] }}</div>
         </div>
       </div>
-      <StatusDot :status="account.status" />
+      <div class="card-side">
+        <div class="card-actions" @click.stop>
+          <n-tooltip trigger="hover">
+            <template #trigger>
+              <n-button
+                circle
+                secondary
+                size="small"
+                class="card-icon-button"
+                @click="$emit('detail')"
+              >
+                <template #icon>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+                    <path
+                      d="M9 6h11M9 12h11M9 18h11M4 6h.01M4 12h.01M4 18h.01"
+                      stroke="currentColor"
+                      stroke-width="1.8"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    />
+                  </svg>
+                </template>
+              </n-button>
+            </template>
+            查看详情
+          </n-tooltip>
+
+          <n-tooltip trigger="hover">
+            <template #trigger>
+              <n-button
+                circle
+                secondary
+                size="small"
+                class="card-icon-button"
+                :loading="checking"
+                @click="$emit('check')"
+              >
+                <template #icon>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+                    <path
+                      d="M20 12a8 8 0 1 1-2.34-5.66"
+                      stroke="currentColor"
+                      stroke-width="1.8"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    />
+                    <path
+                      d="M20 4v6h-6"
+                      stroke="currentColor"
+                      stroke-width="1.8"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    />
+                  </svg>
+                </template>
+              </n-button>
+            </template>
+            检测状态
+          </n-tooltip>
+
+          <n-tooltip v-if="!account.is_default" trigger="hover">
+            <template #trigger>
+              <n-button
+                circle
+                secondary
+                size="small"
+                class="card-icon-button"
+                @click="$emit('set-default')"
+              >
+                <template #icon>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+                    <path
+                      d="M12 3.5l2.63 5.33 5.87.85-4.25 4.14 1 5.84L12 17.1l-5.25 2.76 1-5.84-4.25-4.14 5.87-.85L12 3.5z"
+                      stroke="currentColor"
+                      stroke-width="1.7"
+                      stroke-linejoin="round"
+                    />
+                  </svg>
+                </template>
+              </n-button>
+            </template>
+            设为默认
+          </n-tooltip>
+
+          <n-tooltip trigger="hover">
+            <template #trigger>
+              <n-button
+                circle
+                secondary
+                size="small"
+                type="error"
+                class="card-icon-button"
+                @click="$emit('delete')"
+              >
+                <template #icon>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+                    <path
+                      d="M4 7h16M9 11v6M15 11v6M10 4h4l1 2H9l1-2zm-3 3 1 12h8l1-12"
+                      stroke="currentColor"
+                      stroke-width="1.8"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    />
+                  </svg>
+                </template>
+              </n-button>
+            </template>
+            删除账号
+          </n-tooltip>
+        </div>
+      </div>
     </div>
 
-    <div class="meta-list">
-      <div v-if="account.email" class="meta-item">
-        <span class="meta-label">邮箱</span>
-        <span class="meta-value">{{ account.email }}</span>
-      </div>
-      <div v-if="displayOrganization" class="meta-item">
-        <span class="meta-label">{{ organizationLabel }}</span>
-        <span class="meta-value">{{ displayOrganization }}</span>
-      </div>
-      <div v-if="account.last_checked_at" class="meta-item">
-        <span class="meta-label">最后检测</span>
-        <span class="meta-value">{{ formatDate(account.last_checked_at) }}</span>
-      </div>
-      <div v-if="nextUsageResetAt" class="meta-item">
-        <span class="meta-label">下次重置</span>
-        <span class="meta-value">{{ formatUnixDate(nextUsageResetAt) }}</span>
-      </div>
-    </div>
-
-    <div v-if="hasCodexUsage(account)" class="usage-grid">
-      <div class="usage-card">
-        <span class="usage-label">5 小时剩余</span>
-        <strong class="usage-value">{{ formatRemainingUsageWindow(account.codex_usage_5h) }}</strong>
-        <span v-if="account.codex_usage_5h?.reset_at" class="usage-reset">
-          重置 {{ formatUnixDate(account.codex_usage_5h.reset_at) }}
-        </span>
-      </div>
-      <div class="usage-card">
-        <span class="usage-label">周剩余</span>
-        <strong class="usage-value">{{ formatRemainingUsageWindow(account.codex_usage_week) }}</strong>
-        <span v-if="account.codex_usage_week?.reset_at" class="usage-reset">
-          重置 {{ formatUnixDate(account.codex_usage_week.reset_at) }}
-        </span>
-      </div>
+    <div v-if="hasCodexUsage(account)" class="usage-panel">
+      <AccountQuotaChart
+        :five-hour="account.codex_usage_5h"
+        :one-week="account.codex_usage_week"
+        :featured="account.is_default"
+      />
     </div>
 
     <div v-if="account.codex_usage_error" class="status-message warning">
       账号资料暂不可用：{{ displayUsageError }}
     </div>
 
-    <div v-if="account.status_message" class="status-message" :class="account.status">
-      {{ account.status_message }}
+    <div v-if="displayStatusMessage" class="status-message" :class="statusDisplay.tone">
+      {{ displayStatusMessage }}
     </div>
 
-    <div class="card-actions" @click.stop>
-      <n-button size="small" secondary :loading="checking" @click="$emit('check')">
-        检测状态
-      </n-button>
-      <n-button
-        v-if="!account.is_default"
-        size="small"
-        secondary
-        @click="$emit('set-default')"
-      >
-        设为默认
-      </n-button>
-      <n-button size="small" secondary type="error" @click="$emit('delete')">
-        删除账号
-      </n-button>
+    <div v-if="statusDiagnostic" class="status-diagnostic">
+      {{ statusDiagnostic }}
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
 import { AUTH_TYPE_LABELS } from '@/types'
-import type { Account, CodexUsageWindow } from '@/types'
+import type { Account } from '@/types'
 import StatusDot from '@/components/common/StatusDot.vue'
-import { format, parseISO } from 'date-fns'
+import AccountQuotaChart from '@/components/account/AccountQuotaChart.vue'
 import { computed } from 'vue'
 import {
   resolveAccountAvatarText,
   resolveAccountDisplayName,
-  resolveAccountOrganizationDisplay,
-  resolveAccountOrganizationLabel,
 } from '@/utils/account-display'
+import {
+  resolveAccountStatusDiagnostic,
+  resolveAccountStatusDisplay,
+  resolveAccountStatusMessage,
+} from '@/utils/account-status'
 
 const props = defineProps<{
   account: Account
@@ -101,7 +179,7 @@ const props = defineProps<{
 }>()
 
 defineEmits<{
-  click: []
+  detail: []
   check: []
   'set-default': []
   delete: []
@@ -109,49 +187,20 @@ defineEmits<{
 
 const displayName = computed(() => resolveAccountDisplayName(props.account))
 const displayAvatarText = computed(() => resolveAccountAvatarText(props.account))
-const displayOrganization = computed(() => resolveAccountOrganizationDisplay(props.account))
-const organizationLabel = computed(() => resolveAccountOrganizationLabel(props.account) ?? '组织')
+const displayEmail = computed(() => props.account.email?.trim() || '')
 const displayUsageError = computed(() => formatUsageError(props.account.codex_usage_error))
-const nextUsageResetAt = computed(() => resolveNextUsageResetAt(props.account))
-
-function formatDate(iso: string): string {
-  try {
-    return format(parseISO(iso), 'MM-dd HH:mm')
-  } catch {
-    return iso
-  }
-}
-
-function formatUnixDate(seconds: number): string {
-  if (!Number.isFinite(seconds) || seconds <= 0) return '未知'
-  return format(new Date(seconds * 1000), 'MM-dd HH:mm')
-}
+const statusDisplay = computed(() => resolveAccountStatusDisplay(props.account))
+const displayStatusMessage = computed(() => resolveAccountStatusMessage(props.account))
+const statusDiagnostic = computed(() => resolveAccountStatusDiagnostic(props.account))
 
 function hasCodexUsage(account: Account): boolean {
   return Boolean(account.codex_usage_5h || account.codex_usage_week)
-}
-
-function formatRemainingUsageWindow(window?: CodexUsageWindow): string {
-  if (!window) return '未知'
-  return formatPercent(100 - window.used_percent)
-}
-
-function formatPercent(value: number): string {
-  if (!Number.isFinite(value)) return '未知'
-  return `${Math.max(0, Math.min(100, value)).toFixed(1)}%`
 }
 
 function formatPlanType(planType: string): string {
   const normalized = planType.trim()
   if (!normalized) return '未知计划'
   return normalized.toUpperCase()
-}
-
-function resolveNextUsageResetAt(account: Account): number | null {
-  const resetTimes = [account.codex_usage_5h?.reset_at, account.codex_usage_week?.reset_at]
-    .filter((value): value is number => typeof value === 'number' && Number.isFinite(value) && value > 0)
-
-  return resetTimes.length > 0 ? Math.min(...resetTimes) : null
 }
 
 function formatUsageError(error?: string): string {
@@ -184,14 +233,11 @@ function formatUsageError(error?: string): string {
   border-radius: 22px;
   background: var(--app-surface);
   box-shadow: var(--app-shadow);
-  cursor: pointer;
   transition:
-    transform 0.2s ease,
     box-shadow 0.2s ease;
 }
 
 .account-card:hover {
-  transform: translateY(-2px);
   box-shadow: rgba(0, 0, 0, 0.22) 3px 9px 34px 0px;
 }
 
@@ -205,6 +251,13 @@ function formatUsageError(error?: string): string {
   align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
+}
+
+.card-side {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
 }
 
 .card-profile {
@@ -255,6 +308,7 @@ function formatUsageError(error?: string): string {
   line-height: 1.43;
   letter-spacing: -0.12px;
   color: var(--app-ink-secondary);
+  word-break: break-all;
 }
 
 .account-card.default .card-subtitle {
@@ -287,123 +341,36 @@ function formatUsageError(error?: string): string {
   color: var(--app-blue);
 }
 
-.meta-list {
+.usage-panel {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-}
-
-.meta-item {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  padding-bottom: 8px;
-  border-bottom: 1px solid var(--app-border);
-}
-
-.meta-item:last-child {
-  padding-bottom: 0;
-  border-bottom: none;
-}
-
-.account-card.default .meta-item {
-  border-bottom-color: var(--app-feature-border);
-}
-
-.meta-label {
-  font-size: 11px;
-  line-height: 1.33;
-  color: var(--app-ink-tertiary);
-}
-
-.meta-value {
-  max-width: 70%;
-  text-align: right;
-  font-size: 13px;
-  line-height: 1.43;
-  letter-spacing: -0.12px;
-  color: var(--app-ink-secondary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.account-card.default .meta-label,
-.account-card.default .meta-value {
-  color: var(--app-feature-ink-secondary);
-}
-
-.usage-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
-}
-
-.usage-card {
-  padding: 10px 12px;
-  border-radius: 16px;
-  background: var(--app-surface-muted);
-}
-
-.account-card.default .usage-card {
-  background: var(--app-feature-surface-muted);
-}
-
-.usage-label {
-  display: block;
-  font-size: 11px;
-  line-height: 1.33;
-  color: var(--app-ink-tertiary);
-}
-
-.usage-value {
-  display: block;
-  margin-top: 4px;
-  font-family: var(--font-display);
-  font-size: 16px;
-  line-height: 1.2;
-  letter-spacing: 0.12px;
-}
-
-.usage-reset {
-  display: block;
-  margin-top: 4px;
-  font-size: 11px;
-  line-height: 1.33;
-  color: var(--app-ink-tertiary);
-}
-
-.account-card.default .usage-label {
-  color: var(--app-feature-ink-tertiary);
-}
-
-.account-card.default .usage-reset {
-  color: var(--app-feature-ink-tertiary);
+  gap: 10px;
 }
 
 .card-actions {
   display: flex;
-  flex-wrap: wrap;
   gap: 8px;
+}
+
+.card-icon-button {
+  flex-shrink: 0;
+}
+
+.status-diagnostic {
+  margin-top: -6px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--app-ink-tertiary);
+  word-break: break-word;
+}
+
+.account-card.default .status-diagnostic {
+  color: var(--app-feature-ink-tertiary);
 }
 
 @media (max-width: 640px) {
   .account-card {
     padding: 16px;
-  }
-
-  .usage-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .meta-item {
-    flex-direction: column;
-    gap: 4px;
-  }
-
-  .meta-value {
-    max-width: 100%;
-    text-align: left;
   }
 }
 </style>

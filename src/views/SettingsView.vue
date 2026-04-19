@@ -41,7 +41,7 @@
         <div class="setting-item">
           <div class="setting-copy">
             <div class="setting-title">状态检测间隔</div>
-            <div class="setting-description">后台检查频率。</div>
+            <div class="setting-description">应用运行期间的后台检查频率，会同步刷新账号状态与 Codex 额度。</div>
           </div>
           <n-select
             :value="settingsStore.settings.check_interval"

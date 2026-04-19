@@ -1,18 +1,24 @@
 <template>
-  <div class="status-dot-wrap" :title="STATUS_LABELS[status]">
+  <div class="status-dot-wrap" :title="resolvedTitle">
     <span class="status-dot" :class="status" />
-    <span v-if="showLabel" class="status-label">{{ STATUS_LABELS[status] }}</span>
+    <span v-if="showLabel" class="status-label">{{ resolvedLabel }}</span>
   </div>
 </template>
 
 <script setup lang="ts">
+import { computed } from 'vue'
 import { STATUS_LABELS } from '@/types'
 import type { AccountStatus } from '@/types'
 
-defineProps<{
+const props = defineProps<{
   status: AccountStatus
   showLabel?: boolean
+  label?: string
+  title?: string
 }>()
+
+const resolvedLabel = computed(() => props.label ?? STATUS_LABELS[props.status])
+const resolvedTitle = computed(() => props.title ?? resolvedLabel.value)
 </script>
 
 <style scoped>

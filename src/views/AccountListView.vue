@@ -92,7 +92,7 @@
           :key="account.id"
           :account="account"
           :checking="checkingStatus.has(account.id)"
-          @click="navigateToDetail(account.id)"
+          @detail="navigateToDetail(account.id)"
           @check="handleCheckStatus(account.id)"
           @set-default="handleSetDefault(account.id)"
           @delete="handleDelete(account)"

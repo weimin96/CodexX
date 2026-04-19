@@ -7,6 +7,7 @@ pub mod error;
 pub mod local_sync;
 pub mod scheduler;
 pub mod security;
+pub mod status_sync;
 pub mod storage;
 pub mod usage;
 

@@ -2,68 +2,86 @@ use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager};
 use tokio::time::sleep;
 
-use crate::account::{AccountRepository, AccountStatus};
-use crate::auth::AuthService;
+use crate::account::AccountRepository;
+use crate::status_sync;
 use crate::AppState;
 
 pub async fn start_scheduler(handle: AppHandle) {
     let db_state = handle.state::<AppState>().db.clone();
 
     loop {
-        sleep(Duration::from_secs(300)).await; // 5 minutes
+        let interval_seconds = load_status_check_interval_seconds(&db_state).await;
+        sleep(Duration::from_secs(interval_seconds)).await;
 
-        let accounts_with_credentials = {
+        let account_ids = {
             let db = db_state.lock().await;
             let repo = AccountRepository::new(&db);
 
             match repo.list_all() {
-                Ok(accounts) => {
-                    let mut pairs = Vec::new();
-                    for account in accounts {
-                        if let Ok(credential) = repo.get_credential(&account.id) {
-                            pairs.push((account, credential));
-                        }
-                    }
-                    pairs
-                }
+                Ok(accounts) => accounts.into_iter().map(|account| account.id).collect::<Vec<_>>(),
                 Err(_) => Vec::new(),
             }
         };
 
-        let auth_service = AuthService::new();
+        let app_state = handle.state::<AppState>();
 
-        for (account, credential) in accounts_with_credentials {
-            let result = auth_service
-                .validate_credential(&account, &credential)
-                .await;
-
-            if let Ok(auth_result) = result {
-                let new_status = match auth_result.status {
-                    crate::auth::AuthStatus::Valid => AccountStatus::Normal,
-                    crate::auth::AuthStatus::Expired => AccountStatus::Expired,
-                    crate::auth::AuthStatus::Invalid => AccountStatus::Error,
-                    crate::auth::AuthStatus::Unknown => AccountStatus::Unknown,
+        for account_id in account_ids {
+            let (account, credential) =
+                match status_sync::load_account_and_credential(app_state.inner(), &account_id).await {
+                    Ok(pair) => pair,
+                    Err(_) => continue,
                 };
+            let outcome = match status_sync::evaluate_account_refresh(&account, &credential).await {
+                Ok(outcome) => outcome,
+                Err(_) => continue,
+            };
 
-                {
-                    let db = db_state.lock().await;
-                    let repo = AccountRepository::new(&db);
-                    let _ = repo.update_status(
-                        &account.id,
-                        &new_status,
-                        auth_result.message.as_deref(),
-                    );
+            let refreshed_account = {
+                let db = db_state.lock().await;
+                let repo = AccountRepository::new(&db);
+                match status_sync::persist_refresh_outcome(&repo, &account.id, &outcome) {
+                    Ok(account) => account,
+                    Err(_) => continue,
                 }
+            };
 
-                let _ = handle.emit(
-                    "account-status-updated",
-                    serde_json::json!({
-                        "account_id": account.id,
-                        "status": new_status.to_string(),
-                        "message": auth_result.message,
-                    }),
-                );
-            }
+            let _ = handle.emit(
+                "account-status-updated",
+                serde_json::json!({
+                    "account_id": refreshed_account.id,
+                    "status": refreshed_account.status.to_string(),
+                    "message": refreshed_account.status_message,
+                    "account": refreshed_account,
+                }),
+            );
         }
     }
+}
+
+async fn load_status_check_interval_seconds(
+    db_state: &std::sync::Arc<tokio::sync::Mutex<crate::storage::Database>>,
+) -> u64 {
+    let db = db_state.lock().await;
+    let conn = db.get_conn();
+    let raw_value: Result<String, rusqlite::Error> = conn.query_row(
+        "SELECT value FROM settings WHERE key = 'check_interval' LIMIT 1",
+        [],
+        |row| row.get(0),
+    );
+
+    // 调度器必须有稳定兜底值，避免设置损坏时把后台检测完全停掉或拉成极短轮询。
+    match raw_value {
+        Ok(value) => parse_interval_seconds(&value).unwrap_or(300),
+        Err(rusqlite::Error::QueryReturnedNoRows) => 300,
+        Err(_) => 300,
+    }
+}
+
+fn parse_interval_seconds(value: &str) -> Option<u64> {
+    let seconds = value.trim().parse::<u64>().ok()?;
+    if seconds == 0 {
+        return None;
+    }
+
+    Some(seconds)
 }

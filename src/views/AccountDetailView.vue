@@ -36,7 +36,12 @@
           {{ displayAvatarText }}
         </div>
         <div class="hero-status">
-          <StatusDot :status="account.status" show-label />
+          <StatusDot
+            :status="statusDisplay.tone"
+            :label="statusDisplay.label"
+            :title="statusDisplay.title"
+            show-label
+          />
         </div>
         <div class="hero-pill-list">
           <span v-if="account.is_default" class="hero-pill hero-pill-dark">默认账号</span>
@@ -58,8 +63,11 @@
             下次重置 {{ formatUnixDate(nextUsageResetAt) }}
           </div>
         </div>
-        <div v-if="account.status_message" class="status-message" :class="account.status">
-          {{ account.status_message }}
+        <div v-if="displayStatusMessage" class="status-message" :class="statusDisplay.tone">
+          {{ displayStatusMessage }}
+        </div>
+        <div v-if="statusDiagnostic" class="status-diagnostic">
+          {{ statusDiagnostic }}
         </div>
       </div>
     </section>
@@ -80,7 +88,12 @@
           <div class="data-pair">
             <span class="data-pair-label">状态</span>
             <span class="data-pair-value">
-              <StatusDot :status="account.status" show-label />
+              <StatusDot
+                :status="statusDisplay.tone"
+                :label="statusDisplay.label"
+                :title="statusDisplay.title"
+                show-label
+              />
             </span>
           </div>
           <div class="data-pair">
@@ -259,6 +272,11 @@ import {
   resolveAccountDisplayName,
   resolveAccountOrganizationDisplay,
 } from '@/utils/account-display'
+import {
+  resolveAccountStatusDiagnostic,
+  resolveAccountStatusDisplay,
+  resolveAccountStatusMessage,
+} from '@/utils/account-status'
 
 const route = useRoute()
 const router = useRouter()
@@ -275,6 +293,9 @@ const displayOrganization = computed(() =>
 const displayAvatarText = computed(() =>
   account.value ? resolveAccountAvatarText(account.value) : '?',
 )
+const statusDisplay = computed(() => resolveAccountStatusDisplay(account.value))
+const displayStatusMessage = computed(() => resolveAccountStatusMessage(account.value))
+const statusDiagnostic = computed(() => resolveAccountStatusDiagnostic(account.value))
 
 const checking = computed(() => accountStore.checkingStatus.has(accountId.value))
 const usageLoading = ref(false)
@@ -591,6 +612,13 @@ function goToUsage() {
 .detail-list .data-pair-value {
   display: flex;
   justify-content: flex-end;
+}
+
+.status-diagnostic {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--app-ink-tertiary);
+  word-break: break-word;
 }
 
 .account-id {

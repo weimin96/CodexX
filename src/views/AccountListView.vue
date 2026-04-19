@@ -555,6 +555,31 @@ async function doImport() {
 </script>
 
 <style scoped>
+.page-title {
+  font-size: clamp(21px, 3.1vw, 28px);
+  line-height: 1.08;
+}
+
+.page-subtitle {
+  font-size: 13px;
+}
+
+.hero-stat-label {
+  font-size: 10px;
+}
+
+.hero-stat-value {
+  font-size: 18px;
+}
+
+.panel-heading {
+  font-size: 18px;
+}
+
+.panel-copy {
+  font-size: 12px;
+}
+
 .account-grid-header {
   display: flex;
   align-items: center;
@@ -570,6 +595,10 @@ async function doImport() {
 
 .search-row {
   width: min(360px, 100%);
+}
+
+.search-row :deep(.n-input__input-el) {
+  font-size: 13px;
 }
 
 .empty-illustration {
@@ -599,6 +628,7 @@ async function doImport() {
   border-radius: 20px;
   background: var(--app-surface-muted);
   color: var(--app-ink-secondary);
+  font-size: 13px;
 }
 
 .oauth-actions {

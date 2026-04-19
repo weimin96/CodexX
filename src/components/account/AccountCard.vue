@@ -228,8 +228,8 @@ function formatUsageError(error?: string): string {
 .account-card {
   display: flex;
   flex-direction: column;
-  gap: 14px;
-  padding: 18px;
+  gap: 12px;
+  padding: 16px;
   border-radius: 22px;
   background: var(--app-surface);
   box-shadow: var(--app-shadow);
@@ -250,34 +250,34 @@ function formatUsageError(error?: string): string {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 12px;
+  gap: 10px;
 }
 
 .card-side {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   flex-shrink: 0;
 }
 
 .card-profile {
   display: flex;
   align-items: flex-start;
-  gap: 12px;
+  gap: 10px;
   min-width: 0;
 }
 
 .avatar {
-  width: 44px;
-  height: 44px;
-  border-radius: 14px;
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
   color: #ffffff;
   font-family: var(--font-display);
-  font-size: 16px;
+  font-size: 15px;
   font-weight: 600;
 }
 
@@ -285,7 +285,7 @@ function formatUsageError(error?: string): string {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
 }
 
 .card-copy {
@@ -296,19 +296,21 @@ function formatUsageError(error?: string): string {
   margin: 0;
   min-width: 0;
   font-family: var(--font-display);
-  font-size: 18px;
+  font-size: 16px;
   line-height: 1.2;
   letter-spacing: 0.12px;
   font-weight: 700;
 }
 
 .card-subtitle {
-  margin-top: 4px;
-  font-size: 13px;
-  line-height: 1.43;
+  margin-top: 3px;
+  font-size: 12px;
+  line-height: 1.35;
   letter-spacing: -0.12px;
   color: var(--app-ink-secondary);
-  word-break: break-all;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .account-card.default .card-subtitle {
@@ -318,10 +320,10 @@ function formatUsageError(error?: string): string {
 .label-pill {
   display: inline-flex;
   align-items: center;
-  min-height: 24px;
-  padding: 0 10px;
+  min-height: 22px;
+  padding: 0 8px;
   border-radius: var(--app-radius-control);
-  font-size: 11px;
+  font-size: 10px;
   line-height: 1.33;
   letter-spacing: -0.12px;
 }
@@ -344,12 +346,12 @@ function formatUsageError(error?: string): string {
 .usage-panel {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
 }
 
 .card-actions {
   display: flex;
-  gap: 8px;
+  gap: 6px;
 }
 
 .card-icon-button {
@@ -358,7 +360,7 @@ function formatUsageError(error?: string): string {
 
 .status-diagnostic {
   margin-top: -6px;
-  font-size: 12px;
+  font-size: 11px;
   line-height: 1.5;
   color: var(--app-ink-tertiary);
   word-break: break-word;

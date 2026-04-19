@@ -94,12 +94,12 @@ function buildQuotaRing(
         {
           type: 'text',
           left: 'center',
-          top: '42%',
+          top: '43%',
           style: {
             text: remainingPercent === null ? '--' : `${remainingPercent.toFixed(0)}%`,
             textAlign: 'center',
             fill: textColor,
-            fontSize: 20,
+            fontSize: 17,
             fontWeight: 700,
             fontFamily:
               '"SF Pro Display", "SF Pro Text", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
@@ -108,12 +108,12 @@ function buildQuotaRing(
         {
           type: 'text',
           left: 'center',
-          top: '60%',
+          top: '59%',
           style: {
             text: '剩余',
             textAlign: 'center',
             fill: subTextColor,
-            fontSize: 11,
+            fontSize: 10,
           },
         },
       ],
@@ -131,7 +131,7 @@ function buildQuotaRing(
           progress: {
             show: true,
             roundCap: true,
-            width: 16,
+            width: 12,
             itemStyle: {
               color: ringColor,
             },
@@ -139,7 +139,7 @@ function buildQuotaRing(
           axisLine: {
             roundCap: true,
             lineStyle: {
-              width: 16,
+              width: 12,
               color: [[1, backgroundColor]],
             },
           },
@@ -180,16 +180,16 @@ function formatResetTime(value?: number): string {
 .quota-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
+  gap: 8px;
 }
 
 .quota-ring-card {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
   min-width: 0;
-  padding: 12px;
-  border-radius: 18px;
+  padding: 10px;
+  border-radius: 16px;
   background: var(--app-surface-muted);
 }
 
@@ -204,14 +204,14 @@ function formatResetTime(value?: number): string {
 }
 
 .quota-title {
-  font-size: 12px;
+  font-size: 11px;
   line-height: 1.33;
   font-weight: 600;
   color: var(--app-ink);
 }
 
 .quota-caption {
-  font-size: 11px;
+  font-size: 10px;
   line-height: 1.33;
   color: var(--app-ink-tertiary);
 }
@@ -226,13 +226,13 @@ function formatResetTime(value?: number): string {
 
 .quota-ring {
   width: 100%;
-  height: 126px;
+  height: 100px;
 }
 
 .quota-meta {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 4px;
 }
 
 .quota-meta-row {
@@ -243,13 +243,13 @@ function formatResetTime(value?: number): string {
 }
 
 .quota-meta-label {
-  font-size: 11px;
+  font-size: 10px;
   line-height: 1.33;
   color: var(--app-ink-tertiary);
 }
 
 .quota-meta-value {
-  font-size: 11px;
+  font-size: 10px;
   line-height: 1.33;
   color: var(--app-ink-secondary);
 }

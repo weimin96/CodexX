@@ -177,9 +177,9 @@ impl CodexCommandTarget {
 
     fn build_interactive_command(&self, args: &[String]) -> AppResult<std::process::Command> {
         let mut command = std::process::Command::new("cmd");
-        // start 的窗口标题必须显式加引号，否则会把 Codex 当成命令名，
-        // 后续真实可执行路径会被误传给 CLI 当作首个提示词。
-        command.arg("/C").arg("start").arg("\"Codex\"");
+        // start 的第一个带引号参数会被解释为窗口标题；使用空标题可以避免
+        // Windows 把“Codex”标题误当作需要启动的文件路径。
+        command.arg("/C").arg("start").arg("");
 
         match self.runner {
             CommandRunner::Direct => {

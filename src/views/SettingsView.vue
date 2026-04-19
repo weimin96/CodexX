@@ -4,7 +4,6 @@
       <div class="settings-section-head">
         <div>
           <h1 class="panel-heading">界面与启动</h1>
-          <p class="panel-copy">修改后自动保存。</p>
         </div>
         <span class="autosave-pill" :class="`autosave-pill-${autosaveState}`">
           {{ autosaveStatusLabel }}
@@ -44,7 +43,6 @@
       <div class="settings-section-head">
         <div>
           <h2 class="panel-heading">后台任务</h2>
-          <p class="panel-copy">控制后台检测、保活和额度提醒。</p>
         </div>
       </div>
 
@@ -128,7 +126,6 @@
         <div class="setting-item">
           <div class="setting-copy">
             <div class="setting-title">检查更新</div>
-            <div class="setting-description">使用 Tauri updater。</div>
           </div>
           <n-button secondary :loading="checkingUpdate" @click="handleCheckUpdate">
             检查更新
@@ -141,7 +138,6 @@
       <div class="settings-section-head">
         <div>
           <h2 class="panel-heading">安全</h2>
-          <p class="panel-copy">凭证仅保存在本机加密库。</p>
         </div>
       </div>
 
@@ -176,7 +172,6 @@
       <div class="settings-section-head">
         <div>
           <h2 class="panel-heading">危险操作</h2>
-          <p class="panel-copy">以下操作不可恢复。</p>
         </div>
       </div>
 

@@ -268,7 +268,7 @@ function segmentWidth(value: number, total: number): string {
 
 const CHART_COLORS = {
   input: '#0071e3',
-  output: '#1d1d1f',
+  output: '#4b5563',
 }
 
 async function loadData() {
@@ -410,8 +410,8 @@ function renderCharts() {
                     x2: 0,
                     y2: 1,
                     colorStops: [
-                      { offset: 0, color: 'rgba(29, 29, 31, 0.12)' },
-                      { offset: 1, color: 'rgba(29, 29, 31, 0)' },
+                      { offset: 0, color: 'rgba(75, 85, 99, 0.16)' },
+                      { offset: 1, color: 'rgba(75, 85, 99, 0)' },
                     ],
                   },
                 }

@@ -7,29 +7,29 @@
 
       <div class="dashboard-summary">
         <div class="dashboard-summary-row">
-          <div class="dashboard-summary-card">
+          <div class="dashboard-summary-card metric-total-card">
             <span class="metric-label">总账号数</span>
             <strong class="metric-value">{{ totalAccountCount }}</strong>
           </div>
-          <div class="dashboard-summary-card">
+          <div class="dashboard-summary-card metric-available-card">
             <span class="metric-label">可用账号</span>
             <strong class="metric-value">{{ availableAccountCount }}</strong>
           </div>
-          <div class="dashboard-summary-card">
+          <div class="dashboard-summary-card metric-today-card">
             <span class="metric-label">今日 Token</span>
             <strong class="metric-value">{{ formatTokens(todayTotalTokens) }}</strong>
           </div>
         </div>
         <div class="dashboard-summary-row">
-          <div class="dashboard-summary-card">
+          <div class="dashboard-summary-card metric-input-card">
             <span class="metric-label">输入 Token</span>
             <strong class="metric-value">{{ formatTokens(summary?.total_input_tokens ?? 0) }}</strong>
           </div>
-          <div class="dashboard-summary-card">
+          <div class="dashboard-summary-card metric-output-card">
             <span class="metric-label">输出 Token</span>
             <strong class="metric-value">{{ formatTokens(summary?.total_output_tokens ?? 0) }}</strong>
           </div>
-          <div class="dashboard-summary-card">
+          <div class="dashboard-summary-card metric-request-card">
             <span class="metric-label">请求次数</span>
             <strong class="metric-value">{{ (summary?.total_requests ?? 0).toLocaleString() }}</strong>
           </div>
@@ -484,15 +484,58 @@ onUnmounted(() => {
 }
 
 .dashboard-summary-card {
+  --card-accent: var(--app-blue);
+  --card-background: rgba(0, 113, 227, 0.08);
+  --card-border: rgba(0, 113, 227, 0.14);
   display: flex;
   flex-direction: column;
   gap: 4px;
   min-width: 0;
   padding: 16px;
   border-radius: 22px;
-  border: 1px solid rgba(29, 29, 31, 0.08);
-  background: var(--app-surface);
+  border: 1px solid var(--card-border);
+  background: var(--card-background);
   box-shadow: var(--app-shadow);
+}
+
+.dashboard-summary-card .metric-label {
+  color: var(--card-accent);
+}
+
+.metric-total-card {
+  --card-accent: #4f46e5;
+  --card-background: rgba(79, 70, 229, 0.1);
+  --card-border: rgba(79, 70, 229, 0.16);
+}
+
+.metric-available-card {
+  --card-accent: #248a3d;
+  --card-background: rgba(52, 199, 89, 0.12);
+  --card-border: rgba(52, 199, 89, 0.18);
+}
+
+.metric-today-card {
+  --card-accent: #b7791f;
+  --card-background: rgba(245, 158, 11, 0.14);
+  --card-border: rgba(245, 158, 11, 0.18);
+}
+
+.metric-input-card {
+  --card-accent: #0071e3;
+  --card-background: rgba(0, 113, 227, 0.12);
+  --card-border: rgba(0, 113, 227, 0.18);
+}
+
+.metric-output-card {
+  --card-accent: #4b5563;
+  --card-background: rgba(75, 85, 99, 0.1);
+  --card-border: rgba(75, 85, 99, 0.14);
+}
+
+.metric-request-card {
+  --card-accent: #7c3aed;
+  --card-background: rgba(124, 58, 237, 0.1);
+  --card-border: rgba(124, 58, 237, 0.16);
 }
 
 .dashboard-chart-shell {

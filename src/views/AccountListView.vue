@@ -362,6 +362,9 @@ const accountActionOptions = computed<DropdownOption[]>(() => [
     label: triggeringConversation.value ? '预热中' : '一键预热',
     key: 'trigger-conversation',
     disabled: triggeringConversation.value || !hasAccounts.value,
+    props: {
+      title: '触发5小时刷新',
+    },
     icon: () => renderDropdownIcon('M21 15a4 4 0 0 1-4 4H7l-4 4V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4v8z'),
   },
   {

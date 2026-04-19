@@ -6,7 +6,9 @@ import type {
   AuthCheckResult,
   UsageSummary,
   ChartDataPoint,
+  CodexAppLaunchInput,
   UsageQuery,
+  UsageImportResult,
   CodexCliLaunchInput,
   CodexConfigSnapshot,
   CodexLauncherConfig,
@@ -179,9 +181,17 @@ export const statusService = {
 // ============================================================
 
 export const usageService = {
-  async fetchUsage(accountId: string): Promise<void> {
-    if (!isTauri) return
-    return invoke('fetch_usage', { accountId })
+  async fetchUsage(accountId: string): Promise<UsageImportResult> {
+    if (!isTauri) {
+      return {
+        account_id: accountId,
+        session_count: 0,
+        scanned_file_count: 0,
+        imported_count: 0,
+        ignored_line_count: 0,
+      }
+    }
+    return invoke<UsageImportResult>('fetch_usage', { accountId })
   },
 
   async getUsageStats(query: UsageQuery): Promise<UsageSummary> {
@@ -243,11 +253,11 @@ export const usageService = {
     return invoke<CodexLauncherConfig>('get_codex_launcher_config')
   },
 
-  async launchCodexApp(): Promise<CodexLaunchResult> {
+  async launchCodexApp(input: CodexAppLaunchInput = {}): Promise<CodexLaunchResult> {
     if (!isTauri) {
       throw new Error('受控启动 Codex 仅在 Tauri 环境中可用')
     }
-    return invoke<CodexLaunchResult>('launch_codex_app')
+    return invoke<CodexLaunchResult>('launch_codex_app', { input })
   },
 
   async clearUsageData(): Promise<void> {

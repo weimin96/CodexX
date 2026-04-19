@@ -6,8 +6,8 @@ use uuid::Uuid;
 use crate::account::{Account, AccountRepository};
 use crate::codex_runtime::{
     open_codex_cli_terminal, open_codex_desktop_app, open_interactive_codex, prompt_preview,
-    read_codex_launcher_config, run_codex_exec, CodexCliLaunchInput, CodexCommandTarget,
-    CodexExecInput, CodexInteractiveInput, CodexLaunchResult,
+    read_codex_launcher_config, run_codex_exec, CodexAppLaunchInput, CodexCliLaunchInput,
+    CodexCommandTarget, CodexExecInput, CodexInteractiveInput, CodexLaunchResult,
 };
 use crate::error::AppError;
 use crate::local_sync::LocalAuthSyncService;
@@ -317,12 +317,37 @@ pub async fn open_codex_interactive_session(
 }
 
 #[tauri::command]
-pub async fn launch_codex_cli(input: CodexCliLaunchInput) -> Result<Value, AppError> {
+pub async fn launch_codex_cli(
+    state: State<'_, AppState>,
+    input: CodexCliLaunchInput,
+) -> Result<Value, AppError> {
     let target = CodexCommandTarget::discover()?;
+    let session_id = Uuid::new_v4().to_string();
+    let started_at = Utc::now().to_rfc3339();
+    let selected_account = prepare_launch_account(&state, input.account_id.as_deref()).await?;
+    if let Some(account) = selected_account.as_ref() {
+        let db = state.db.lock().await;
+        let usage_repo = UsageRepository::new(&db);
+        usage_repo.insert_launch_session(&CodexLaunchSessionRecord {
+            id: session_id.clone(),
+            account_id: account.id.clone(),
+            launch_mode: "cli_terminal".to_string(),
+            executable: Some(target.executable_label()),
+            working_directory: input.working_directory.clone(),
+            prompt_preview: None,
+            status: "launched".to_string(),
+            started_at: started_at.clone(),
+            completed_at: None,
+            exit_code: None,
+            usage_event_count: 0,
+            error_message: Some("等待从 Codex 会话日志导入 Token 用量".to_string()),
+        })?;
+    }
+
     open_codex_cli_terminal(&target, &input)?;
 
     Ok(serde_json::to_value(CodexLaunchResult {
-        session_id: Uuid::new_v4().to_string(),
+        session_id,
         status: "launched".to_string(),
         exit_code: None,
         usage_event_count: 0,
@@ -337,15 +362,70 @@ pub async fn get_codex_launcher_config() -> Result<Value, AppError> {
 }
 
 #[tauri::command]
-pub async fn launch_codex_app() -> Result<Value, AppError> {
+pub async fn launch_codex_app(
+    state: State<'_, AppState>,
+    input: CodexAppLaunchInput,
+) -> Result<Value, AppError> {
+    let session_id = Uuid::new_v4().to_string();
+    let started_at = Utc::now().to_rfc3339();
+    let selected_account = prepare_launch_account(&state, input.account_id.as_deref()).await?;
+    if let Some(account) = selected_account.as_ref() {
+        let db = state.db.lock().await;
+        let usage_repo = UsageRepository::new(&db);
+        usage_repo.insert_launch_session(&CodexLaunchSessionRecord {
+            id: session_id.clone(),
+            account_id: account.id.clone(),
+            launch_mode: "codex_app".to_string(),
+            executable: Some("Codex App".to_string()),
+            working_directory: None,
+            prompt_preview: None,
+            status: "launched".to_string(),
+            started_at,
+            completed_at: None,
+            exit_code: None,
+            usage_event_count: 0,
+            error_message: Some("等待从 Codex 会话日志导入 Token 用量".to_string()),
+        })?;
+    }
+
     open_codex_desktop_app()?;
 
     Ok(serde_json::to_value(CodexLaunchResult {
-        session_id: Uuid::new_v4().to_string(),
+        session_id,
         status: "launched".to_string(),
         exit_code: None,
         usage_event_count: 0,
         message: "已启动 Codex App".to_string(),
         stderr_preview: None,
     })?)
+}
+
+async fn prepare_launch_account(
+    state: &State<'_, AppState>,
+    account_id: Option<&str>,
+) -> Result<Option<Account>, AppError> {
+    let db = state.db.lock().await;
+    let account_repo = AccountRepository::new(&db);
+    let accounts = account_repo.list_all()?;
+    let selected_account = if let Some(account_id) = account_id {
+        Some(
+            accounts
+                .iter()
+                .find(|account| account.id == account_id)
+                .cloned()
+                .ok_or_else(|| AppError::AccountNotFound(account_id.to_string()))?,
+        )
+    } else {
+        accounts
+            .iter()
+            .find(|account| account.is_default)
+            .or_else(|| accounts.first())
+            .cloned()
+    };
+
+    if let Some(account) = selected_account.as_ref() {
+        LocalAuthSyncService::write_account_to_default_auth_file(&account_repo, &account.id)?;
+    }
+
+    Ok(selected_account)
 }

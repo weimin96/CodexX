@@ -131,8 +131,21 @@ export interface CodexInteractiveInput {
 }
 
 export interface CodexCliLaunchInput {
+  account_id?: string
   working_directory?: string
   model?: string
+}
+
+export interface CodexAppLaunchInput {
+  account_id?: string
+}
+
+export interface UsageImportResult {
+  account_id: string
+  session_count: number
+  scanned_file_count: number
+  imported_count: number
+  ignored_line_count: number
 }
 
 export interface CodexModelOption {

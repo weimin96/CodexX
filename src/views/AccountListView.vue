@@ -14,7 +14,7 @@
           <div class="search-row">
             <n-input
               v-model:value="searchQuery"
-              placeholder="搜索账号名称、邮箱..."
+              placeholder="搜索邮箱或账号标识..."
               clearable
             >
               <template #prefix>

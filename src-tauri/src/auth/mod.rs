@@ -409,8 +409,8 @@ pub fn resolve_account_display_name(
     email: Option<&str>,
     fallback: &str,
 ) -> String {
-    normalize_identity_text(preferred_name)
-        .or_else(|| normalize_identity_text(email))
+    normalize_identity_text(email)
+        .or_else(|| normalize_identity_text(preferred_name))
         .unwrap_or_else(|| fallback.to_string())
 }
 

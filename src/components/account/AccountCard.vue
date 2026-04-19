@@ -126,7 +126,10 @@ type CardActionKey =
 
 const displayName = computed(() => resolveAccountDisplayName(props.account))
 const displayAvatarText = computed(() => resolveAccountAvatarText(props.account))
-const displayEmail = computed(() => props.account.email?.trim() || '')
+const displayEmail = computed(() => {
+  const email = props.account.email?.trim() ?? ''
+  return email && email !== displayName.value ? email : ''
+})
 const displayUsageError = computed(() => formatUsageError(props.account.codex_usage_error))
 const statusDisplay = computed(() => resolveAccountStatusDisplay(props.account))
 const displayStatusMessage = computed(() => resolveAccountStatusMessage(props.account))

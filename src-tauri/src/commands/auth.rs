@@ -198,9 +198,10 @@ async fn complete_oauth_login_internal(
         })?
     };
 
+    let account_name = account_email_or_name(&account);
     let result = OAuthLoginResult {
         account_id: account.id,
-        account_name: account.name,
+        account_name,
         auth_type: account.auth_type.to_string(),
     };
     let _ = app.emit(
@@ -212,6 +213,16 @@ async fn complete_oauth_login_internal(
         }),
     );
     Ok(result)
+}
+
+fn account_email_or_name(account: &crate::account::Account) -> String {
+    account
+        .email
+        .as_deref()
+        .map(str::trim)
+        .filter(|email| !email.is_empty())
+        .unwrap_or(&account.name)
+        .to_string()
 }
 
 async fn stop_oauth_callback_listener(state: &AppState) {

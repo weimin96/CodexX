@@ -658,8 +658,8 @@ fn resolve_account_name(
     email: Option<&str>,
     auth_type: &AuthType,
 ) -> String {
-    normalize_account_text(preferred_name)
-        .or_else(|| normalize_account_text(email))
+    normalize_account_text(email)
+        .or_else(|| normalize_account_text(preferred_name))
         .unwrap_or_else(|| match auth_type {
             AuthType::ApiKey => "API Key 账号".to_string(),
             AuthType::OAuthToken => "OAuth 账号".to_string(),

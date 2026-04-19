@@ -7,38 +7,50 @@
       <n-breadcrumb-item>{{ displayName }}</n-breadcrumb-item>
     </n-breadcrumb>
 
-    <section class="page-hero page-hero-light">
-      <div class="page-hero-copy">
-        <h1 class="page-title">{{ displayName }}</h1>
-        <p class="page-subtitle">
-          {{ AUTH_TYPE_LABELS[account.auth_type] }}
-          <template v-if="displaySubtitleEmail"> · {{ displaySubtitleEmail }}</template>
-          <template v-if="displayOrganization"> · {{ displayOrganization }}</template>
-        </p>
-      </div>
-
-      <div class="hero-detail-panel">
+    <section class="page-hero page-hero-light account-detail-hero">
+      <div class="account-hero-identity">
         <div class="hero-avatar" :style="{ background: account.color }">
           {{ displayAvatarText }}
         </div>
-        <div class="hero-status">
-          <StatusDot
-            :status="statusDisplay.tone"
-            :label="statusDisplay.label"
-            :title="statusDisplay.title"
-            show-label
-          />
+        <div class="page-hero-copy">
+          <div class="hero-title-row">
+            <h1 class="page-title">{{ displayName }}</h1>
+            <StatusDot
+              :status="statusDisplay.tone"
+              :label="statusDisplay.label"
+              :title="statusDisplay.title"
+              show-label
+            />
+          </div>
+          <p class="page-subtitle">
+            {{ AUTH_TYPE_LABELS[account.auth_type] }}
+            <template v-if="displaySubtitleEmail"> · {{ displaySubtitleEmail }}</template>
+            <template v-if="displayOrganization"> · {{ displayOrganization }}</template>
+          </p>
+          <div class="hero-pill-list">
+            <span v-if="account.is_default" class="hero-pill hero-pill-dark">默认账号</span>
+            <span
+              v-if="account.codex_plan_type"
+              class="hero-pill"
+              :class="`hero-pill-plan-${planTone}`"
+            >
+              {{ planLabel }}
+            </span>
+            <span class="hero-pill">创建于 {{ formatDate(account.created_at) }}</span>
+          </div>
+          <div v-if="displayStatusMessage" class="status-message" :class="statusDisplay.tone">
+            {{ displayStatusMessage }}
+          </div>
+          <div v-if="statusDiagnostic" class="status-diagnostic">
+            {{ statusDiagnostic }}
+          </div>
         </div>
-        <div class="hero-pill-list">
-          <span v-if="account.is_default" class="hero-pill hero-pill-dark">默认账号</span>
-          <span
-            v-if="account.codex_plan_type"
-            class="hero-pill"
-            :class="`hero-pill-plan-${planTone}`"
-          >
-            {{ planLabel }}
-          </span>
-          <span class="hero-pill">创建于 {{ formatDate(account.created_at) }}</span>
+      </div>
+
+      <div class="quota-summary-card">
+        <div class="quota-summary-head">
+          <span>Codex 额度</span>
+          <strong>{{ planLabel }}</strong>
         </div>
         <div v-if="hasCodexUsage" class="detail-quota-grid">
           <div v-if="showFiveHourQuota" class="detail-quota-item">
@@ -53,18 +65,46 @@
             下次重置 {{ formatUnixDate(nextUsageResetAt) }}
           </div>
         </div>
-        <div v-if="displayStatusMessage" class="status-message" :class="statusDisplay.tone">
-          {{ displayStatusMessage }}
-        </div>
-        <div v-if="statusDiagnostic" class="status-diagnostic">
-          {{ statusDiagnostic }}
-        </div>
+        <p v-else class="quota-empty">暂无额度窗口数据。</p>
       </div>
     </section>
 
-    <section class="two-column-grid">
-      <div class="surface-panel">
-        <h2 class="panel-heading">账号信息</h2>
+    <section class="detail-content-grid">
+      <div class="surface-panel usage-panel">
+        <div class="detail-panel-head">
+          <div>
+            <h2 class="panel-heading">本月用量</h2>
+          </div>
+          <button class="detail-link" type="button" @click="goToUsage">查看统计</button>
+        </div>
+        <div v-if="usageLoading" class="panel-loading">
+          <n-spin size="small" />
+        </div>
+        <div v-else-if="summary" class="detail-metric-grid">
+          <div class="metric-card metric-card-input">
+            <span class="metric-label">输入 Token</span>
+            <strong class="metric-value">{{ formatTokens(summary.total_input_tokens) }}</strong>
+          </div>
+          <div class="metric-card metric-card-output">
+            <span class="metric-label">输出 Token</span>
+            <strong class="metric-value">{{ formatTokens(summary.total_output_tokens) }}</strong>
+          </div>
+          <div class="metric-card metric-card-request">
+            <span class="metric-label">请求次数</span>
+            <strong class="metric-value">{{ summary.total_requests }}</strong>
+          </div>
+        </div>
+        <div v-else class="usage-empty">
+          <p>当前还没有可展示的用量统计。</p>
+        </div>
+      </div>
+
+      <div class="surface-panel account-info-panel">
+        <div class="detail-panel-head">
+          <div>
+            <h2 class="panel-heading">账号信息</h2>
+          </div>
+        </div>
         <div class="data-pair-list detail-list">
           <div class="data-pair">
             <span class="data-pair-label">账号 ID</span>
@@ -97,89 +137,6 @@
           </div>
         </div>
       </div>
-
-      <div class="surface-panel surface-panel-dark">
-        <h2 class="panel-heading">用量快览</h2>
-        <p class="panel-copy">本月汇总。</p>
-        <div v-if="usageLoading" class="panel-loading">
-          <n-spin size="small" />
-        </div>
-        <div v-else-if="summary" class="metric-grid usage-metrics">
-          <div class="metric-card">
-            <span class="metric-label">输入 Token</span>
-            <strong class="metric-value">{{ formatTokens(summary.total_input_tokens) }}</strong>
-          </div>
-          <div class="metric-card">
-            <span class="metric-label">输出 Token</span>
-            <strong class="metric-value">{{ formatTokens(summary.total_output_tokens) }}</strong>
-          </div>
-          <div class="metric-card">
-            <span class="metric-label">请求次数</span>
-            <strong class="metric-value">{{ summary.total_requests }}</strong>
-          </div>
-          <div class="metric-card">
-            <span class="metric-label">费用估算</span>
-            <strong class="metric-value">${{ summary.total_cost.toFixed(4) }}</strong>
-          </div>
-        </div>
-        <div v-else class="usage-empty">
-          <p>当前还没有可展示的用量统计。</p>
-        </div>
-        <button class="detail-link" type="button" @click="goToUsage">查看详细统计</button>
-      </div>
-    </section>
-
-    <section class="surface-panel">
-      <h2 class="panel-heading">认证管理</h2>
-      <div class="auth-grid">
-        <div class="auth-credential-card">
-          <div class="auth-credential-head">
-            <span class="auth-label">凭证遮罩</span>
-            <button
-              type="button"
-              class="credential-visibility-toggle"
-              :title="credentialVisible ? '隐藏凭证' : '显示凭证'"
-              @click="handleToggleCredentialVisibility"
-            >
-              <svg
-                v-if="credentialVisible"
-                width="18"
-                height="18"
-                viewBox="0 0 24 24"
-                fill="none"
-              >
-                <path
-                  d="M3 3l18 18M10.58 10.58A2 2 0 0 0 12 14a2 2 0 0 0 1.42-.58M9.88 5.09A10.94 10.94 0 0 1 12 5c5 0 9.27 3.11 11 7-0.56 1.26-1.42 2.42-2.51 3.41M6.61 6.61C4.62 7.84 3.08 9.71 2 12c1.73 3.89 6 7 10 7 1.58 0 3.1-.35 4.47-.98"
-                  stroke="currentColor"
-                  stroke-width="1.6"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                />
-              </svg>
-              <svg
-                v-else
-                width="18"
-                height="18"
-                viewBox="0 0 24 24"
-                fill="none"
-              >
-                <path
-                  d="M2 12c1.73-3.89 6-7 10-7s8.27 3.11 10 7c-1.73 3.89-6 7-10 7S3.73 15.89 2 12z"
-                  stroke="currentColor"
-                  stroke-width="1.6"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                />
-                <circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="1.6" />
-              </svg>
-            </button>
-          </div>
-          <strong class="auth-value auth-value-mono">{{ credentialDisplayValue }}</strong>
-          <span class="auth-note">
-            {{ credentialVisible ? '仅在当前窗口临时显示。' : '点击眼睛图标显示凭证。' }}
-          </span>
-        </div>
-      </div>
     </section>
   </div>
 
@@ -194,10 +151,8 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { useMessage } from 'naive-ui'
 import { useAccountStore } from '@/stores/account'
 import { useUsageStore } from '@/stores/usage'
-import { accountService } from '@/services'
 import { AUTH_TYPE_LABELS } from '@/types'
 import type { CodexUsageWindow } from '@/types'
 import StatusDot from '@/components/common/StatusDot.vue'
@@ -220,7 +175,6 @@ import {
 
 const route = useRoute()
 const router = useRouter()
-const message = useMessage()
 const accountStore = useAccountStore()
 const usageStore = useUsageStore()
 
@@ -252,22 +206,6 @@ const hasCodexUsage = computed(() =>
 const nextUsageResetAt = computed(() =>
   account.value ? resolveNextUsageResetAt(account.value.codex_usage_5h, account.value.codex_usage_week) : null,
 )
-
-const credentialVisible = ref(false)
-const credentialLoading = ref(false)
-const credentialPreview = ref('')
-
-const credentialDisplayValue = computed(() => {
-  if (credentialLoading.value) {
-    return '正在读取...'
-  }
-
-  if (!credentialVisible.value) {
-    return '•'.repeat(32)
-  }
-
-  return credentialPreview.value || '未读取到凭证'
-})
 
 onMounted(async () => {
   usageLoading.value = true
@@ -317,57 +255,6 @@ function resolveNextUsageResetAt(
   return resetTimes.length > 0 ? Math.min(...resetTimes) : null
 }
 
-async function handleToggleCredentialVisibility() {
-  if (credentialVisible.value) {
-    credentialVisible.value = false
-    return
-  }
-
-  if (credentialPreview.value) {
-    credentialVisible.value = true
-    return
-  }
-
-  credentialLoading.value = true
-  try {
-    const credential = await accountService.getAccountCredential(accountId.value)
-    credentialPreview.value = extractCredentialPreview(credential)
-    credentialVisible.value = true
-  } catch {
-    message.error('读取凭证失败')
-  } finally {
-    credentialLoading.value = false
-  }
-}
-
-function extractCredentialPreview(credential: string): string {
-  const trimmedCredential = credential.trim()
-  if (!trimmedCredential) {
-    return ''
-  }
-
-  if (!trimmedCredential.startsWith('{')) {
-    return trimmedCredential
-  }
-
-  try {
-    const parsedCredential = JSON.parse(trimmedCredential)
-    const accessToken = parsedCredential?.tokens?.access_token
-    if (typeof accessToken === 'string' && accessToken.trim()) {
-      return accessToken.trim()
-    }
-
-    const apiKey = parsedCredential?.OPENAI_API_KEY
-    if (typeof apiKey === 'string' && apiKey.trim()) {
-      return apiKey.trim()
-    }
-  } catch {
-    return trimmedCredential
-  }
-
-  return trimmedCredential
-}
-
 function goToUsage() {
   accountStore.setActive(accountId.value)
   router.push('/usage')
@@ -379,30 +266,37 @@ function goToUsage() {
   margin-bottom: -8px;
 }
 
-.hero-detail-panel {
-  width: min(280px, 100%);
+.account-detail-hero {
+  align-items: stretch;
+}
+
+.account-hero-identity {
   display: flex;
-  flex-direction: column;
-  gap: 10px;
   align-items: flex-start;
+  gap: 16px;
+  min-width: 0;
+  flex: 1;
 }
 
 .hero-avatar {
-  width: 56px;
-  height: 56px;
+  width: 64px;
+  height: 64px;
   border-radius: 18px;
   display: flex;
   align-items: center;
   justify-content: center;
   font-family: var(--font-display);
-  font-size: 22px;
+  flex-shrink: 0;
+  font-size: 24px;
   font-weight: 600;
   color: #ffffff;
 }
 
-.hero-status {
+.hero-title-row {
   display: flex;
   align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
 }
 
 .hero-pill-list {
@@ -448,6 +342,39 @@ function goToUsage() {
   color: var(--app-ink);
 }
 
+.quota-summary-card {
+  width: min(320px, 100%);
+  display: grid;
+  align-content: start;
+  gap: 12px;
+  padding: 14px;
+  border-radius: 20px;
+  background:
+    linear-gradient(135deg, rgba(0, 113, 227, 0.08), rgba(0, 113, 227, 0.02) 58%),
+    var(--app-surface-muted);
+  border: 1px solid rgba(0, 113, 227, 0.1);
+}
+
+.quota-summary-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.quota-summary-head span {
+  font-size: 11px;
+  line-height: 1.33;
+  color: var(--app-ink-tertiary);
+}
+
+.quota-summary-head strong {
+  font-family: var(--font-display);
+  font-size: 14px;
+  line-height: 1.3;
+  color: var(--app-ink);
+}
+
 .detail-quota-grid {
   width: 100%;
   display: grid;
@@ -481,9 +408,14 @@ function goToUsage() {
   grid-column: 1 / -1;
 }
 
-.detail-list .data-pair-value {
+.quota-empty {
+  margin: 0;
+  min-height: 68px;
   display: flex;
-  justify-content: flex-end;
+  align-items: center;
+  color: var(--app-ink-secondary);
+  font-size: 13px;
+  line-height: 1.5;
 }
 
 .status-diagnostic {
@@ -493,8 +425,67 @@ function goToUsage() {
   word-break: break-word;
 }
 
-.account-id {
-  word-break: break-all;
+.detail-content-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(320px, 0.8fr);
+  gap: 16px;
+  align-items: stretch;
+}
+
+.usage-panel,
+.account-info-panel {
+  min-width: 0;
+}
+
+.detail-panel-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.detail-metric-grid {
+  margin-top: 16px;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.detail-metric-grid .metric-card {
+  position: relative;
+  overflow: hidden;
+  min-height: 118px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  border: 1px solid var(--app-border);
+  background: var(--app-surface-muted);
+}
+
+.detail-metric-grid .metric-card::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto;
+  height: 3px;
+  background: var(--metric-accent, var(--app-blue));
+}
+
+.metric-card-input {
+  --metric-accent: #0071e3;
+}
+
+.metric-card-output {
+  --metric-accent: #0f9fb0;
+}
+
+.metric-card-request {
+  --metric-accent: var(--app-ink);
+}
+
+.detail-metric-grid .metric-value {
+  margin-top: 12px;
+  font-size: clamp(24px, 4vw, 36px);
+  letter-spacing: -0.4px;
 }
 
 .panel-loading,
@@ -507,109 +498,69 @@ function goToUsage() {
 
 .usage-empty p {
   margin: 0;
-  color: var(--app-feature-ink-secondary);
-}
-
-.usage-metrics {
-  margin-top: 14px;
-}
-
-.usage-metrics :deep(.metric-card) {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.usage-metrics :deep(.metric-value) {
-  margin-top: 0;
+  color: var(--app-ink-secondary);
 }
 
 .detail-link {
-  margin-top: 12px;
   border: none;
-  background: transparent;
-  color: var(--app-link-dark);
-  padding: 0;
+  border-radius: var(--app-radius-control);
+  background: rgba(0, 113, 227, 0.1);
+  color: var(--app-blue);
+  padding: 7px 12px;
   font-size: 13px;
   line-height: 1.43;
   letter-spacing: -0.12px;
-  cursor: pointer;
-}
-
-.auth-grid {
-  margin-top: 14px;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 12px;
-}
-
-.auth-credential-card {
-  padding: 14px 16px;
-  border-radius: 18px;
-  background: var(--app-surface-muted);
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.auth-credential-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-
-.credential-visibility-toggle {
-  width: 30px;
-  height: 30px;
-  border: none;
-  border-radius: 50%;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(0, 113, 227, 0.08);
-  color: var(--app-blue);
   cursor: pointer;
   transition:
     background-color 0.18s ease,
     transform 0.18s ease;
 }
 
-.credential-visibility-toggle:hover {
-  background: rgba(0, 113, 227, 0.14);
+.detail-link:hover {
+  background: rgba(0, 113, 227, 0.16);
   transform: translateY(-1px);
 }
 
-.auth-label {
-  font-size: 11px;
-  line-height: 1.33;
-  color: var(--app-ink-tertiary);
+.detail-list {
+  margin-top: 16px;
 }
 
-.auth-value {
-  font-family: var(--font-display);
-  font-size: 16px;
-  line-height: 1.2;
-  letter-spacing: 0.12px;
+.detail-list .data-pair-value {
+  display: flex;
+  justify-content: flex-end;
 }
 
-.auth-value-mono {
-  font-family: ui-monospace, SFMono-Regular, "SFMono-Regular", Consolas, monospace;
-  font-size: 13px;
-  line-height: 1.6;
-  letter-spacing: 0;
+.account-id {
   word-break: break-all;
 }
 
-.auth-note {
-  font-size: 12px;
-  line-height: 1.5;
-  color: var(--app-ink-secondary);
+@media (max-width: 1024px) {
+  .account-detail-hero,
+  .account-hero-identity,
+  .detail-panel-head {
+    flex-direction: column;
+  }
+
+  .quota-summary-card,
+  .detail-link {
+    width: 100%;
+  }
+
+  .detail-content-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (max-width: 768px) {
-  .auth-grid {
+  .detail-metric-grid,
+  .detail-quota-grid {
     grid-template-columns: 1fr;
+  }
+
+  .hero-avatar {
+    width: 56px;
+    height: 56px;
+    font-size: 22px;
   }
 }
 </style>

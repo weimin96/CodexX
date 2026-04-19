@@ -72,7 +72,6 @@
           <span class="warmup-progress-chip">可执行 {{ warmupExecutableCount }}</span>
           <span class="warmup-progress-chip">成功 {{ warmupSuccessCount }}</span>
           <span class="warmup-progress-chip">失败 {{ warmupFailedCount }}</span>
-          <span class="warmup-progress-chip">跳过 {{ warmupSkippedCount }}</span>
         </div>
 
         <div class="warmup-progress-list">
@@ -263,10 +262,10 @@ const router = useRouter()
 const message = useMessage()
 const dialog = useDialog()
 const accountStore = useAccountStore()
-const { accounts, loading, checkingStatus } = storeToRefs(accountStore)
+const { accounts, loading, checkingStatus, activeAccount } = storeToRefs(accountStore)
 
 type WarmupProgressMode = 'single' | 'batch'
-type WarmupProgressState = 'pending' | 'running' | 'success' | 'failed' | 'skipped'
+type WarmupProgressState = 'pending' | 'running' | 'success' | 'failed'
 
 interface WarmupProgressEntry {
   accountId: string
@@ -299,9 +298,7 @@ let oauthCallbackUnlisten: UnlistenFn | null = null
 
 const hasAccounts = computed(() => accounts.value.length > 0)
 const warmupProgressVisible = computed(() => warmupProgressEntries.value.length > 0)
-const warmupExecutableCount = computed(
-  () => warmupProgressEntries.value.filter((entry) => entry.state !== 'skipped').length,
-)
+const warmupExecutableCount = computed(() => warmupProgressEntries.value.length)
 const warmupCompletedCount = computed(
   () =>
     warmupProgressEntries.value.filter(
@@ -313,9 +310,6 @@ const warmupSuccessCount = computed(
 )
 const warmupFailedCount = computed(
   () => warmupProgressEntries.value.filter((entry) => entry.state === 'failed').length,
-)
-const warmupSkippedCount = computed(
-  () => warmupProgressEntries.value.filter((entry) => entry.state === 'skipped').length,
 )
 const warmupProgressPercentage = computed(() => {
   if (!warmupProgressEntries.value.length) {
@@ -336,11 +330,7 @@ const warmupProgressSummary = computed(() => {
     return ''
   }
 
-  if (warmupExecutableCount.value === 0) {
-    return `当前没有可执行预热的账号，已跳过 ${warmupSkippedCount.value} 个账号。`
-  }
-
-  return `已完成 ${warmupCompletedCount.value}/${warmupExecutableCount.value} 个可执行账号，已跳过 ${warmupSkippedCount.value} 个账号。`
+  return `已完成 ${warmupCompletedCount.value}/${warmupExecutableCount.value} 个可执行账号。`
 })
 
 type AccountActionKey =
@@ -475,10 +465,6 @@ function hasFullFiveHourQuota(account: Account): boolean {
   return Boolean(account.codex_usage_5h && account.codex_usage_5h.used_percent <= FULL_FIVE_HOUR_UNUSED_THRESHOLD)
 }
 
-function resolveWarmupSkipDetail(account: Account): string {
-  return account.codex_usage_5h ? '5 小时额度未满 100%' : '缺少 5 小时额度数据'
-}
-
 // 批量预热会跨多次后端调用，前端需要保留每个账号的状态，用户才能知道具体卡在哪个账号。
 function resetWarmupProgress(targetAccounts: Account[], mode: WarmupProgressMode) {
   warmupProgressMode.value = mode
@@ -518,8 +504,6 @@ function resolveWarmupStateLabel(state: WarmupProgressState): string {
       return '已完成'
     case 'failed':
       return '失败'
-    case 'skipped':
-      return '已跳过'
   }
 }
 
@@ -581,6 +565,8 @@ async function handleSwitchAccount(id: string) {
 
 async function handleTriggerConversation(accountId?: string) {
   if (triggeringConversation.value) return
+  const isBatchWarmup = !accountId
+  const previousActiveAccountId = isBatchWarmup ? activeAccount.value?.id ?? null : null
 
   const targetAccounts = accountId
     ? accounts.value.filter((account) => account.id === accountId)
@@ -591,15 +577,9 @@ async function handleTriggerConversation(accountId?: string) {
     return
   }
 
-  resetWarmupProgress(targetAccounts, accountId ? 'single' : 'batch')
+  const executableAccounts = targetAccounts.filter((account) => hasFullFiveHourQuota(account))
 
-  const executableAccounts = targetAccounts.filter((account) => {
-    if (!hasFullFiveHourQuota(account)) {
-      updateWarmupProgressEntry(account.id, 'skipped', resolveWarmupSkipDetail(account))
-      return false
-    }
-    return true
-  })
+  resetWarmupProgress(executableAccounts, accountId ? 'single' : 'batch')
 
   if (executableAccounts.length === 0) {
     message.warning(
@@ -646,16 +626,38 @@ async function handleTriggerConversation(accountId?: string) {
       message.warning('预热结果已返回，但刷新账号列表失败')
     }
 
-    if (!accountId) {
-      const skippedText = warmupSkippedCount.value > 0 ? `，跳过 ${warmupSkippedCount.value} 个` : ''
-      if (warmupFailedCount.value > 0) {
-        message.warning(`批量预热完成，成功 ${warmupSuccessCount.value} 个，失败 ${warmupFailedCount.value} 个${skippedText}`)
+    if (isBatchWarmup) {
+      await restorePreviousActiveAccount(previousActiveAccountId)
+
+      const successCount = warmupSuccessCount.value
+      const failedCount = warmupFailedCount.value
+      if (failedCount > 0) {
+        message.warning(`批量预热完成，成功 ${successCount} 个，失败 ${failedCount} 个`)
       } else {
-        message.success(`批量预热完成，成功 ${warmupSuccessCount.value} 个${skippedText}`)
+        message.success(`批量预热完成，成功 ${successCount} 个`)
+        warmupProgressEntries.value = []
       }
     }
   } finally {
     triggeringConversation.value = false
+  }
+}
+
+// 批量预热会依次写回多个账号到默认 auth.json，结束后恢复用户开始前的当前账号，避免后台预热改变后续 CLI 使用上下文。
+async function restorePreviousActiveAccount(previousAccountId: string | null) {
+  if (!previousAccountId) {
+    return
+  }
+
+  const previousAccountExists = accounts.value.some((account) => account.id === previousAccountId)
+  if (!previousAccountExists) {
+    return
+  }
+
+  try {
+    await accountStore.switchAccount(previousAccountId)
+  } catch (error) {
+    message.warning(getErrorMessage(error, '批量预热已结束，但恢复原当前账号失败'))
   }
 }
 
@@ -1056,10 +1058,6 @@ function resetOAuthLoginState() {
 
 .warmup-progress-item.state-failed {
   border-color: rgba(208, 48, 80, 0.18);
-}
-
-.warmup-progress-item.state-skipped {
-  border-color: rgba(29, 29, 31, 0.1);
 }
 
 .warmup-progress-item-copy {

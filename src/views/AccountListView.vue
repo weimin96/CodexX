@@ -64,10 +64,12 @@
           :key="account.id"
           :account="account"
           :checking="checkingStatus.has(account.id)"
+          :triggering-conversation="triggeringConversationAccounts.has(account.id)"
           @detail="navigateToDetail(account.id)"
           @check="handleCheckStatus(account.id)"
           @switch-account="handleSwitchAccount(account.id)"
           @export-auth="handleExportAccount(account)"
+          @trigger-conversation="handleTriggerConversation(account.id)"
           @delete="handleDelete(account)"
         />
       </div>
@@ -156,7 +158,7 @@ import type { UnlistenFn } from '@tauri-apps/api/event'
 import { useMessage, useDialog } from 'naive-ui'
 import type { DropdownOption } from 'naive-ui'
 import { useAccountStore } from '@/stores/account'
-import { accountService, authService } from '@/services'
+import { accountService, authService, usageService } from '@/services'
 import { AUTH_TYPE_LABELS } from '@/types'
 import type {
   Account,
@@ -181,6 +183,8 @@ const exportLoading = ref(false)
 const importLoading = ref(false)
 const checkingAll = ref(false)
 const syncingLocalAuth = ref(false)
+const triggeringConversation = ref(false)
+const triggeringConversationAccounts = ref<Set<string>>(new Set())
 const oauthPreparing = ref(false)
 const oauthOpening = ref(false)
 const oauthWaitingForCallback = ref(false)
@@ -195,6 +199,7 @@ const hasAccounts = computed(() => accounts.value.length > 0)
 type AccountActionKey =
   | 'sync-local'
   | 'oauth-login'
+  | 'trigger-conversation'
   | 'check-all'
   | 'import'
   | 'export'
@@ -215,6 +220,12 @@ const accountActionOptions = computed<DropdownOption[]>(() => [
       renderDropdownIcon(
         'M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06A1.65 1.65 0 0 0 15 19.4a1.65 1.65 0 0 0-1 .6 1.65 1.65 0 0 0-.33 1.82l.03.08a2 2 0 1 1-3.4 0l.03-.08A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-.6-1 1.65 1.65 0 0 0-1.82-.33l-.08.03a2 2 0 1 1 0-3.4l.08.03A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-.6 1.65 1.65 0 0 0 .33-1.82l-.03-.08a2 2 0 1 1 3.4 0l-.03.08A1.65 1.65 0 0 0 15 4.6a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 .6 1 1.65 1.65 0 0 0 1.82.33l.08-.03a2 2 0 1 1 0 3.4l-.08-.03A1.65 1.65 0 0 0 19.4 15z',
       ),
+  },
+  {
+    label: triggeringConversation.value ? '触发中' : '触发对话',
+    key: 'trigger-conversation',
+    disabled: triggeringConversation.value || !hasAccounts.value,
+    icon: () => renderDropdownIcon('M21 15a4 4 0 0 1-4 4H7l-4 4V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4v8z'),
   },
   {
     label: checkingAll.value ? '检测中' : '检测全部',
@@ -343,6 +354,9 @@ function handleAccountActionSelect(key: string | number) {
     case 'oauth-login':
       void handlePrepareOAuthLogin()
       break
+    case 'trigger-conversation':
+      void handleTriggerConversation()
+      break
     case 'check-all':
       void handleCheckAll()
       break
@@ -364,6 +378,30 @@ async function handleSwitchAccount(id: string) {
     message.success('已切换当前账号')
   } catch (error) {
     message.error(getErrorMessage(error, '切换账号失败'))
+  }
+}
+
+async function handleTriggerConversation(accountId?: string) {
+  if (triggeringConversation.value) return
+
+  triggeringConversation.value = true
+  if (accountId) {
+    triggeringConversationAccounts.value = new Set([...triggeringConversationAccounts.value, accountId])
+  }
+
+  try {
+    const result = await usageService.triggerCodexShortConversation(accountId)
+    await accountStore.loadAccounts()
+    message.success(`已通过「${result.account_name}」触发 ${result.model} 对话`)
+  } catch (error) {
+    message.error(getErrorMessage(error, '触发对话失败'))
+  } finally {
+    if (accountId) {
+      const nextTriggeringAccounts = new Set(triggeringConversationAccounts.value)
+      nextTriggeringAccounts.delete(accountId)
+      triggeringConversationAccounts.value = nextTriggeringAccounts
+    }
+    triggeringConversation.value = false
   }
 }
 

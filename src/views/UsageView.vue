@@ -72,14 +72,60 @@
 
     <template v-if="!loading && summaryRows.length > 0">
       <section class="surface-panel account-detail-panel">
-        <h2 class="panel-heading">账号明细</h2>
-        <n-data-table
-          :columns="tableColumns"
-          :data="summaryRows"
-          :pagination="{ pageSize: 10 }"
-          size="small"
-          striped
-        />
+        <div class="account-detail-head">
+          <h2 class="panel-heading">账号明细</h2>
+          <span class="account-detail-count">{{ summaryRows.length }} 个账号</span>
+        </div>
+
+        <div class="account-detail-grid">
+          <article
+            v-for="(row, index) in summaryRows"
+            :key="row.account_id"
+            class="account-detail-card"
+          >
+            <div class="account-detail-card-head">
+              <div class="account-detail-card-copy">
+                <span class="account-detail-rank">TOP {{ index + 1 }}</span>
+                <h3>{{ row.account_name }}</h3>
+              </div>
+              <div class="account-detail-card-total">
+                <span>总 Token</span>
+                <strong>{{ formatTokens(row.total_tokens) }}</strong>
+              </div>
+            </div>
+
+            <div class="account-detail-metric-grid">
+              <div class="account-detail-metric">
+                <span>输入 Token</span>
+                <strong>{{ formatTokens(row.input_tokens) }}</strong>
+              </div>
+              <div class="account-detail-metric">
+                <span>输出 Token</span>
+                <strong>{{ formatTokens(row.output_tokens) }}</strong>
+              </div>
+              <div class="account-detail-metric">
+                <span>请求次数</span>
+                <strong>{{ row.request_count.toLocaleString() }}</strong>
+              </div>
+            </div>
+
+            <div class="account-detail-share">
+              <div class="account-detail-share-track">
+                <span
+                  class="account-detail-share-segment input"
+                  :style="{ width: segmentWidth(row.input_tokens, row.total_tokens) }"
+                />
+                <span
+                  class="account-detail-share-segment output"
+                  :style="{ width: segmentWidth(row.output_tokens, row.total_tokens) }"
+                />
+              </div>
+              <span class="account-detail-share-note">
+                占整体 Token {{ formatShare(row.total_tokens, totalTokensInPeriod) }}
+              </span>
+            </div>
+          </article>
+        </div>
       </section>
     </template>
 
@@ -100,7 +146,6 @@ import {
   DataZoomComponent,
 } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
-import type { DataTableColumns } from 'naive-ui'
 import { useAccountStore } from '@/stores/account'
 import { useUsageStore } from '@/stores/usage'
 import type { ChartDataPoint, UsagePeriod } from '@/types'
@@ -119,6 +164,7 @@ echarts.use([
 interface UsageSummaryRow {
   account_id: string
   account_name: string
+  total_tokens: number
   input_tokens: number
   output_tokens: number
   request_count: number
@@ -152,6 +198,10 @@ const todaySummary = computed(() =>
   usageStore.getSummaryForAccounts(accountIds.value, 'day'),
 )
 
+const totalTokensInPeriod = computed(
+  () => (summary.value?.total_input_tokens ?? 0) + (summary.value?.total_output_tokens ?? 0),
+)
+
 const chartData = computed<ChartDataPoint[]>(() =>
   usageStore.getChartDataForAccounts(accountIds.value, selectedPeriod.value),
 )
@@ -170,15 +220,16 @@ const summaryRows = computed<UsageSummaryRow[]>(() =>
 
       const totalTokens =
         accountSummary.total_input_tokens +
-        accountSummary.total_output_tokens +
-        accountSummary.total_requests
-      if (totalTokens <= 0) {
+        accountSummary.total_output_tokens
+      const activityWeight = totalTokens + accountSummary.total_requests
+      if (activityWeight <= 0) {
         return null
       }
 
       return {
         account_id: account.id,
         account_name: resolveAccountDisplayName(account),
+        total_tokens: totalTokens,
         input_tokens: accountSummary.total_input_tokens,
         output_tokens: accountSummary.total_output_tokens,
         request_count: accountSummary.total_requests,
@@ -186,8 +237,8 @@ const summaryRows = computed<UsageSummaryRow[]>(() =>
     })
     .filter((row): row is UsageSummaryRow => Boolean(row))
     .sort((left, right) => {
-      const leftWeight = left.input_tokens + left.output_tokens + left.request_count
-      const rightWeight = right.input_tokens + right.output_tokens + right.request_count
+      const leftWeight = left.total_tokens + left.request_count
+      const rightWeight = right.total_tokens + right.request_count
       return rightWeight - leftWeight
     }),
 )
@@ -198,35 +249,27 @@ function formatTokens(value: number): string {
   return String(value)
 }
 
+function formatShare(value: number, total: number): string {
+  if (total <= 0) {
+    return '0%'
+  }
+
+  const share = (value / total) * 100
+  return `${share.toFixed(share >= 10 ? 0 : 1)}%`
+}
+
+function segmentWidth(value: number, total: number): string {
+  if (total <= 0) {
+    return '0%'
+  }
+
+  return `${(value / total) * 100}%`
+}
+
 const CHART_COLORS = {
   input: '#0071e3',
   output: '#1d1d1f',
 }
-
-const tableColumns: DataTableColumns<UsageSummaryRow> = [
-  {
-    title: '账号名',
-    key: 'account_name',
-    sorter: (first, second) => first.account_name.localeCompare(second.account_name),
-  },
-  {
-    title: '输入 Token',
-    key: 'input_tokens',
-    render: (row) => formatTokens(row.input_tokens),
-    sorter: (first, second) => first.input_tokens - second.input_tokens,
-  },
-  {
-    title: '输出 Token',
-    key: 'output_tokens',
-    render: (row) => formatTokens(row.output_tokens),
-    sorter: (first, second) => first.output_tokens - second.output_tokens,
-  },
-  {
-    title: '请求次数',
-    key: 'request_count',
-    sorter: (first, second) => first.request_count - second.request_count,
-  },
-]
 
 async function loadData() {
   if (accountIds.value.length === 0) return
@@ -498,6 +541,144 @@ onUnmounted(() => {
   color: var(--app-ink-secondary);
 }
 
+.account-detail-panel {
+  display: grid;
+  gap: 14px;
+}
+
+.account-detail-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.account-detail-count {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 0 12px;
+  border-radius: var(--app-radius-control);
+  background: var(--app-surface-muted);
+  color: var(--app-ink-secondary);
+  font-size: 12px;
+  line-height: 1.33;
+}
+
+.account-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.account-detail-card {
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+  border-radius: 22px;
+  border: 1px solid rgba(29, 29, 31, 0.08);
+  background: var(--app-surface-muted);
+}
+
+.account-detail-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.account-detail-card-copy {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.account-detail-rank {
+  font-size: 11px;
+  line-height: 1.33;
+  color: var(--app-blue);
+}
+
+.account-detail-card-copy h3,
+.account-detail-card-total strong {
+  margin: 0;
+  font-family: var(--font-display);
+}
+
+.account-detail-card-copy h3 {
+  font-size: 18px;
+  line-height: 1.28;
+  color: var(--app-ink);
+}
+
+.account-detail-card-total {
+  display: grid;
+  gap: 4px;
+  flex-shrink: 0;
+  text-align: right;
+}
+
+.account-detail-card-total span,
+.account-detail-metric span,
+.account-detail-share-note {
+  font-size: 11px;
+  line-height: 1.33;
+  color: var(--app-ink-tertiary);
+}
+
+.account-detail-card-total strong {
+  font-size: 22px;
+  line-height: 1.2;
+  color: var(--app-ink);
+}
+
+.account-detail-metric-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.account-detail-metric {
+  display: grid;
+  gap: 4px;
+  padding: 12px;
+  border-radius: 18px;
+  background: var(--app-surface);
+}
+
+.account-detail-metric strong {
+  font-family: var(--font-display);
+  font-size: 18px;
+  line-height: 1.24;
+  color: var(--app-ink);
+}
+
+.account-detail-share {
+  display: grid;
+  gap: 8px;
+}
+
+.account-detail-share-track {
+  display: flex;
+  overflow: hidden;
+  height: 8px;
+  border-radius: 999px;
+  background: rgba(29, 29, 31, 0.08);
+}
+
+.account-detail-share-segment {
+  display: block;
+  height: 100%;
+}
+
+.account-detail-share-segment.input {
+  background: rgba(0, 113, 227, 0.82);
+}
+
+.account-detail-share-segment.output {
+  background: rgba(29, 29, 31, 0.68);
+}
+
 @media (max-width: 960px) {
   .dashboard-summary-row,
   .dashboard-chart-head,
@@ -509,6 +690,21 @@ onUnmounted(() => {
 
   .dashboard-chart-shell {
     padding: 16px;
+  }
+
+  .account-detail-head,
+  .account-detail-card-head {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .account-detail-grid,
+  .account-detail-metric-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .account-detail-card-total {
+    text-align: left;
   }
 }
 </style>

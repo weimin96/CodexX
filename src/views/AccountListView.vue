@@ -81,31 +81,68 @@
       :show="showOAuthModal"
       preset="card"
       title="OAuth 网页登录"
-      style="width: 560px;"
+      class="oauth-login-modal"
+      style="width: min(700px, calc(100vw - 24px));"
       @update:show="handleOAuthModalVisibleChange"
     >
-      <n-space vertical size="large">
-        <n-alert type="info">
-          将通过系统浏览器打开 OpenAI 授权页，应用只监听 127.0.0.1 本地回调并加密保存登录结果。
-        </n-alert>
+      <div class="oauth-modal-layout">
+        <section class="oauth-hero-card">
+          <div class="oauth-hero-copy">
+            <span class="oauth-eyebrow">OpenAI 授权</span>
+            <h3>通过系统浏览器完成 OAuth 登录</h3>
+            <p>应用只监听 127.0.0.1 本地回调，并将返回结果加密保存到本地账号库。</p>
+          </div>
+          <div class="oauth-step-grid">
+            <article class="oauth-step-card">
+              <span class="oauth-step-index">01</span>
+              <strong>打开授权页</strong>
+              <p>自动拉起浏览器进入 OpenAI 授权流程。</p>
+            </article>
+            <article class="oauth-step-card">
+              <span class="oauth-step-index">02</span>
+              <strong>等待本地回调</strong>
+              <p>默认监听 127.0.0.1 回调地址接收登录结果。</p>
+            </article>
+            <article class="oauth-step-card">
+              <span class="oauth-step-index">03</span>
+              <strong>必要时手动补录</strong>
+              <p>浏览器未回跳时，可手动粘贴回调链接完成登录。</p>
+            </article>
+          </div>
+        </section>
 
-        <n-form>
-          <n-form-item label="授权链接">
-            <n-input
-              :value="oauthLogin?.auth_url ?? ''"
-              type="textarea"
-              readonly
-              :autosize="{ minRows: 2, maxRows: 4 }"
-              placeholder="生成授权链接后显示"
-            />
-          </n-form-item>
-          <n-form-item label="回调地址">
-            <n-input
-              :value="oauthLogin?.redirect_uri ?? ''"
-              readonly
-              placeholder="本地回调监听地址"
-            />
-          </n-form-item>
+        <section class="oauth-panel">
+          <div class="oauth-panel-head">
+            <div>
+              <h4>浏览器授权</h4>
+              <p>当前会话已生成专用授权链接和本地回调地址。</p>
+            </div>
+            <span class="oauth-status-pill" :class="{ active: oauthWaitingForCallback }">
+              {{ oauthWaitingForCallback ? '等待回调中' : '准备授权' }}
+            </span>
+          </div>
+
+          <div class="oauth-field-list">
+            <div class="oauth-field">
+              <span class="oauth-field-label">授权链接</span>
+              <n-input
+                :value="oauthLogin?.auth_url ?? ''"
+                type="textarea"
+                readonly
+                :autosize="{ minRows: 2, maxRows: 4 }"
+                placeholder="生成授权链接后显示"
+              />
+            </div>
+            <div class="oauth-field">
+              <span class="oauth-field-label">回调地址</span>
+              <n-input
+                :value="oauthLogin?.redirect_uri ?? ''"
+                readonly
+                placeholder="本地回调监听地址"
+              />
+            </div>
+          </div>
+
           <div class="oauth-actions">
             <n-button
               type="primary"
@@ -119,21 +156,29 @@
               取消登录
             </n-button>
           </div>
-        </n-form>
+        </section>
 
-        <n-alert v-if="oauthWaitingForCallback" type="success">
-          已启动本地回调监听。浏览器授权完成后通常会自动回到应用；如果浏览器没有跳回，请复制浏览器地址栏中的回调链接到下方。
-        </n-alert>
+        <section class="oauth-panel oauth-panel-muted">
+          <div class="oauth-panel-head">
+            <div>
+              <h4>手动回调兜底</h4>
+              <p>浏览器未自动跳回时，将地址栏中的完整回调链接粘贴到下方。</p>
+            </div>
+          </div>
 
-        <n-form>
-          <n-form-item label="手动回调链接">
+          <div v-if="oauthWaitingForCallback" class="oauth-status-card">
+            已启动本地回调监听。若浏览器没有自动回跳，可直接复制回调链接到下方继续完成登录。
+          </div>
+
+          <div class="oauth-field">
+            <span class="oauth-field-label">手动回调链接</span>
             <n-input
               v-model:value="oauthCallbackUrl"
               type="textarea"
               :rows="3"
               placeholder="http://localhost:1455/auth/callback?code=..."
             />
-          </n-form-item>
+          </div>
           <n-button
             block
             secondary
@@ -144,8 +189,8 @@
           >
             使用回调链接完成登录
           </n-button>
-        </n-form>
-      </n-space>
+        </section>
+      </div>
     </n-modal>
   </div>
 </template>
@@ -742,9 +787,132 @@ function resetOAuthLoginState() {
   gap: 10px;
 }
 
+.oauth-modal-layout {
+  display: grid;
+  gap: 16px;
+}
+
+.oauth-hero-card,
+.oauth-panel {
+  display: grid;
+  gap: 14px;
+  padding: 18px;
+  border-radius: 22px;
+  background: var(--app-surface-muted);
+}
+
+.oauth-hero-card {
+  background:
+    linear-gradient(135deg, rgba(0, 113, 227, 0.1), rgba(0, 113, 227, 0.02) 58%),
+    var(--app-surface-muted);
+}
+
+.oauth-hero-copy {
+  display: grid;
+  gap: 6px;
+}
+
+.oauth-eyebrow,
+.oauth-field-label,
+.oauth-step-index {
+  font-size: 11px;
+  line-height: 1.33;
+  color: var(--app-blue);
+}
+
+.oauth-hero-copy h3,
+.oauth-panel-head h4,
+.oauth-step-card strong {
+  margin: 0;
+  font-family: var(--font-display);
+  color: var(--app-ink);
+}
+
+.oauth-hero-copy h3 {
+  font-size: 24px;
+  line-height: 1.18;
+}
+
+.oauth-hero-copy p,
+.oauth-panel-head p,
+.oauth-step-card p,
+.oauth-status-card {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--app-ink-secondary);
+}
+
+.oauth-step-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.oauth-step-card {
+  display: grid;
+  gap: 6px;
+  padding: 14px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.7);
+  border: 1px solid rgba(0, 113, 227, 0.08);
+}
+
+.oauth-panel-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.oauth-status-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 0 12px;
+  border-radius: var(--app-radius-control);
+  background: rgba(29, 29, 31, 0.06);
+  color: var(--app-ink-secondary);
+  font-size: 12px;
+  line-height: 1.33;
+  white-space: nowrap;
+}
+
+.oauth-status-pill.active {
+  background: rgba(52, 199, 89, 0.14);
+  color: #248a3d;
+}
+
+.oauth-field-list,
+.oauth-field {
+  display: grid;
+  gap: 8px;
+}
+
+.oauth-status-card {
+  padding: 12px 14px;
+  border-radius: 16px;
+  background: rgba(52, 199, 89, 0.12);
+  color: #248a3d;
+}
+
+.oauth-panel-muted {
+  background: var(--app-surface);
+  border: 1px solid rgba(29, 29, 31, 0.08);
+}
+
 @media (max-width: 768px) {
   .account-grid {
     grid-template-columns: 1fr;
+  }
+
+  .oauth-step-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .oauth-panel-head {
+    flex-direction: column;
+    align-items: stretch;
   }
 }
 </style>

@@ -2,7 +2,7 @@
   <div class="quota-line-card" :class="{ featured }">
     <div class="quota-summary">
       <div v-for="item in quotaItems" :key="item.label" class="quota-summary-item">
-        <span class="quota-title">{{ item.label }}</span>
+        <span class="quota-title">{{ item.title }}</span>
         <strong class="quota-value">{{ item.valueLabel }}</strong>
       </div>
     </div>
@@ -42,6 +42,7 @@ const props = defineProps<{
 
 interface QuotaLineViewModel {
   label: string
+  title: string
   xStart: number
   xEnd: number
   color: string
@@ -56,8 +57,8 @@ interface QuotaLineViewModel {
 const featured = computed(() => Boolean(props.featured))
 
 const quotaItems = computed<QuotaLineViewModel[]>(() => [
-  buildQuotaLine('5小时', props.fiveHour, '#34c759', 'rgba(52, 199, 89, 0.18)', 0, 96),
-  buildQuotaLine('7天', props.oneWeek, '#0071e3', 'rgba(0, 113, 227, 0.16)', 104, 200),
+  buildQuotaLine('5小时', '5小时剩余', props.fiveHour, '#34c759', 'rgba(52, 199, 89, 0.18)', 0, 96),
+  buildQuotaLine('7天', '7天剩余', props.oneWeek, '#0071e3', 'rgba(0, 113, 227, 0.16)', 104, 200),
 ])
 
 const chartOption = computed<NonNullable<Parameters<echarts.ECharts['setOption']>[0]>>(() => {
@@ -143,6 +144,7 @@ const chartOption = computed<NonNullable<Parameters<echarts.ECharts['setOption']
 
 function buildQuotaLine(
   label: string,
+  title: string,
   window: CodexUsageWindow | undefined,
   color: string,
   trackColor: string,
@@ -155,6 +157,7 @@ function buildQuotaLine(
 
   return {
     label,
+    title,
     xStart,
     xEnd,
     color,
@@ -208,7 +211,8 @@ function formatResetTime(value?: number): string {
 .quota-summary-item {
   display: flex;
   align-items: center;
-  gap: 6px;
+  justify-content: space-between;
+  gap: 10px;
   min-width: 0;
 }
 
@@ -228,6 +232,7 @@ function formatResetTime(value?: number): string {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  text-align: right;
 }
 
 .quota-line-card.featured .quota-title {

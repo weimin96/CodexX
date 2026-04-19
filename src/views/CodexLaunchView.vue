@@ -57,11 +57,11 @@
           </n-button>
         </div>
 
-        <div v-if="projectHistory.length > 0" class="control-block">
-          <span class="control-label">最近项目</span>
+        <div v-if="trustedProjectPaths.length > 0" class="control-block">
+          <span class="control-label">授权项目</span>
           <div class="project-history">
             <button
-              v-for="projectPath in projectHistory"
+              v-for="projectPath in trustedProjectPaths"
               :key="projectPath"
               class="project-chip"
               type="button"
@@ -93,9 +93,6 @@ import type { CodexModelOption } from '@/types'
 import { useAccountStore } from '@/stores/account'
 import { FIXED_CODEX_MODEL_OPTIONS, isFixedCodexModel } from '@/utils/codex-models'
 
-const PROJECT_HISTORY_KEY = 'codex-manager.codex-project-history'
-const MAX_PROJECT_HISTORY = 8
-
 const isTauri = detectTauriRuntime()
 const message = useMessage()
 const accountStore = useAccountStore()
@@ -106,7 +103,7 @@ const launchingCli = ref(false)
 const launchingApp = ref(false)
 const closingApp = ref(false)
 const lastCodexFeedback = ref<{ status: string; message: string } | null>(null)
-const projectHistory = ref<string[]>([])
+const trustedProjectPaths = ref<string[]>([])
 const modelOptions = ref<CodexModelOption[]>([])
 const feedbackAlertType = computed<'default' | 'success' | 'warning'>(() => {
   if (!lastCodexFeedback.value) return 'default'
@@ -117,7 +114,6 @@ onMounted(async () => {
   if (accountStore.accounts.length === 0) {
     await accountStore.loadAccounts()
   }
-  projectHistory.value = readProjectHistory()
   await loadLauncherConfig()
 })
 
@@ -136,7 +132,6 @@ async function handleChooseDirectory() {
 
     if (typeof selectedPath === 'string') {
       codexWorkingDirectory.value = selectedPath
-      rememberProjectPath(selectedPath)
     }
   } catch (error) {
     console.warn('选择工作目录失败', error)
@@ -153,7 +148,6 @@ async function handleLaunchCodexCli() {
       working_directory: workingDirectory,
       model: normalizeOptionalText(codexModel.value),
     })
-    if (workingDirectory) rememberProjectPath(workingDirectory)
     lastCodexFeedback.value = result
     message.success(result.message)
   } catch (error) {
@@ -209,6 +203,7 @@ async function loadLauncherConfig() {
   try {
     const launcherConfig = await usageService.getCodexLauncherConfig()
     modelOptions.value = FIXED_CODEX_MODEL_OPTIONS
+    trustedProjectPaths.value = launcherConfig.trusted_project_paths
 
     if (!normalizeOptionalText(codexModel.value)) {
       codexModel.value = isFixedCodexModel(launcherConfig.default_model)
@@ -219,6 +214,7 @@ async function loadLauncherConfig() {
     console.warn('读取 Codex 启动配置失败', error)
     message.warning('读取 Codex 默认模型失败，已回退为手动选择')
     modelOptions.value = FIXED_CODEX_MODEL_OPTIONS
+    trustedProjectPaths.value = []
     if (!normalizeOptionalText(codexModel.value)) {
       codexModel.value = FIXED_CODEX_MODEL_OPTIONS[0]?.value ?? null
     }
@@ -227,33 +223,6 @@ async function loadLauncherConfig() {
 
 function useProjectPath(projectPath: string) {
   codexWorkingDirectory.value = projectPath
-  rememberProjectPath(projectPath)
-}
-
-function rememberProjectPath(projectPath: string) {
-  const normalizedPath = projectPath.trim()
-  if (!normalizedPath) return
-
-  const nextHistory = [
-    normalizedPath,
-    ...projectHistory.value.filter((item) => item !== normalizedPath),
-  ].slice(0, MAX_PROJECT_HISTORY)
-  projectHistory.value = nextHistory
-  localStorage.setItem(PROJECT_HISTORY_KEY, JSON.stringify(nextHistory))
-}
-
-function readProjectHistory(): string[] {
-  try {
-    const rawValue = localStorage.getItem(PROJECT_HISTORY_KEY)
-    if (!rawValue) return []
-    const parsed = JSON.parse(rawValue)
-    if (!Array.isArray(parsed)) return []
-    return parsed
-      .filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
-      .slice(0, MAX_PROJECT_HISTORY)
-  } catch {
-    return []
-  }
 }
 
 function normalizeOptionalText(value: string | null | undefined): string | undefined {

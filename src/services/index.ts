@@ -250,6 +250,7 @@ export const usageService = {
       return {
         default_model: undefined,
         model_options: [],
+        trusted_project_paths: [],
       }
     }
     return invoke<CodexLauncherConfig>('get_codex_launcher_config')

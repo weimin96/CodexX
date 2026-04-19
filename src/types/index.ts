@@ -161,6 +161,7 @@ export interface CodexModelOption {
 export interface CodexLauncherConfig {
   default_model?: string
   model_options: CodexModelOption[]
+  trusted_project_paths: string[]
 }
 
 export interface CodexConfigEntry {

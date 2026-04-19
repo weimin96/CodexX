@@ -125,6 +125,7 @@ import { computed, onMounted, ref } from 'vue'
 import { useMessage } from 'naive-ui'
 import { codexConfigService } from '@/services'
 import type { CodexConfigSnapshot } from '@/types'
+import { FIXED_CODEX_MODEL_OPTIONS } from '@/utils/codex-models'
 
 interface ConfigReferenceField {
   key: string
@@ -137,6 +138,13 @@ interface ConfigReferenceGroup {
   description: string
   fields: ConfigReferenceField[]
 }
+
+const FIXED_MODEL_FIELD_KEYS = new Set([
+  'model',
+  'review_model',
+  'memories.extract_model',
+  'memories.consolidation_model',
+])
 
 const message = useMessage()
 const loading = ref(false)
@@ -403,6 +411,13 @@ function fieldControlKind(field: ConfigReferenceField): 'string' | 'number' | 'b
 }
 
 function fieldOptions(field: ConfigReferenceField) {
+  if (FIXED_MODEL_FIELD_KEYS.has(field.key)) {
+    return FIXED_CODEX_MODEL_OPTIONS.map((option) => ({
+      label: option.label,
+      value: option.value,
+    }))
+  }
+
   if (!field.type.includes('|')) {
     return []
   }

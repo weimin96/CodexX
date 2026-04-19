@@ -84,6 +84,7 @@ import { useMessage } from 'naive-ui'
 import { usageService } from '@/services'
 import type { CodexLaunchResult, CodexModelOption } from '@/types'
 import { useAccountStore } from '@/stores/account'
+import { FIXED_CODEX_MODEL_OPTIONS, isFixedCodexModel } from '@/utils/codex-models'
 
 const PROJECT_HISTORY_KEY = 'codex-manager.codex-project-history'
 const MAX_PROJECT_HISTORY = 8
@@ -170,14 +171,20 @@ async function handleLaunchCodexApp() {
 async function loadLauncherConfig() {
   try {
     const launcherConfig = await usageService.getCodexLauncherConfig()
-    modelOptions.value = launcherConfig.model_options
+    modelOptions.value = FIXED_CODEX_MODEL_OPTIONS
 
-    if (!normalizeOptionalText(codexModel.value) && launcherConfig.default_model) {
-      codexModel.value = launcherConfig.default_model
+    if (!normalizeOptionalText(codexModel.value)) {
+      codexModel.value = isFixedCodexModel(launcherConfig.default_model)
+        ? launcherConfig.default_model
+        : FIXED_CODEX_MODEL_OPTIONS[0]?.value ?? null
     }
   } catch (error) {
     console.warn('读取 Codex 启动配置失败', error)
     message.warning('读取 Codex 默认模型失败，已回退为手动选择')
+    modelOptions.value = FIXED_CODEX_MODEL_OPTIONS
+    if (!normalizeOptionalText(codexModel.value)) {
+      codexModel.value = FIXED_CODEX_MODEL_OPTIONS[0]?.value ?? null
+    }
   }
 }
 

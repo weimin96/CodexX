@@ -3,7 +3,7 @@
     <section class="surface-panel">
       <div class="settings-section-head">
         <div>
-          <h1 class="panel-heading">通用</h1>
+          <h1 class="panel-heading">界面与启动</h1>
           <p class="panel-copy">修改后自动保存。</p>
         </div>
         <span class="autosave-pill" :class="`autosave-pill-${autosaveState}`">
@@ -37,6 +37,18 @@
             @update:value="handleAutostartChange"
           />
         </div>
+      </div>
+    </section>
+
+    <section class="surface-panel">
+      <div class="settings-section-head">
+        <div>
+          <h2 class="panel-heading">后台任务</h2>
+          <p class="panel-copy">控制后台检测、保活和额度提醒。</p>
+        </div>
+      </div>
+
+      <div class="setting-list">
 
         <div class="setting-item">
           <div class="setting-copy">
@@ -78,43 +90,8 @@
     <section class="surface-panel">
       <div class="settings-section-head">
         <div>
-          <h2 class="panel-heading">安全</h2>
-          <p class="panel-copy">凭证仅保存在本机加密库。</p>
-        </div>
-      </div>
-
-      <div class="security-note">
-        <div class="security-note-icon">
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
-            <path
-              d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"
-              stroke="currentColor"
-              stroke-width="1.6"
-            />
-          </svg>
-        </div>
-        <div>
-          <div class="security-note-title">主密钥</div>
-          <div class="security-note-copy">重置后需要重新导入所有凭证。</div>
-        </div>
-      </div>
-
-      <div class="setting-list">
-        <div class="setting-item">
-          <div class="setting-copy">
-            <div class="setting-title">重新生成主密钥</div>
-            <div class="setting-description">会使现有凭证失效。</div>
-          </div>
-          <n-button type="error" secondary @click="handleRegenKey">重新生成</n-button>
-        </div>
-      </div>
-    </section>
-
-    <section class="surface-panel">
-      <div class="settings-section-head">
-        <div>
-          <h2 class="panel-heading">关于</h2>
-          <p class="panel-copy">版本与更新。</p>
+          <h2 class="panel-heading">更新与版本</h2>
+          <p class="panel-copy">查看当前版本并控制自动更新。</p>
         </div>
       </div>
 
@@ -156,6 +133,41 @@
           <n-button secondary :loading="checkingUpdate" @click="handleCheckUpdate">
             检查更新
           </n-button>
+        </div>
+      </div>
+    </section>
+
+    <section class="surface-panel">
+      <div class="settings-section-head">
+        <div>
+          <h2 class="panel-heading">安全</h2>
+          <p class="panel-copy">凭证仅保存在本机加密库。</p>
+        </div>
+      </div>
+
+      <div class="security-note">
+        <div class="security-note-icon">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
+            <path
+              d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"
+              stroke="currentColor"
+              stroke-width="1.6"
+            />
+          </svg>
+        </div>
+        <div>
+          <div class="security-note-title">主密钥</div>
+          <div class="security-note-copy">重置后需要重新导入所有凭证。</div>
+        </div>
+      </div>
+
+      <div class="setting-list">
+        <div class="setting-item">
+          <div class="setting-copy">
+            <div class="setting-title">重新生成主密钥</div>
+            <div class="setting-description">会使现有凭证失效。</div>
+          </div>
+          <n-button type="error" secondary @click="handleRegenKey">重新生成</n-button>
         </div>
       </div>
     </section>

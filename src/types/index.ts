@@ -117,6 +117,8 @@ export interface CodexExecInput {
   model?: string
   profile?: string
   sandbox?: string
+  config_overrides?: string[]
+  skip_git_repo_check?: boolean
 }
 
 export interface CodexInteractiveInput {
@@ -150,6 +152,12 @@ export interface CodexLaunchResult {
   usage_event_count: number
   message: string
   stderr_preview?: string
+}
+
+export interface CodexShortConversationResult extends CodexLaunchResult {
+  account_id: string
+  account_name: string
+  model: string
 }
 
 // ============================================================

@@ -23,6 +23,16 @@
         </div>
       </div>
       <div class="card-side">
+        <n-button
+          secondary
+          size="small"
+          class="trigger-dialog-button"
+          :disabled="!canTriggerConversation || triggeringConversation"
+          :loading="triggeringConversation"
+          @click="emit('trigger-conversation')"
+        >
+          触发对话
+        </n-button>
         <n-dropdown
           trigger="click"
           :options="cardActionOptions"
@@ -94,6 +104,7 @@ import {
 const props = defineProps<{
   account: Account
   checking?: boolean
+  triggeringConversation?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -101,6 +112,7 @@ const emit = defineEmits<{
   check: []
   'switch-account': []
   'export-auth': []
+  'trigger-conversation': []
   delete: []
 }>()
 
@@ -113,6 +125,7 @@ const displayUsageError = computed(() => formatUsageError(props.account.codex_us
 const statusDisplay = computed(() => resolveAccountStatusDisplay(props.account))
 const displayStatusMessage = computed(() => resolveAccountStatusMessage(props.account))
 const statusDiagnostic = computed(() => resolveAccountStatusDiagnostic(props.account))
+const canTriggerConversation = computed(() => hasFullFiveHourQuota(props.account))
 const cardActionOptions = computed<DropdownOption[]>(() => {
   const options: DropdownOption[] = [
     {
@@ -194,6 +207,10 @@ const cardActionOptions = computed<DropdownOption[]>(() => {
 
 function hasCodexUsage(account: Account): boolean {
   return Boolean(account.codex_usage_5h || account.codex_usage_week)
+}
+
+function hasFullFiveHourQuota(account: Account): boolean {
+  return Boolean(account.codex_usage_5h && account.codex_usage_5h.used_percent <= 0.000_001)
 }
 
 function formatPlanType(planType: string): string {
@@ -389,6 +406,13 @@ function formatUsageError(error?: string): string {
 
 .card-icon-button {
   flex-shrink: 0;
+}
+
+.trigger-dialog-button {
+  height: 30px;
+  padding: 0 10px;
+  border-radius: var(--app-radius-control);
+  font-size: 12px;
 }
 
 .status-diagnostic {

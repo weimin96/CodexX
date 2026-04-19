@@ -20,6 +20,8 @@ pub struct CodexExecInput {
     pub model: Option<String>,
     pub profile: Option<String>,
     pub sandbox: Option<String>,
+    pub config_overrides: Option<Vec<String>>,
+    pub skip_git_repo_check: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -224,6 +226,9 @@ pub async fn run_codex_exec(
         "never".to_string(),
     ];
     append_common_codex_args(&mut args, CodexCommonOptions::from_exec_input(input));
+    if input.skip_git_repo_check.unwrap_or(false) {
+        args.push("--skip-git-repo-check".to_string());
+    }
     args.push(prompt.to_string());
 
     let mut command = target.build_tokio_command(&args)?;
@@ -388,6 +393,7 @@ struct CodexCommonOptions<'a> {
     model: Option<&'a str>,
     profile: Option<&'a str>,
     sandbox: Option<&'a str>,
+    config_overrides: &'a [String],
 }
 
 impl<'a> CodexCommonOptions<'a> {
@@ -397,6 +403,7 @@ impl<'a> CodexCommonOptions<'a> {
             model: input.model.as_deref(),
             profile: input.profile.as_deref(),
             sandbox: input.sandbox.as_deref(),
+            config_overrides: input.config_overrides.as_deref().unwrap_or(&[]),
         }
     }
 
@@ -406,6 +413,7 @@ impl<'a> CodexCommonOptions<'a> {
             model: input.model.as_deref(),
             profile: input.profile.as_deref(),
             sandbox: input.sandbox.as_deref(),
+            config_overrides: &[],
         }
     }
 
@@ -415,6 +423,7 @@ impl<'a> CodexCommonOptions<'a> {
             model: input.model.as_deref(),
             profile: None,
             sandbox: None,
+            config_overrides: &[],
         }
     }
 }
@@ -438,6 +447,13 @@ fn append_common_codex_args(args: &mut Vec<String>, options: CodexCommonOptions<
     if let Some(sandbox) = normalize_text(options.sandbox) {
         args.push("-s".to_string());
         args.push(sandbox);
+    }
+
+    for config_override in options.config_overrides {
+        if let Some(config_override) = normalize_text(Some(config_override)) {
+            args.push("-c".to_string());
+            args.push(config_override);
+        }
     }
 }
 

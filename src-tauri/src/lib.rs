@@ -94,6 +94,7 @@ pub fn run() {
             commands::account::sync_local_default_account,
             // Codex 启动命令
             commands::codex::run_codex_exec_session,
+            commands::codex::trigger_codex_short_conversation,
             commands::codex::open_codex_interactive_session,
             commands::codex::launch_codex_cli,
             commands::codex::get_codex_launcher_config,

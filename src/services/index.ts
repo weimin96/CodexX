@@ -12,6 +12,7 @@ import type {
   CodexExecInput,
   CodexInteractiveInput,
   CodexLaunchResult,
+  CodexShortConversationResult,
   AppSettings,
   StatusCheckResult,
   LocalAuthSyncResult,
@@ -206,6 +207,15 @@ export const usageService = {
       throw new Error('受控启动 Codex 仅在 Tauri 环境中可用')
     }
     return invoke<CodexLaunchResult>('run_codex_exec_session', { input })
+  },
+
+  async triggerCodexShortConversation(accountId?: string): Promise<CodexShortConversationResult> {
+    if (!isTauri) {
+      throw new Error('触发 Codex 对话仅在 Tauri 环境中可用')
+    }
+    return invoke<CodexShortConversationResult>('trigger_codex_short_conversation', {
+      accountId: accountId ?? null,
+    })
   },
 
   async openCodexInteractive(input: CodexInteractiveInput): Promise<CodexLaunchResult> {

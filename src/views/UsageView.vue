@@ -35,38 +35,38 @@
           </div>
         </div>
       </div>
+    </section>
 
-      <div class="dashboard-chart-shell">
-        <div class="dashboard-chart-head">
-          <h2 class="panel-heading dashboard-chart-title">Token 用量趋势</h2>
-          <div class="dashboard-chart-controls">
-            <div class="control-block">
-              <span class="control-label">时间范围</span>
-              <n-radio-group v-model:value="selectedPeriod" @update:value="onPeriodChange">
-                <n-radio-button value="day">今日</n-radio-button>
-                <n-radio-button value="week">本周</n-radio-button>
-                <n-radio-button value="month">本月</n-radio-button>
-              </n-radio-group>
-            </div>
+    <section class="surface-panel section-grid trend-panel">
+      <div class="dashboard-chart-head">
+        <h2 class="panel-heading dashboard-chart-title">Token 用量趋势</h2>
+        <div class="dashboard-chart-controls">
+          <div class="control-block">
+            <span class="control-label">时间范围</span>
+            <n-radio-group v-model:value="selectedPeriod" @update:value="onPeriodChange">
+              <n-radio-button value="day">今日</n-radio-button>
+              <n-radio-button value="week">本周</n-radio-button>
+              <n-radio-button value="month">本月</n-radio-button>
+            </n-radio-group>
+          </div>
 
-            <div class="control-block">
-              <span class="control-label">图表类型</span>
-              <n-radio-group v-model:value="chartType">
-                <n-radio-button value="line">折线图</n-radio-button>
-                <n-radio-button value="bar">柱状图</n-radio-button>
-              </n-radio-group>
-            </div>
+          <div class="control-block">
+            <span class="control-label">图表类型</span>
+            <n-radio-group v-model:value="chartType">
+              <n-radio-button value="line">折线图</n-radio-button>
+              <n-radio-button value="bar">柱状图</n-radio-button>
+            </n-radio-group>
           </div>
         </div>
+      </div>
 
-        <div v-if="loading" class="usage-empty usage-loading">
-          <n-spin />
-          <p>正在加载数据。</p>
-        </div>
-        <div v-else-if="chartData.length > 0" ref="tokenChartRef" class="chart-container" />
-        <div v-else class="usage-empty">
-          <p>当前所选周期没有可绘制的趋势数据。</p>
-        </div>
+      <div v-if="loading" class="usage-empty usage-loading">
+        <n-spin />
+        <p>正在加载数据。</p>
+      </div>
+      <div v-else-if="chartData.length > 0" ref="tokenChartRef" class="chart-container" />
+      <div v-else class="usage-empty">
+        <p>当前所选周期没有可绘制的趋势数据。</p>
       </div>
     </section>
 
@@ -538,14 +538,6 @@ onUnmounted(() => {
   --card-border: rgba(124, 58, 237, 0.16);
 }
 
-.dashboard-chart-shell {
-  display: grid;
-  gap: 14px;
-  padding: 18px;
-  border-radius: 22px;
-  background: var(--app-surface-muted);
-}
-
 .dashboard-chart-head {
   display: flex;
   align-items: flex-start;
@@ -563,6 +555,10 @@ onUnmounted(() => {
   justify-content: flex-end;
   gap: 12px;
   flex-wrap: wrap;
+}
+
+.trend-panel {
+  gap: 14px;
 }
 
 .chart-container {
@@ -729,10 +725,6 @@ onUnmounted(() => {
     grid-template-columns: 1fr;
     flex-direction: column;
     align-items: stretch;
-  }
-
-  .dashboard-chart-shell {
-    padding: 16px;
   }
 
   .account-detail-head,

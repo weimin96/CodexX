@@ -11,6 +11,7 @@ import type {
   UsageImportResult,
   CodexCliLaunchInput,
   CodexConfigSnapshot,
+  CodexConfigFieldUpdate,
   CodexLauncherConfig,
   CodexExecInput,
   CodexInteractiveInput,
@@ -293,6 +294,24 @@ export const codexConfigService = {
       }
     }
     return invoke<CodexConfigSnapshot>('save_codex_config_file', { rawText })
+  },
+
+  async saveConfigField(input: CodexConfigFieldUpdate): Promise<CodexConfigSnapshot> {
+    if (!isTauri) {
+      return {
+        path: '~/.codex/config.toml',
+        exists: true,
+        raw_text: `${input.key} = ${input.value}\n`,
+        parsed_entries: [
+          {
+            key: input.key,
+            value_type: 'unknown',
+            value: input.value,
+          },
+        ],
+      }
+    }
+    return invoke<CodexConfigSnapshot>('save_codex_config_field', { input })
   },
 }
 

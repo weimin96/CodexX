@@ -13,7 +13,7 @@
               :label="statusDisplay.label"
               :title="statusDisplay.title"
             />
-            <span v-if="account.is_default" class="label-pill label-pill-contrast">默认</span>
+            <span v-if="account.is_default" class="label-pill label-pill-contrast">正在使用</span>
             <span v-if="account.codex_plan_type" class="label-pill label-pill-blue">
               {{ formatPlanType(account.codex_plan_type) }}
             </span>
@@ -281,14 +281,17 @@ function formatUsageError(error?: string): string {
 
 <style scoped>
 .account-card {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 12px;
   padding: 16px;
   border-radius: 22px;
+  border: 1px solid rgba(29, 29, 31, 0.08);
   background: var(--app-surface);
   box-shadow: var(--app-shadow);
   transition:
+    border-color 0.2s ease,
     box-shadow 0.2s ease;
 }
 
@@ -297,8 +300,25 @@ function formatUsageError(error?: string): string {
 }
 
 .account-card.default {
-  background: var(--app-feature-surface);
+  border-color: rgba(0, 113, 227, 0.46);
+  background:
+    linear-gradient(180deg, rgba(0, 113, 227, 0.08), rgba(0, 113, 227, 0.02) 42%),
+    var(--app-feature-surface);
   color: var(--app-feature-ink);
+  box-shadow:
+    rgba(0, 113, 227, 0.2) 0 16px 42px 0,
+    var(--app-shadow);
+}
+
+.account-card.default::before {
+  content: '';
+  position: absolute;
+  top: -1px;
+  right: 14px;
+  left: 14px;
+  height: 3px;
+  border-radius: 0 0 999px 999px;
+  background: var(--app-blue);
 }
 
 .card-top {
@@ -389,8 +409,8 @@ function formatUsageError(error?: string): string {
 }
 
 .account-card.default .label-pill-contrast {
-  background: var(--app-feature-surface-muted);
-  color: var(--app-feature-ink);
+  background: var(--app-blue);
+  color: #ffffff;
 }
 
 .label-pill-blue {

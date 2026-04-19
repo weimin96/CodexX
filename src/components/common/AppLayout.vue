@@ -88,24 +88,60 @@
       </div>
     </div>
 
-    <div class="app-body">
-      <aside class="sidebar">
+    <div class="app-body" :class="{ 'app-body-collapsed': sidebarCollapsed }">
+      <aside class="sidebar" :class="{ collapsed: sidebarCollapsed }">
+        <div class="sidebar-toolbar">
+          <button
+            class="sidebar-toggle-button"
+            type="button"
+            :title="sidebarCollapsed ? '展开侧边栏' : '收起侧边栏'"
+            :aria-label="sidebarCollapsed ? '展开侧边栏' : '收起侧边栏'"
+            @click="sidebarCollapsed = !sidebarCollapsed"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+              <path
+                v-if="sidebarCollapsed"
+                d="M9 6l6 6-6 6"
+                stroke="currentColor"
+                stroke-width="1.8"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+              <path
+                v-else
+                d="M15 6l-6 6 6 6"
+                stroke="currentColor"
+                stroke-width="1.8"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+            </svg>
+          </button>
+        </div>
+
         <div class="sidebar-top">
-          <div class="sidebar-section-label">当前账号</div>
-          <button class="account-chip" type="button" @click="router.push('/accounts')">
+          <div v-if="!sidebarCollapsed" class="sidebar-section-label">当前账号</div>
+          <button
+            class="account-chip"
+            :class="{ collapsed: sidebarCollapsed }"
+            type="button"
+            :title="activeAccountDisplayName"
+            @click="router.push('/accounts')"
+          >
             <div
               class="account-avatar"
               :style="{ background: activeAccount?.color ?? '#0071e3' }"
             >
               {{ activeAccountAvatarText }}
             </div>
-            <div class="account-chip-info">
+            <div v-if="!sidebarCollapsed" class="account-chip-info">
               <div class="account-chip-name">{{ activeAccountDisplayName }}</div>
               <div class="account-chip-type">
                 {{ activeAccount ? AUTH_TYPE_LABELS[activeAccount.auth_type] : '等待选择' }}
               </div>
             </div>
             <StatusDot
+              v-if="!sidebarCollapsed"
               :status="activeAccountStatusDisplay.tone"
               :label="activeAccountStatusDisplay.label"
               :title="activeAccountStatusDisplay.title"
@@ -114,11 +150,13 @@
         </div>
 
         <div class="sidebar-navigation">
-          <div class="sidebar-section-label">导航</div>
+          <div v-if="!sidebarCollapsed" class="sidebar-section-label">导航</div>
           <n-menu
             :value="currentRoute"
             :options="menuOptions"
-            :collapsed="false"
+            :collapsed="sidebarCollapsed"
+            :collapsed-width="62"
+            :collapsed-icon-size="18"
             :indent="20"
             @update:value="handleNav"
           />
@@ -127,8 +165,9 @@
         <div class="sidebar-footer">
           <button
             class="codex-launch-button"
-            :class="{ active: currentRoute === 'CodexLaunch' }"
+            :class="{ active: currentRoute === 'CodexLaunch', collapsed: sidebarCollapsed }"
             type="button"
+            :title="sidebarCollapsed ? '启动器' : undefined"
             @click="router.push({ name: 'CodexLaunch' })"
           >
             <span class="codex-launch-icon">
@@ -142,7 +181,7 @@
                 />
               </svg>
             </span>
-            <span>启动器</span>
+            <span v-if="!sidebarCollapsed">启动器</span>
           </button>
         </div>
       </aside>
@@ -260,6 +299,7 @@ type WindowResizeDirection =
 
 let appWindow: ReturnType<typeof getCurrentWindow> | null = null
 const isTauri = ref(detectTauriRuntime())
+const sidebarCollapsed = ref(false)
 
 const minimizeWindow = () => appWindow?.minimize()
 const toggleMaximize = () => appWindow?.toggleMaximize()
@@ -594,6 +634,10 @@ async function refreshAccountsOnFirstStartup() {
   overflow: hidden;
 }
 
+.app-body.app-body-collapsed {
+  grid-template-columns: 86px minmax(0, 1fr);
+}
+
 .sidebar {
   display: flex;
   flex-direction: column;
@@ -604,6 +648,38 @@ async function refreshAccountsOnFirstStartup() {
   border-right: 1px solid var(--app-sidebar-border);
   min-height: 0;
   overflow: hidden;
+}
+
+.sidebar.collapsed {
+  padding-inline: 12px;
+}
+
+.sidebar-toolbar {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.sidebar-toggle-button {
+  width: 30px;
+  height: 30px;
+  border: none;
+  border-radius: 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--app-sidebar-panel);
+  color: var(--app-sidebar-ink-strong);
+  cursor: pointer;
+  transition:
+    background-color 0.18s ease,
+    color 0.18s ease,
+    transform 0.18s ease;
+}
+
+.sidebar-toggle-button:hover {
+  background: var(--app-sidebar-panel-hover);
+  color: var(--app-blue);
+  transform: translateY(-1px);
 }
 
 .sidebar-top,
@@ -641,6 +717,11 @@ async function refreshAccountsOnFirstStartup() {
 .account-chip:hover {
   transform: translateY(-1px);
   background: var(--app-sidebar-panel-hover);
+}
+
+.account-chip.collapsed {
+  justify-content: center;
+  padding: 12px 10px;
 }
 
 .account-avatar {
@@ -682,6 +763,11 @@ async function refreshAccountsOnFirstStartup() {
   min-height: 40px;
 }
 
+.sidebar.collapsed .sidebar-navigation :deep(.n-menu-item-content) {
+  justify-content: center;
+  padding-inline: 0 !important;
+}
+
 .sidebar-footer {
   margin-top: auto;
 }
@@ -705,6 +791,11 @@ async function refreshAccountsOnFirstStartup() {
     background-color 0.18s ease,
     color 0.18s ease,
     transform 0.18s ease;
+}
+
+.codex-launch-button.collapsed {
+  justify-content: center;
+  padding-inline: 0;
 }
 
 .codex-launch-button:hover,
@@ -757,6 +848,10 @@ async function refreshAccountsOnFirstStartup() {
   }
 
   .app-body {
+    grid-template-columns: 1fr;
+  }
+
+  .app-body.app-body-collapsed {
     grid-template-columns: 1fr;
   }
 

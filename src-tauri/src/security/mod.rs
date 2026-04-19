@@ -3,12 +3,14 @@ use aes_gcm::{
     Aes256Gcm, Nonce,
 };
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
+use std::sync::OnceLock;
 
 use crate::error::{AppError, AppResult};
 
 const SERVICE_NAME: &str = "codex-manager";
 const MASTER_KEY_ACCOUNT: &str = "master-encryption-key";
 const MASTER_KEY_ENV_VAR: &str = "CODEX_MANAGER_MASTER_KEY";
+static SYSTEM_STORE_BACKEND_CHECK: OnceLock<Result<(), String>> = OnceLock::new();
 
 struct ResolvedMasterKey {
     value: Vec<u8>,
@@ -30,6 +32,8 @@ fn get_master_key() -> AppResult<ResolvedMasterKey> {
 }
 
 fn get_or_create_system_master_key() -> AppResult<Vec<u8>> {
+    ensure_system_store_backend()?;
+
     if let Some(key) = read_master_key_from_system_store()? {
         return Ok(key);
     }
@@ -46,6 +50,8 @@ fn get_or_create_system_master_key() -> AppResult<Vec<u8>> {
 }
 
 fn read_master_key_from_system_store() -> AppResult<Option<Vec<u8>>> {
+    ensure_system_store_backend()?;
+
     let entry = keyring::Entry::new(SERVICE_NAME, MASTER_KEY_ACCOUNT)
         .map_err(|error| AppError::Security(format!("打开系统凭据库失败: {error}")))?;
 
@@ -63,6 +69,47 @@ fn read_master_key_from_system_store() -> AppResult<Option<Vec<u8>>> {
         }
         Err(keyring::Error::NoEntry) => Ok(None),
         Err(error) => Err(AppError::Security(format!("读取系统凭据库失败: {error}"))),
+    }
+}
+
+fn ensure_system_store_backend() -> AppResult<()> {
+    match SYSTEM_STORE_BACKEND_CHECK
+        .get_or_init(|| probe_system_store_backend().map_err(|error| error.to_string()))
+    {
+        Ok(()) => Ok(()),
+        Err(message) => Err(AppError::Security(message.clone())),
+    }
+}
+
+fn probe_system_store_backend() -> AppResult<()> {
+    let probe_service = format!(
+        "{SERVICE_NAME}-backend-probe-{}-{}",
+        std::process::id(),
+        rand::random::<u64>()
+    );
+    let probe_secret = format!("probe-secret-{}", rand::random::<u64>());
+    let writer = keyring::Entry::new(&probe_service, MASTER_KEY_ACCOUNT)
+        .map_err(|error| AppError::Security(format!("打开系统凭据库失败: {error}")))?;
+    writer
+        .set_password(&probe_secret)
+        .map_err(|error| AppError::Security(format!("写入系统凭据库失败: {error}")))?;
+
+    let reader = keyring::Entry::new(&probe_service, MASTER_KEY_ACCOUNT)
+        .map_err(|error| AppError::Security(format!("打开系统凭据库失败: {error}")))?;
+    let read_result = reader
+        .get_password()
+        .map_err(|error| AppError::Security(format!("读取系统凭据库失败: {error}")));
+
+    let _ = writer.delete_credential();
+
+    match read_result {
+        Ok(value) if value == probe_secret => Ok(()),
+        Ok(_) => Err(AppError::Security(
+            "当前构建未启用真实系统凭据库后端，主密钥探针无法跨 Entry 持久化；请确认 Windows 启用了 keyring 的 windows-native 特性，或 macOS 启用了 apple-native 特性".to_string(),
+        )),
+        Err(_) => Err(AppError::Security(
+            "当前构建未启用真实系统凭据库后端，主密钥探针无法跨 Entry 持久化；请确认 Windows 启用了 keyring 的 windows-native 特性，或 macOS 启用了 apple-native 特性".to_string(),
+        )),
     }
 }
 
@@ -165,4 +212,37 @@ fn decrypt_payload(master_key: &[u8], combined: &[u8]) -> AppResult<Vec<u8>> {
     cipher
         .decrypt(nonce, ciphertext)
         .map_err(|_| AppError::Security("主密钥无法解密该凭证".to_string()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use keyring::credential::CredentialPersistence;
+    use std::sync::Mutex;
+
+    static KEYRING_BUILDER_GUARD: Mutex<()> = Mutex::new(());
+
+    #[test]
+    fn system_store_backend_must_be_persistent_on_supported_platforms() {
+        let persistence = keyring::default::default_credential_builder().persistence();
+        assert!(
+            matches!(persistence, CredentialPersistence::UntilDelete),
+            "当前默认 keyring 后端不是可持久化系统凭据库，导入后导出会丢失主密钥"
+        );
+    }
+
+    #[test]
+    fn mock_backend_is_rejected_before_writing_master_key() {
+        let _guard = KEYRING_BUILDER_GUARD
+            .lock()
+            .expect("无法锁定 keyring builder");
+
+        keyring::set_default_credential_builder(keyring::mock::default_credential_builder());
+        let result = probe_system_store_backend();
+        keyring::set_default_credential_builder(keyring::default::default_credential_builder());
+
+        assert!(
+            matches!(result, Err(AppError::Security(message)) if message.contains("未启用真实系统凭据库后端"))
+        );
+    }
 }

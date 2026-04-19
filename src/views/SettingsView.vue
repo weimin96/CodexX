@@ -139,6 +139,17 @@
       <div class="setting-list">
         <div class="setting-item">
           <div class="setting-copy">
+            <div class="setting-title">自动更新</div>
+            <div class="setting-description">启动时检测新版本，确认后在线下载、安装并重启。</div>
+          </div>
+          <n-switch
+            :value="settingsStore.settings.auto_update_enabled === 'true'"
+            @update:value="handleAutoUpdateChange"
+          />
+        </div>
+
+        <div class="setting-item">
+          <div class="setting-copy">
             <div class="setting-title">检查更新</div>
             <div class="setting-description">使用 Tauri updater。</div>
           </div>
@@ -176,20 +187,11 @@
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
-import { isTauri as detectTauriRuntime } from '@tauri-apps/api/core'
 import { useDialog, useMessage } from 'naive-ui'
 import { usageService } from '@/services'
 import { useSettingsStore } from '@/stores/settings'
 import type { AppSettings } from '@/types'
-
-const isTauri = detectTauriRuntime()
-let checkForUpdates: (() => Promise<any>) | null = null
-
-if (isTauri) {
-  import('@tauri-apps/plugin-updater').then((module) => {
-    checkForUpdates = module.check
-  })
-}
+import { checkAppUpdate, installAppUpdate } from '@/utils/app-updater'
 
 const message = useMessage()
 const dialog = useDialog()
@@ -297,6 +299,17 @@ async function handleQuotaAlertChange(enabled: boolean) {
   )
 }
 
+async function handleAutoUpdateChange(enabled: boolean) {
+  if (String(enabled) === settingsStore.settings.auto_update_enabled) {
+    return
+  }
+
+  await persistSettingsChange(
+    { auto_update_enabled: String(enabled) },
+    enabled ? '开启自动更新失败' : '关闭自动更新失败',
+  )
+}
+
 async function persistSettingsChange(
   updates: Partial<AppSettings>,
   failureMessage: string,
@@ -364,24 +377,15 @@ function handleClearUsage() {
 }
 
 async function handleCheckUpdate() {
-  if (!isTauri) {
-    message.warning('检查更新功能仅在 Tauri 应用中可用')
-    return
-  }
-
   checkingUpdate.value = true
   try {
-    if (!checkForUpdates) {
-      message.error('更新功能未初始化')
-      return
-    }
-
-    const update = await checkForUpdates()
-    if (update) {
-      message.info(`发现新版本 ${update.version}，正在下载...`)
-      await update.downloadAndInstall()
-    } else {
+    const outcome = await checkAppUpdate()
+    if (outcome.status === 'unsupported') {
+      message.warning('检查更新功能仅在 Tauri 应用中可用')
+    } else if (outcome.status === 'not_available') {
       message.success('当前已是最新版本')
+    } else if (outcome.status === 'available') {
+      showUpdateInstallDialog(outcome.version, outcome.body)
     }
   } catch (error) {
     console.warn('检查更新失败', error)
@@ -389,6 +393,29 @@ async function handleCheckUpdate() {
   } finally {
     checkingUpdate.value = false
   }
+}
+
+function showUpdateInstallDialog(version: string, body?: string) {
+  dialog.info({
+    title: `发现新版本 ${version}`,
+    content: body?.trim() || '可以在线下载并安装，安装完成后应用会重启。',
+    positiveText: '下载并重启',
+    negativeText: '稍后处理',
+    onPositiveClick: async () => {
+      checkingUpdate.value = true
+      try {
+        const outcome = await installAppUpdate()
+        if (outcome.status === 'not_available') {
+          message.success('当前已是最新版本')
+        }
+      } catch (error) {
+        console.warn('安装更新失败', error)
+        message.error('安装更新失败，请稍后再试')
+      } finally {
+        checkingUpdate.value = false
+      }
+    },
+  })
 }
 </script>
 

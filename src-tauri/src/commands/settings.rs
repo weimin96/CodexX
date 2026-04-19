@@ -48,6 +48,12 @@ pub async fn get_settings(state: State<'_, AppState>) -> Result<Value, AppError>
             Value::String("false".to_string()),
         );
     }
+    if !map.contains_key("auto_update_enabled") {
+        map.insert(
+            "auto_update_enabled".to_string(),
+            Value::String("false".to_string()),
+        );
+    }
     Ok(Value::Object(map))
 }
 

@@ -198,6 +198,7 @@ export interface AppSettings {
   autostart: string
   token_keepalive_enabled: string
   quota_alert_enabled: string
+  auto_update_enabled: string
 }
 
 export interface CodexQuotaExhaustedEvent {

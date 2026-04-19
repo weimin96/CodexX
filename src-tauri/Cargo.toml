@@ -1,7 +1,7 @@
 [package]
-name = "codex-manager"
+name = "codexx"
 version = "0.1.0"
-description = "Codex 账号管理工具"
+description = "CodexX"
 authors = ["you"]
 edition = "2021"
 
@@ -10,7 +10,7 @@ name = "codex_manager_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [[bin]]
-name = "codex-manager"
+name = "codexx"
 path = "src/main.rs"
 
 [build-dependencies]

@@ -1,13 +1,13 @@
-# Codex Manager
+# CodexX
 
-Codex Manager 是一个基于 Tauri 2、Vue 3 和 Rust 的桌面应用，用于管理 Codex 账号、本地认证文件、Codex 配置和本机用量统计。
+CodexX 是一个基于 Tauri 2、Vue 3 和 Rust 的桌面应用，用于管理 Codex 账号、本地认证文件、Codex 配置和本机用量统计。
 
 ## 功能概览
 
 ### 账号与凭证
 
 - 支持 API Key、OAuth Token、Cookie Session、CLI Profile 四类账号。
-- 数据库凭证加密存储，数据库默认位于用户目录 `.codex\CodexManager\codex.db`。
+- 数据库凭证加密存储，数据库默认位于用户目录 `.codex\CodexManager\codex.db`。该路径为历史兼容路径，重命名为 CodexX 后继续沿用，避免既有数据迁移风险。
 - 切换账号会把对应凭证写回默认 `auth.json`，写入前生成 `auth.json.bak`。
 - 账号卡片可导出标准 `auth.json`。
 - 账号操作可批量导出 zip，包内每个账号一个独立 JSON 文件。
@@ -16,7 +16,7 @@ Codex Manager 是一个基于 Tauri 2、Vue 3 和 Rust 的桌面应用，用于�
 ### Codex 启动与用量
 
 - 启动器支持打开 Codex CLI 和 Codex App。
-- 通过 Codex Manager 显式启动的 CLI/App 会话会记录账号关联，用量页刷新时从本机 `.codex\sessions` JSONL 导入 `usage` Token 统计。
+- 通过 CodexX 显式启动的 CLI/App 会话会记录账号关联，用量页刷新时从本机 `.codex\sessions` JSONL 导入 `usage` Token 统计。
 - 受控 `codex exec` 和一键预热任务会记录逐次 Token 用量。
 - 账号操作菜单提供“一键预热”，只会选择 5 小时剩余额度为 100% 的账号，并使用 `GPT-5.3-Codex` 与低推理配置执行最短对话。
 - 可在设置页开启额度用尽提醒；受控任务完成后，如果 5 小时或 7 天 Codex 额度用尽，会提示切换账号。
@@ -118,7 +118,7 @@ cargo test --manifest-path src-tauri\Cargo.toml codex_session_import --no-defaul
 ## 项目结构
 
 ```text
-codex-manager
+codexx
 ├── src
 │   ├── components
 │   ├── router
@@ -185,7 +185,7 @@ Tauri updater 已接入前端手动检查和启动自动检查。发布前需要
 
 ## 重要边界
 
-- Codex Manager 不做透明网络代理，也不全局拦截外部 Codex 进程。
-- Codex CLI/App 用量统计只覆盖通过 Codex Manager 显式启动并能在本机 `.codex\sessions` 中找到 usage 记录的会话。
+- CodexX 不做透明网络代理，也不全局拦截外部 Codex 进程。
+- Codex CLI/App 用量统计只覆盖通过 CodexX 显式启动并能在本机 `.codex\sessions` 中找到 usage 记录的会话。
 - OpenAI 官方 API Usage 端点是组织级 API 用量，不等同于 ChatGPT 计划下的本地 Codex 额度。
 - 当前仓库中的 updater endpoint 和 pubkey 仍是占位配置，未配置真实发布服务前无法完成真实在线更新验证。

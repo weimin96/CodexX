@@ -47,7 +47,7 @@
           </svg>
         </div>
         <div class="brand-copy">
-          <span class="app-title">Codex Manager</span>
+          <span class="app-title">CodexX</span>
           <span class="app-caption">账号与统计</span>
         </div>
       </div>
@@ -281,7 +281,7 @@ const currentSectionLabel = computed(() => {
   }
 
   const currentOption = menuOptions.find((option) => option.key === currentRoute.value)
-  return typeof currentOption?.label === 'string' ? currentOption.label : 'Codex Manager'
+  return typeof currentOption?.label === 'string' ? currentOption.label : 'CodexX'
 })
 
 function handleNav(key: string) {

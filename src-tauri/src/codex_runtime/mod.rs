@@ -47,6 +47,12 @@ pub struct CodexAppLaunchInput {
 }
 
 #[derive(Debug, Serialize)]
+pub struct CodexAppCloseResult {
+    pub closed_count: usize,
+    pub message: String,
+}
+
+#[derive(Debug, Serialize)]
 pub struct CodexModelOption {
     pub label: String,
     pub value: String,
@@ -362,6 +368,82 @@ pub fn open_codex_desktop_app() -> AppResult<()> {
     {
         Err(AppError::Other(
             "当前平台暂不支持启动 Codex App".to_string(),
+        ))
+    }
+}
+
+pub fn close_codex_desktop_app() -> AppResult<CodexAppCloseResult> {
+    #[cfg(target_os = "windows")]
+    {
+        let script = r#"
+$closedCount = 0
+$processes = Get-Process -Name 'Codex' -ErrorAction SilentlyContinue | Where-Object {
+  try {
+    $path = $_.Path
+  } catch {
+    $path = ''
+  }
+  $path -like '*\WindowsApps\OpenAI.Codex_*\app\Codex.exe'
+}
+
+foreach ($process in $processes) {
+  if ($process.MainWindowHandle -ne 0) {
+    [void]$process.CloseMainWindow()
+    try {
+      Wait-Process -Id $process.Id -Timeout 3 -ErrorAction SilentlyContinue
+    } catch {}
+  }
+
+  $alive = Get-Process -Id $process.Id -ErrorAction SilentlyContinue
+  if ($alive) {
+    Stop-Process -Id $process.Id -Force -ErrorAction Stop
+  }
+  $closedCount += 1
+}
+
+Write-Output $closedCount
+"#;
+        let output = std::process::Command::new("powershell.exe")
+            .arg("-NoProfile")
+            .arg("-ExecutionPolicy")
+            .arg("Bypass")
+            .arg("-Command")
+            .arg(script)
+            .stdin(Stdio::null())
+            .output()?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+            let detail = if stderr.is_empty() {
+                "PowerShell 未返回错误详情".to_string()
+            } else {
+                stderr
+            };
+            return Err(AppError::Other(format!("关闭 Codex App 失败: {detail}")));
+        }
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let closed_count = stdout
+            .lines()
+            .rev()
+            .find_map(|line| line.trim().parse::<usize>().ok())
+            .unwrap_or(0);
+        let message = if closed_count > 0 {
+            format!("已关闭 {closed_count} 个 Codex App 进程")
+        } else {
+            "未发现正在运行的 Codex App".to_string()
+        };
+
+        Ok(CodexAppCloseResult {
+            closed_count,
+            message,
+        })
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        Err(AppError::Other(
+            "当前平台暂不支持关闭 Codex App".to_string(),
         ))
     }
 }

@@ -98,6 +98,7 @@ pub fn run() {
             commands::codex::launch_codex_cli,
             commands::codex::get_codex_launcher_config,
             commands::codex::launch_codex_app,
+            commands::codex::close_codex_app,
             commands::codex_config::read_codex_config_file,
             commands::codex_config::save_codex_config_field,
             commands::codex_config::save_codex_config_file,

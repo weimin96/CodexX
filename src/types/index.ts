@@ -140,6 +140,11 @@ export interface CodexAppLaunchInput {
   account_id?: string
 }
 
+export interface CodexAppCloseResult {
+  closed_count: number
+  message: string
+}
+
 export interface UsageImportResult {
   account_id: string
   session_count: number

@@ -23,6 +23,13 @@
           >
             启动 App
           </n-button>
+          <n-button
+            secondary
+            :loading="closingApp"
+            @click="handleCloseCodexApp"
+          >
+            关闭 App
+          </n-button>
         </div>
       </div>
 
@@ -67,22 +74,22 @@
       </div>
 
       <n-alert
-        v-if="lastCodexResult"
-        :type="lastCodexResult.status === 'failed' ? 'warning' : 'success'"
+        v-if="lastCodexFeedback"
+        :type="feedbackAlertType"
         :show-icon="false"
       >
-        {{ lastCodexResult.message }}
+        {{ lastCodexFeedback.message }}
       </n-alert>
     </section>
   </div>
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { isTauri as detectTauriRuntime } from '@tauri-apps/api/core'
 import { useMessage } from 'naive-ui'
 import { usageService } from '@/services'
-import type { CodexLaunchResult, CodexModelOption } from '@/types'
+import type { CodexModelOption } from '@/types'
 import { useAccountStore } from '@/stores/account'
 import { FIXED_CODEX_MODEL_OPTIONS, isFixedCodexModel } from '@/utils/codex-models'
 
@@ -97,9 +104,14 @@ const codexWorkingDirectory = ref('')
 const codexModel = ref<string | null>(null)
 const launchingCli = ref(false)
 const launchingApp = ref(false)
-const lastCodexResult = ref<CodexLaunchResult | null>(null)
+const closingApp = ref(false)
+const lastCodexFeedback = ref<{ status: string; message: string } | null>(null)
 const projectHistory = ref<string[]>([])
 const modelOptions = ref<CodexModelOption[]>([])
+const feedbackAlertType = computed<'default' | 'success' | 'warning'>(() => {
+  if (!lastCodexFeedback.value) return 'default'
+  return lastCodexFeedback.value.status === 'failed' ? 'warning' : 'success'
+})
 
 onMounted(async () => {
   if (accountStore.accounts.length === 0) {
@@ -142,7 +154,7 @@ async function handleLaunchCodexCli() {
       model: normalizeOptionalText(codexModel.value),
     })
     if (workingDirectory) rememberProjectPath(workingDirectory)
-    lastCodexResult.value = result
+    lastCodexFeedback.value = result
     message.success(result.message)
   } catch (error) {
     console.warn('启动 Codex CLI 失败', error)
@@ -158,13 +170,38 @@ async function handleLaunchCodexApp() {
     const result = await usageService.launchCodexApp({
       account_id: accountStore.activeAccount?.id,
     })
-    lastCodexResult.value = result
+    lastCodexFeedback.value = result
     message.success(result.message)
   } catch (error) {
     console.warn('启动 Codex App 失败', error)
     message.error('启动 Codex App 失败')
   } finally {
     launchingApp.value = false
+  }
+}
+
+async function handleCloseCodexApp() {
+  closingApp.value = true
+  try {
+    const result = await usageService.closeCodexApp()
+    lastCodexFeedback.value = {
+      status: result.closed_count > 0 ? 'closed' : 'not_running',
+      message: result.message,
+    }
+    if (result.closed_count > 0) {
+      message.success(result.message)
+    } else {
+      message.info(result.message)
+    }
+  } catch (error) {
+    console.warn('关闭 Codex App 失败', error)
+    lastCodexFeedback.value = {
+      status: 'failed',
+      message: '关闭 Codex App 失败',
+    }
+    message.error('关闭 Codex App 失败')
+  } finally {
+    closingApp.value = false
   }
 }
 

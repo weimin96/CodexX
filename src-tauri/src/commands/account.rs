@@ -153,7 +153,7 @@ pub async fn export_accounts(
                 exported_count += 1;
             }
             Err(error) => {
-                errors.push(format!("{}: {}", account.name, error));
+                errors.push(format!("{}: {}", account_email_or_name(&account), error));
             }
         }
     }
@@ -423,7 +423,7 @@ fn non_empty_path<'a>(path: &'a str, empty_message: &str) -> Result<&'a Path, Ap
 }
 
 fn build_auth_json_entry_name(account: &Account) -> String {
-    let name = sanitize_file_stem(&account.name);
+    let name = sanitize_file_stem(&account_email_or_name(account));
     let suffix = account
         .id
         .chars()
@@ -432,6 +432,16 @@ fn build_auth_json_entry_name(account: &Account) -> String {
         .collect::<String>();
 
     format!("{name}-auth-{suffix}.json")
+}
+
+fn account_email_or_name(account: &Account) -> String {
+    account
+        .email
+        .as_deref()
+        .map(str::trim)
+        .filter(|email| !email.is_empty())
+        .unwrap_or(&account.name)
+        .to_string()
 }
 
 fn sanitize_file_stem(value: &str) -> String {

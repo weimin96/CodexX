@@ -238,9 +238,10 @@ pub async fn trigger_codex_short_conversation(
                 .await;
             }
 
+            let selected_account_name = account_email_or_name(&selected_account);
             Ok(serde_json::to_value(serde_json::json!({
                 "account_id": selected_account.id,
-                "account_name": selected_account.name,
+                "account_name": selected_account_name,
                 "model": SHORT_CONVERSATION_MODEL_LABEL,
                 "session_id": session_id,
                 "status": status,
@@ -504,11 +505,12 @@ async fn refresh_quota_and_emit_exhausted_event(
         return;
     }
 
+    let exhausted_account_name = account_email_or_name(&refreshed_account);
     let _ = app.emit(
         CODEX_QUOTA_EXHAUSTED_EVENT,
         CodexQuotaExhaustedEvent {
             account_id: refreshed_account.id,
-            account_name: refreshed_account.name,
+            account_name: exhausted_account_name,
             plan_type: refreshed_account.codex_plan_type,
             five_hour_used_percent: refreshed_account
                 .codex_usage_5h
@@ -521,6 +523,16 @@ async fn refresh_quota_and_emit_exhausted_event(
             task_label: task_label.to_string(),
         },
     );
+}
+
+fn account_email_or_name(account: &Account) -> String {
+    account
+        .email
+        .as_deref()
+        .map(str::trim)
+        .filter(|email| !email.is_empty())
+        .unwrap_or(&account.name)
+        .to_string()
 }
 
 fn codex_quota_exhausted(account: &Account) -> bool {

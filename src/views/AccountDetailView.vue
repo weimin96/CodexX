@@ -12,7 +12,7 @@
         <h1 class="page-title">{{ displayName }}</h1>
         <p class="page-subtitle">
           {{ AUTH_TYPE_LABELS[account.auth_type] }}
-          <template v-if="account.email"> · {{ account.email }}</template>
+          <template v-if="displaySubtitleEmail"> · {{ displaySubtitleEmail }}</template>
           <template v-if="displayOrganization"> · {{ displayOrganization }}</template>
         </p>
         <div class="page-hero-actions">
@@ -214,9 +214,6 @@
 
     <n-modal v-model:show="showEditModal" preset="card" title="编辑账号" style="width: 520px;">
       <n-form :model="editForm" label-placement="top">
-        <n-form-item label="账号名称">
-          <n-input v-model:value="editForm.name" />
-        </n-form-item>
         <n-form-item label="邮箱">
           <n-input v-model:value="editForm.email" />
         </n-form-item>
@@ -296,6 +293,10 @@ const usageStore = useUsageStore()
 const accountId = computed(() => route.params.id as string)
 const account = computed(() => accountStore.accounts.find((item) => item.id === accountId.value))
 const displayName = computed(() => (account.value ? resolveAccountDisplayName(account.value) : ''))
+const displaySubtitleEmail = computed(() => {
+  const email = account.value?.email?.trim() ?? ''
+  return email && email !== displayName.value ? email : ''
+})
 const displayOrganization = computed(() =>
   account.value ? resolveAccountOrganizationDisplay(account.value) : null,
 )
@@ -373,7 +374,7 @@ const editForm = ref({
 onMounted(async () => {
   if (account.value) {
     editForm.value = {
-      name: resolveAccountDisplayName(account.value),
+      name: account.value.name,
       email: account.value.email ?? '',
       organization: account.value.organization ?? '',
       color: account.value.color,
@@ -513,10 +514,11 @@ function getErrorMessage(error: unknown, fallback: string): string {
 async function handleEdit() {
   editLoading.value = true
   try {
+    const normalizedEmail = editForm.value.email.trim()
     await accountStore.updateAccount({
       id: accountId.value,
-      name: editForm.value.name,
-      email: editForm.value.email || undefined,
+      name: normalizedEmail || editForm.value.name,
+      email: normalizedEmail || undefined,
       organization: editForm.value.organization || undefined,
       color: editForm.value.color,
       credential_value: editForm.value.credential_value || undefined,

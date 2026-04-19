@@ -19,12 +19,7 @@ function resolveLegacyPreferredName(value?: string | null): string | null {
     return null
   }
 
-  if (!candidate.includes('@')) {
-    return candidate
-  }
-
-  const localPart = candidate.split('@')[0]?.trim()
-  return localPart || candidate
+  return candidate
 }
 
 function isLocalSyncOrganization(organization?: string | null): boolean {
@@ -47,9 +42,14 @@ function formatDisplayTimestamp(iso: string): string | null {
 }
 
 export function resolveAccountDisplayName(account: AccountDisplaySource): string {
+  const normalizedEmail = account.email?.trim()
+  if (normalizedEmail) {
+    return normalizedEmail
+  }
+
   const normalizedName = account.name.trim()
   if (!normalizedName) {
-    return account.email?.trim() || '未命名账号'
+    return '未命名账号'
   }
 
   if (!isLegacyLocalSyncName(normalizedName)) {
@@ -65,10 +65,6 @@ export function resolveAccountDisplayName(account: AccountDisplaySource): string
 
 export function resolveAccountAvatarText(account: AccountDisplaySource): string {
   const normalizedAvatarText = account.avatar_text?.trim()
-  if (!isLegacyLocalSyncName(account.name) && normalizedAvatarText) {
-    return normalizedAvatarText
-  }
-
   const displayName = resolveAccountDisplayName(account)
   return displayName[0]?.toUpperCase() || normalizedAvatarText || '?'
 }

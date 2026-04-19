@@ -228,10 +228,11 @@ impl LocalAuthSyncService {
             }
         }
         let account = repo.get_by_id(&account.id)?;
+        let account_name = account_email_or_name(&account);
 
         Ok(LocalAuthSyncResult {
             account_id: account.id,
-            account_name: account.name,
+            account_name,
             auth_type: account.auth_type.to_string(),
             auth_file_path: resolved_path.to_string_lossy().to_string(),
             codex_plan_type: account.codex_plan_type,
@@ -726,6 +727,16 @@ impl LocalAuthSyncService {
     fn non_empty_text<'a>(value: Option<&'a str>) -> Option<&'a str> {
         value.map(str::trim).filter(|text| !text.is_empty())
     }
+}
+
+fn account_email_or_name(account: &Account) -> String {
+    account
+        .email
+        .as_deref()
+        .map(str::trim)
+        .filter(|email| !email.is_empty())
+        .unwrap_or(&account.name)
+        .to_string()
 }
 
 struct LocalOAuthIdentity {

@@ -41,6 +41,7 @@ export const useSettingsStore = defineStore('settings', () => {
     autostart: 'false',
     token_keepalive_enabled: 'false',
     quota_alert_enabled: 'false',
+    auto_update_enabled: 'false',
   })
   const loading = ref(false)
   const loaded = ref(false)

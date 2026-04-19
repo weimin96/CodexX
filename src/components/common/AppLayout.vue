@@ -173,6 +173,7 @@ import type { CodexQuotaExhaustedEvent } from '@/types'
 import StatusDot from '@/components/common/StatusDot.vue'
 import { resolveAccountAvatarText, resolveAccountDisplayName } from '@/utils/account-display'
 import { resolveAccountStatusDisplay } from '@/utils/account-status'
+import { checkAppUpdate, installAppUpdate } from '@/utils/app-updater'
 
 const router = useRouter()
 const route = useRoute()
@@ -289,7 +290,8 @@ onMounted(async () => {
     console.warn('当前不在 Tauri 环境中，窗口控制已禁用')
   }
 
-  await accountStore.loadAccounts()
+  await Promise.all([accountStore.loadAccounts(), settingsStore.loadSettings()])
+  void runStartupAutoUpdateCheck()
 
   if (isTauri.value) {
     try {
@@ -351,6 +353,40 @@ function handleQuotaExhausted(payload: CodexQuotaExhaustedEvent) {
       void router.push({ name: 'AccountList' })
     },
   })
+}
+
+async function runStartupAutoUpdateCheck() {
+  if (!isTauri.value || settingsStore.settings.auto_update_enabled !== 'true') {
+    return
+  }
+
+  try {
+    const outcome = await checkAppUpdate()
+    if (outcome.status !== 'available') {
+      return
+    }
+
+    dialog.info({
+      title: `发现新版本 ${outcome.version}`,
+      content: outcome.body?.trim() || '可以在线下载并安装，安装完成后应用会重启。',
+      positiveText: '下载并重启',
+      negativeText: '稍后处理',
+      onPositiveClick: async () => {
+        try {
+          await installAppUpdate()
+        } catch (error) {
+          console.warn('自动更新安装失败', error)
+          dialog.error({
+            title: '自动更新失败',
+            content: '更新下载或安装失败，请稍后在设置页手动检查。',
+            positiveText: '知道了',
+          })
+        }
+      },
+    })
+  } catch (error) {
+    console.warn('启动自动检查更新失败', error)
+  }
 }
 </script>
 

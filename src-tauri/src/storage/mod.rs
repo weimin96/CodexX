@@ -1,13 +1,14 @@
 use crate::error::AppResult;
 use rusqlite::Connection;
 use std::collections::HashSet;
+use std::path::Path;
 
 pub struct Database {
     conn: Connection,
 }
 
 impl Database {
-    pub fn new(path: &str) -> AppResult<Self> {
+    pub fn new(path: impl AsRef<Path>) -> AppResult<Self> {
         let conn = Connection::open(path)?;
         let db = Self { conn };
         db.initialize()?;

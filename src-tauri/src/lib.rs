@@ -11,6 +11,7 @@ pub mod status_sync;
 pub mod storage;
 pub mod usage;
 
+use std::path::{Path, PathBuf};
 use std::sync::mpsc::Sender;
 use std::sync::Arc;
 use std::thread::JoinHandle;
@@ -44,16 +45,12 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .setup(|app| {
-            // 初始化数据库，所有账号凭证后续都通过仓储层加密写入。
-            let app_dir = app
-                .path()
-                .app_data_dir()
-                .expect("Failed to get app data dir");
-            std::fs::create_dir_all(&app_dir).expect("Failed to create app dir");
-
-            let db_path = app_dir.join("codex.db");
-            let db =
-                Database::new(db_path.to_str().unwrap()).expect("Failed to initialize database");
+            // 数据库跟随 Codex 主目录，便于账号管理数据和 Codex 本地状态一起备份。
+            let legacy_app_dir = app.path().app_data_dir().expect("无法获取旧应用数据目录");
+            let legacy_db_path = legacy_app_dir.join("codex.db");
+            let db_path = resolve_codex_manager_db_path().expect("无法解析数据库目录");
+            migrate_legacy_database(&legacy_db_path, &db_path).expect("迁移旧数据库失败");
+            let db = Database::new(&db_path).expect("初始化数据库失败");
 
             app.manage(AppState {
                 db: Arc::new(Mutex::new(db)),
@@ -122,6 +119,56 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+fn resolve_codex_manager_db_path() -> std::io::Result<PathBuf> {
+    let user_home = resolve_user_home_dir()
+        .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::NotFound, "无法获取用户目录"))?;
+    let app_dir = PathBuf::from(user_home).join(".codex").join("CodexManager");
+    std::fs::create_dir_all(&app_dir)?;
+
+    Ok(app_dir.join("codex.db"))
+}
+
+#[cfg(windows)]
+fn resolve_user_home_dir() -> Option<std::ffi::OsString> {
+    std::env::var_os("USERPROFILE").or_else(|| std::env::var_os("HOME"))
+}
+
+#[cfg(not(windows))]
+fn resolve_user_home_dir() -> Option<std::ffi::OsString> {
+    std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE"))
+}
+
+fn migrate_legacy_database(legacy_db_path: &Path, target_db_path: &Path) -> std::io::Result<()> {
+    if target_db_path.exists() || !legacy_db_path.exists() || legacy_db_path == target_db_path {
+        return Ok(());
+    }
+
+    if let Some(parent) = target_db_path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+
+    // 迁移采用复制而不是移动，避免首次启动失败时丢失旧应用数据目录中的数据库。
+    std::fs::copy(legacy_db_path, target_db_path)?;
+    copy_sqlite_sidecar_file(legacy_db_path, target_db_path, "wal")?;
+    copy_sqlite_sidecar_file(legacy_db_path, target_db_path, "shm")?;
+    Ok(())
+}
+
+fn copy_sqlite_sidecar_file(
+    legacy_db_path: &Path,
+    target_db_path: &Path,
+    suffix: &str,
+) -> std::io::Result<()> {
+    let legacy_sidecar_path = legacy_db_path.with_extension(format!("db-{suffix}"));
+    if !legacy_sidecar_path.exists() {
+        return Ok(());
+    }
+
+    let target_sidecar_path = target_db_path.with_extension(format!("db-{suffix}"));
+    std::fs::copy(legacy_sidecar_path, target_sidecar_path)?;
+    Ok(())
 }
 
 #[cfg(all(desktop))]

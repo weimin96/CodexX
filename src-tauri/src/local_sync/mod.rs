@@ -140,6 +140,7 @@ impl LocalAuthSyncService {
         prepared: PreparedLocalAuthSync,
         codex_profile: Option<CodexAccountProfile>,
     ) -> AppResult<LocalAuthSyncResult> {
+        let merge_source_ids = Self::find_merge_source_ids(repo, &prepared)?;
         let PreparedLocalAuthSync {
             resolved_path,
             stable_id,
@@ -165,6 +166,12 @@ impl LocalAuthSyncService {
             credential_type,
             codex_profile: profile,
         })?;
+        for source_id in merge_source_ids {
+            if source_id != account.id {
+                repo.merge_accounts(&account.id, &source_id)?;
+            }
+        }
+        let account = repo.get_by_id(&account.id)?;
 
         Ok(LocalAuthSyncResult {
             account_id: account.id,
@@ -174,6 +181,32 @@ impl LocalAuthSyncService {
             codex_plan_type: account.codex_plan_type,
             codex_usage_error: account.codex_usage_error,
         })
+    }
+
+    fn find_merge_source_ids(
+        repo: &AccountRepository<'_>,
+        prepared: &PreparedLocalAuthSync,
+    ) -> AppResult<Vec<String>> {
+        let mut candidate_ids = Vec::new();
+
+        for account in repo.list_all()? {
+            if !account.id.starts_with("local-auth-") || account.auth_type != prepared.auth_type {
+                continue;
+            }
+
+            if account.id == prepared.stable_id {
+                candidate_ids.push(account.id);
+                continue;
+            }
+
+            if Self::is_same_local_sync_identity(repo, &account, prepared)? {
+                candidate_ids.push(account.id);
+            }
+        }
+
+        candidate_ids.sort();
+        candidate_ids.dedup();
+        Ok(candidate_ids)
     }
 
     fn resolve_auth_file_path(auth_file_path: Option<&str>) -> AppResult<PathBuf> {
@@ -308,6 +341,80 @@ impl LocalAuthSyncService {
         })
     }
 
+    fn is_same_local_sync_identity(
+        repo: &AccountRepository<'_>,
+        account: &Account,
+        prepared: &PreparedLocalAuthSync,
+    ) -> AppResult<bool> {
+        if account.id == prepared.legacy_path_stable_id {
+            if let Ok(credential) = repo.get_credential(&account.id) {
+                if Self::extract_identity_stable_id_from_credential(&prepared.auth_type, &credential)
+                    .as_deref()
+                    == Some(prepared.stable_id.as_str())
+                {
+                    return Ok(true);
+                }
+            }
+
+            return Ok(Self::emails_match(
+                account.email.as_deref(),
+                prepared.email.as_deref(),
+            ));
+        }
+
+        let credential = match repo.get_credential(&account.id) {
+            Ok(credential) => credential,
+            Err(_) => return Ok(false),
+        };
+
+        Ok(
+            Self::extract_identity_stable_id_from_credential(&prepared.auth_type, &credential)
+                .as_deref()
+                == Some(prepared.stable_id.as_str()),
+        )
+    }
+
+    fn extract_identity_stable_id_from_credential(
+        auth_type: &AuthType,
+        credential: &str,
+    ) -> Option<String> {
+        match auth_type {
+            AuthType::ApiKey => {
+                let api_key = Self::non_empty_text(Some(credential))?;
+                Some(Self::build_identity_stable_account_id("api-key", api_key))
+            }
+            AuthType::OAuthToken => {
+                let credential_json = serde_json::from_str::<Value>(credential).ok()?;
+                let tokens = credential_json.get("tokens").and_then(Value::as_object);
+                let claims = tokens
+                    .and_then(|tokens| tokens.get("id_token"))
+                    .or_else(|| credential_json.get("id_token"))
+                    .and_then(Value::as_str)
+                    .and_then(|token| auth::decode_jwt_payload(token).ok());
+                let auth_claim = claims
+                    .as_ref()
+                    .and_then(|value| value.get("https://api.openai.com/auth"))
+                    .and_then(Value::as_object);
+                let account_id = tokens
+                    .and_then(|tokens| tokens.get("account_id"))
+                    .or_else(|| credential_json.get("account_id"))
+                    .and_then(Value::as_str)
+                    .and_then(|value| Self::non_empty_text(Some(value)))
+                    .map(ToString::to_string)
+                    .or_else(|| {
+                        auth_claim
+                            .and_then(|value| value.get("chatgpt_account_id"))
+                            .and_then(Value::as_str)
+                            .and_then(|value| Self::non_empty_text(Some(value)))
+                            .map(ToString::to_string)
+                    })?;
+
+                Some(Self::build_identity_stable_account_id("chatgpt", &account_id))
+            }
+            AuthType::CookieSession | AuthType::CliProfile => None,
+        }
+    }
+
     fn extract_oauth_identity(tokens: &LocalAuthTokens) -> LocalOAuthIdentity {
         let claims = tokens
             .id_token
@@ -397,6 +504,13 @@ impl LocalAuthSyncService {
 
     fn normalize_path(path: &Path) -> PathBuf {
         path.canonicalize().unwrap_or_else(|_| path.to_path_buf())
+    }
+
+    fn emails_match(left: Option<&str>, right: Option<&str>) -> bool {
+        match (left, right) {
+            (Some(left), Some(right)) => left.trim().eq_ignore_ascii_case(right.trim()),
+            _ => false,
+        }
     }
 
     fn non_empty_text<'a>(value: Option<&'a str>) -> Option<&'a str> {

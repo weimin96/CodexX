@@ -1,432 +1,191 @@
-# Codex 账号管理工具
+# Codex Manager
 
-一个功能完整的 Windows 桌面应用，支持多账号管理、用量统计、状态检测，基于 **Tauri 2 + Vue 3 + Rust** 构建。
+Codex Manager 是一个基于 Tauri 2、Vue 3 和 Rust 的桌面应用，用于管理 Codex 账号、本地认证文件、Codex 配置和本机用量统计。
 
----
+## 功能概览
 
-## 目录
+### 账号与凭证
 
-- [功能特性](#功能特性)
-- [技术架构](#技术架构)
-- [项目结构](#项目结构)
-- [快速开始](#快速开始)
-- [核心模块](#核心模块)
-- [安全设计](#安全设计)
-- [数据库设计](#数据库设计)
-- [API 参考](#api-参考)
-- [构建发布](#构建发布)
+- 支持 API Key、OAuth Token、Cookie Session、CLI Profile 四类账号。
+- 数据库凭证加密存储，数据库默认位于用户目录 `.codex\CodexManager\codex.db`。
+- 切换账号会把对应凭证写回默认 `auth.json`，写入前生成 `auth.json.bak`。
+- 账号卡片可导出标准 `auth.json`。
+- 账号操作可批量导出 zip，包内每个账号一个独立 JSON 文件。
+- 导入支持单个 `auth.json` 和上述 zip 包，并按账号身份去重更新。
 
----
+### Codex 启动与用量
 
-## 功能特性
+- 启动器支持打开 Codex CLI 和 Codex App。
+- 通过 Codex Manager 显式启动的 CLI/App 会话会记录账号关联，用量页刷新时从本机 `.codex\sessions` JSONL 导入 `usage` Token 统计。
+- 受控 `codex exec` 和一键预热任务会记录逐次 Token 用量。
+- 账号操作菜单提供“一键预热”，只会选择 5 小时剩余额度为 100% 的账号，并使用 `GPT-5.3-Codex` 与低推理配置执行最短对话。
+- 可在设置页开启额度用尽提醒；受控任务完成后，如果 5 小时或 7 天 Codex 额度用尽，会提示切换账号。
 
-### 账号管理
-- ✅ 新增、编辑、删除、切换账号
-- ✅ 支持 API Key / OAuth Token / Cookie Session / CLI Profile 四种认证方式
-- ✅ 设置默认账号
-- ✅ 标准 auth.json 导入 / 导出，支持单文件与 zip 批量处理
-- ✅ 账号颜色标识、头像文字
+### Codex 配置
 
-### 状态检测
-- ✅ 单账号 / 全部检测
-- ✅ 状态分类：正常 / 警告 / 异常 / 过期 / 未知
-- ✅ 后台定时自动检测（可配置间隔）
-- ✅ 实时事件推送至前端
+- 提供 Codex 配置页面，读取用户级 `.codex\config.toml`。
+- 页面以表单列出 Codex 官方配置字段、可选项和字段说明。
+- 修改单个字段后立即保存该字段，后端只替换目标字段赋值行，不重新序列化整份 TOML，尽量保留其它字段、顺序和注释。
+- 动态字段需要先填写实际字段名，例如 `mcp_servers.local.command`。
 
-### 用量统计
-- ✅ 日 / 周 / 月三档时间周期
-- ✅ 输入 Token、输出 Token、请求次数、费用估算
-- ✅ ECharts 折线图 + 柱状图
-- ✅ 明细数据表格（可排序、分页）
+### 设置与系统能力
 
-### 系统能力
-- ✅ 自定义无边框标题栏
-- ✅ 系统托盘（关闭最小化至托盘）
-- ✅ 开机自启（可选）
-- ✅ Tauri updater 自动更新
-- ✅ 深色主题
-
-### 安全
-- ✅ AES-256-GCM 加密所有凭证
-- ✅ 正式运行使用系统凭据库保存主密钥，支持 Windows Credential Manager 与 macOS Keychain
-- ✅ 开发和自动化场景可用 `CODEX_MANAGER_MASTER_KEY` 显式覆盖主密钥
-- ✅ 数据库不明文存储 Token 或 API Key
-- ✅ 导出的 auth.json / zip 按标准格式包含明文凭证，需要按密码级别保管
-
----
-
-## 技术架构
-
-```
-┌─────────────────────────────────────────────────────────┐
-│  UI 层  Vue 3 + TypeScript + Naive UI + ECharts          │
-├─────────────────────────────────────────────────────────┤
-│  状态层  Pinia (accountStore / usageStore / settingsStore)│
-├─────────────────────────────────────────────────────────┤
-│  调用层  Tauri invoke + event（services/index.ts）        │
-├─────────────────────────────────────────────────────────┤
-│  业务层  Rust（account / auth / usage / security / ...）  │
-├─────────────────────────────────────────────────────────┤
-│  存储层  SQLite（rusqlite）+ 系统凭据库                    │
-└─────────────────────────────────────────────────────────┘
-```
-
-### 技术栈
-
-| 层级 | 技术 | 说明 |
-|------|------|------|
-| 桌面框架 | Tauri 2 | 原生窗口、托盘、更新、权限 |
-| 前端框架 | Vue 3 + Composition API | 响应式 UI |
-| 类型系统 | TypeScript（strict） | 端到端类型安全 |
-| 构建工具 | Vite 5 | 极速热更新 |
-| 状态管理 | Pinia | 模块化 store |
-| UI 组件 | Naive UI | 暗色主题友好 |
-| 图表 | ECharts 5 | 折线 / 柱状图 |
-| 路由 | Vue Router 4 | SPA 导航 |
-| 后端语言 | Rust + tokio | 异步业务逻辑 |
-| 数据库 | SQLite（rusqlite bundled） | 本地持久化 |
-| 加密 | AES-256-GCM（aes-gcm crate） | 凭证加密 |
-| 密钥管理 | keyring crate | Windows Credential Manager / macOS Keychain |
-| HTTP 客户端 | reqwest（rustls） | 状态检测 |
-
----
-
-## 项目结构
-
-```
-codex-manager/
-├── src/                          # 前端源码
-│   ├── main.ts                   # 应用入口
-│   ├── App.vue                   # 根组件（主题配置）
-│   ├── router/
-│   │   └── index.ts              # Vue Router 路由配置
-│   ├── stores/
-│   │   ├── account.ts            # 账号状态管理
-│   │   ├── usage.ts              # 用量状态管理
-│   │   └── settings.ts           # 设置状态管理
-│   ├── services/
-│   │   └── index.ts              # Tauri invoke 封装层
-│   ├── types/
-│   │   └── index.ts              # TypeScript 类型定义
-│   ├── views/
-│   │   ├── AccountListView.vue   # 账号列表页
-│   │   ├── AccountDetailView.vue # 账号详情页
-│   │   ├── UsageView.vue         # 用量统计页
-│   │   └── SettingsView.vue      # 设置页
-│   └── components/
-│       ├── common/
-│       │   ├── AppLayout.vue     # 主布局（标题栏 + 侧边栏）
-│       │   └── StatusDot.vue     # 状态指示点
-│       └── account/
-│           ├── AccountCard.vue   # 账号卡片
-│           └── CreateAccountModal.vue  # 新建账号弹窗
-│
-├── src-tauri/                    # Rust 后端
-│   ├── Cargo.toml
-│   ├── build.rs
-│   ├── tauri.conf.json
-│   ├── capabilities/
-│   │   └── default.json          # Tauri 2 权限配置
-│   └── src/
-│       ├── main.rs               # 二进制入口
-│       ├── lib.rs                # 应用初始化、插件注册、托盘
-│       ├── error.rs              # 统一错误类型
-│       ├── account/mod.rs        # 账号模型 + Repository
-│       ├── auth/mod.rs           # 认证服务（Token 验证）
-│       ├── usage/mod.rs          # 用量 Repository
-│       ├── security/mod.rs       # AES-256-GCM 加密工具
-│       ├── storage/mod.rs        # SQLite 数据库初始化
-│       ├── scheduler/mod.rs      # 后台定时检测
-│       └── commands/
-│           ├── mod.rs            # 命令模块聚合
-│           ├── account.rs        # 账号 Tauri commands
-│           ├── auth.rs           # 认证 Tauri commands
-│           ├── status.rs         # 状态检测 commands
-│           ├── usage.rs          # 用量 commands
-│           └── settings.rs       # 设置 commands
-│
-├── index.html
-├── package.json
-├── vite.config.ts
-├── tsconfig.json
-└── README.md
-```
-
----
-
-## 快速开始
-
-### 前置要求
-
-| 工具 | 版本 | 说明 |
-|------|------|------|
-| Node.js | ≥ 18 | 前端构建 |
-| pnpm | ≥ 8 | 包管理器 |
-| Rust | ≥ 1.77 | 后端编译 |
-| Visual Studio Build Tools | 2019+ | Windows C++ 工具链 |
-| WebView2 | 内置于 Win10/11 | Tauri 运行时 |
-
-### 安装 & 运行
-
-```bash
-# 1. 克隆项目
-git clone https://github.com/your-org/codex-manager.git
-cd codex-manager
-
-# 2. 安装前端依赖
-pnpm install
-
-# 3. 开发模式（热更新）
-pnpm tauri dev
-
-# 4. 生产构建
-pnpm tauri build
-```
-
-构建产物位于 `src-tauri/target/release/bundle/`，包含安装包（`.msi`）和便携版（`.exe`）。
-
----
-
-## 核心模块
-
-### Rust 命令接口（Tauri Commands）
-
-所有 Rust 端暴露给前端的接口均通过 `tauri::command` 宏注册：
-
-#### 账号管理
-
-| 命令 | 参数 | 返回 | 说明 |
-|------|------|------|------|
-| `create_account` | `CreateAccountInput` | `Account` | 创建账号并加密存储凭证 |
-| `update_account` | `UpdateAccountInput` | `Account` | 更新账号信息 |
-| `delete_account` | `id: String` | `void` | 删除账号及其凭证 |
-| `list_accounts` | — | `Account[]` | 列出所有账号 |
-| `get_account` | `id: String` | `Account` | 获取单个账号 |
-| `switch_account` | `id: String` | `void` | 切换默认账号 |
-| `set_default_account` | `id: String` | `void` | 设置默认账号 |
-| `export_account_auth_file` | `account_id, output_path` | `AccountExportResult` | 导出单个标准 auth.json |
-| `export_accounts` | `output_path` | `AccountExportResult` | 导出每账号一个 JSON 的 zip 包 |
-| `import_accounts` | `input_path` | `AccountImportResult` | 导入单个 auth.json 或 zip 包 |
-
-#### 认证
-
-| 命令 | 参数 | 返回 | 说明 |
-|------|------|------|------|
-| `validate_token` | `account_id: String` | `AuthCheckResult` | 验证 Token 有效性 |
-| `refresh_token` | `account_id: String` | `AuthCheckResult` | 刷新并重新验证 |
-| `get_auth_status` | `account_id: String` | `String` | 获取认证状态字符串 |
-
-#### 状态检测
-
-| 命令 | 参数 | 返回 | 说明 |
-|------|------|------|------|
-| `check_status` | `account_id: String` | `StatusCheckResult` | 检测单账号状态 |
-| `check_all_status` | — | `StatusCheckResult[]` | 批量检测所有账号 |
-
-#### 用量统计
-
-| 命令 | 参数 | 返回 | 说明 |
-|------|------|------|------|
-| `fetch_usage` | `account_id: String` | `void` | 触发用量拉取 |
-| `get_usage_stats` | `UsageQuery` | `UsageSummary` | 获取汇总统计 |
-| `get_usage_chart_data` | `UsageQuery` | `ChartDataPoint[]` | 获取图表数据 |
-
-#### 设置
-
-| 命令 | 参数 | 返回 | 说明 |
-|------|------|------|------|
-| `get_settings` | — | `AppSettings` | 读取所有设置 |
-| `save_settings` | `settings: Object` | `void` | 保存设置 |
-| `set_autostart` | `enabled: bool` | `void` | 开关开机自启 |
-
-### Tauri 事件
-
-后端通过 `tauri::Emitter` 向前端推送以下事件：
-
-| 事件名 | 载荷 | 触发时机 |
-|--------|------|----------|
-| `account-status-updated` | `{ account_id, status, message }` | 后台定时检测完成时 |
-
----
+- 支持浅色和深色主题。
+- 支持开机自启。
+- 支持后台状态检测间隔配置。
+- 支持 OAuth Token 定期保活；启用后按最小间隔刷新 `access_token` 和 `refresh_token`，并回写加密数据库。
+- 支持手动检查更新和启动时自动检查更新。真实在线更新需要在 `src-tauri\tauri.conf.json` 中配置有效 updater endpoint 和签名公钥。
 
 ## 安全设计
 
-### 凭证加密流程
+### 主密钥来源
 
-```
-用户输入明文 API Key
-       ↓
-security::encrypt()
-       ↓
-主密钥提供者
-       ↓
-AES-256-GCM 加密（随机 Nonce）
-       ↓
-Base64 编码
-       ↓
-存入 SQLite credentials 表
-```
+凭证加密使用 AES-256-GCM。主密钥按以下优先级获取：
 
-### 主密钥提供者
+- 如果进程环境变量 `CODEX_MANAGER_MASTER_KEY` 存在，使用该值作为显式覆盖主密钥。
+- 如果未设置环境变量，使用系统凭据库保存或读取主密钥；Windows 使用 Credential Manager，macOS 使用 Keychain。
 
-应用按固定优先级获取主密钥：
+应用不会自动读取 `.env` 文件。开发和自动化场景如需固定主密钥，应由启动脚本或 shell 把环境变量注入当前进程。
 
-- 如果当前进程设置了 `CODEX_MANAGER_MASTER_KEY`，使用该环境变量作为显式覆盖主密钥。
-- 如果没有设置环境变量，使用系统凭据库保存或读取主密钥；Windows 对应 Credential Manager，macOS 对应 Keychain。
-
-应用不会自动读取项目根目录或应用数据目录中的 `.env` 文件。`.env` 只适合由开发启动脚本加载到进程环境变量，不作为正式密钥存储。
-
-`CODEX_MANAGER_MASTER_KEY` 必须能解析为 32 字节主密钥，支持三种形式：
+`CODEX_MANAGER_MASTER_KEY` 支持以下格式：
 
 - 32 字节原文。
 - 64 位十六进制字符串。
 - base64 编码的 32 字节值。
 
-Windows PowerShell 当前会话设置示例：
+Windows PowerShell 当前会话示例：
 
 ```powershell
-$env:CODEX_MANAGER_MASTER_KEY = '<32字节主密钥>'
+$env:CODEX_MANAGER_MASTER_KEY = "<32字节主密钥>"
 pnpm tauri dev
 ```
 
-Windows 用户级设置示例：
+Windows 用户级环境变量示例：
 
 ```powershell
-[Environment]::SetEnvironmentVariable('CODEX_MANAGER_MASTER_KEY', '<32字节主密钥>', 'User')
+[Environment]::SetEnvironmentVariable("CODEX_MANAGER_MASTER_KEY", "<32字节主密钥>", "User")
 ```
 
-macOS 当前终端会话设置示例：
+### 导出文件
 
-```bash
-export CODEX_MANAGER_MASTER_KEY='<32字节主密钥>'
+导出的 `auth.json` 和 zip 包按 Codex 标准认证文件格式保存，文件内包含明文 Token 或 API Key。导出文件需要按敏感凭证保管，不应提交到仓库、日志或聊天记录。
+
+## 快速开始
+
+### 前置要求
+
+| 工具 | 说明 |
+| --- | --- |
+| Node.js 18 或更高版本 | 前端依赖与构建 |
+| pnpm 8 或更高版本 | 包管理 |
+| Rust 1.77 或更高版本 | Tauri 后端编译 |
+| Visual Studio Build Tools | Windows C++ 工具链 |
+| WebView2 | Windows 运行时 |
+
+### Windows 开发命令
+
+```powershell
+pnpm install
 pnpm tauri dev
 ```
 
-设置用户级环境变量后需要重新启动 Codex Manager，让新进程读取环境变量。若正式桌面运行不需要跨机器注入固定主密钥，推荐不设置该变量，让系统凭据库管理主密钥。
+### 常用验证命令
 
-### 导出文件安全边界
-
-账号导出使用标准 Codex `auth.json` 文件模型，不再进行二次密码加密。单账号导出会生成一个 `auth.json`，批量导出会生成每个账号一个 JSON 的 zip 包。导出文件内包含明文 Token 或 API Key，需要按敏感凭证保管。
-
----
-
-## 数据库设计
-
-```sql
--- 账号表
-CREATE TABLE accounts (
-    id          TEXT PRIMARY KEY,
-    name        TEXT NOT NULL,
-    auth_type   TEXT NOT NULL,     -- api_key | oauth_token | cookie_session | cli_profile
-    email       TEXT,
-    organization TEXT,
-    is_default  INTEGER DEFAULT 0,
-    is_active   INTEGER DEFAULT 1,
-    status      TEXT DEFAULT 'unknown',
-    status_message TEXT,
-    color       TEXT DEFAULT '#18a058',
-    avatar_text TEXT,
-    created_at  TEXT NOT NULL,
-    updated_at  TEXT NOT NULL,
-    last_checked_at TEXT
-);
-
--- 凭证表（加密存储）
-CREATE TABLE credentials (
-    id              TEXT PRIMARY KEY,
-    account_id      TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
-    credential_type TEXT NOT NULL,
-    encrypted_value TEXT NOT NULL,  -- AES-256-GCM 密文
-    expires_at      TEXT,
-    created_at      TEXT NOT NULL,
-    updated_at      TEXT NOT NULL
-);
-
--- 用量记录表
-CREATE TABLE usage_records (
-    id              TEXT PRIMARY KEY,
-    account_id      TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
-    date            TEXT NOT NULL,  -- YYYY-MM-DD
-    input_tokens    INTEGER DEFAULT 0,
-    output_tokens   INTEGER DEFAULT 0,
-    request_count   INTEGER DEFAULT 0,
-    estimated_cost  REAL DEFAULT 0.0,
-    model           TEXT,
-    created_at      TEXT NOT NULL
-);
-
--- 设置表
-CREATE TABLE settings (
-    key         TEXT PRIMARY KEY,
-    value       TEXT NOT NULL,
-    updated_at  TEXT NOT NULL
-);
+```powershell
+cargo check --manifest-path src-tauri\Cargo.toml --no-default-features
+npm run build
+git diff --check
 ```
 
----
+针对 Codex 配置页单字段保存：
 
-## 构建发布
+```powershell
+cargo test --manifest-path src-tauri\Cargo.toml codex_config --no-default-features
+```
 
-### 配置自动更新
+针对 OAuth Token 保活：
 
-在 `tauri.conf.json` 中配置更新服务器地址：
+```powershell
+cargo test --manifest-path src-tauri\Cargo.toml token_refresh_tests --no-default-features
+```
+
+针对 Codex 会话用量导入：
+
+```powershell
+cargo test --manifest-path src-tauri\Cargo.toml codex_session_import --no-default-features
+```
+
+## 项目结构
+
+```text
+codex-manager
+├── src
+│   ├── components
+│   ├── router
+│   ├── services
+│   ├── stores
+│   ├── types
+│   ├── utils
+│   └── views
+├── src-tauri
+│   ├── capabilities
+│   ├── icons
+│   └── src
+│       ├── account
+│       ├── auth
+│       ├── codex_config.rs
+│       ├── codex_runtime
+│       ├── codex_session_import.rs
+│       ├── codex_usage
+│       ├── commands
+│       ├── scheduler
+│       ├── security
+│       ├── status_sync
+│       ├── storage
+│       └── usage
+├── package.json
+├── tsconfig.json
+└── vite.config.ts
+```
+
+## 后端命令边界
+
+前端通过 `src\services\index.ts` 调用 Tauri command。主要命令包括：
+
+| 模块 | 命令 |
+| --- | --- |
+| 账号 | `list_accounts`、`get_account`、`create_account`、`update_account`、`delete_account`、`switch_account` |
+| 导入导出 | `export_account_auth_file`、`export_accounts`、`import_accounts` |
+| 认证 | `prepare_oauth_login`、`complete_oauth_callback_login`、`refresh_token`、`validate_token` |
+| 状态 | `check_status`、`check_all_status` |
+| 用量 | `fetch_usage`、`get_usage_stats`、`get_usage_chart_data` |
+| Codex 启动 | `launch_codex_cli`、`launch_codex_app`、`trigger_codex_short_conversation` |
+| Codex 配置 | `read_codex_config_file`、`save_codex_config_field`、`save_codex_config_file` |
+| 设置 | `get_settings`、`save_settings`、`set_autostart` |
+
+## 更新配置
+
+Tauri updater 已接入前端手动检查和启动自动检查。发布前需要配置真实更新端点和公钥：
 
 ```json
 {
   "plugins": {
     "updater": {
-      "endpoints": ["https://your-update-server.com/{{target}}/{{arch}}/{{current_version}}"],
-      "pubkey": "YOUR_PUBLIC_KEY_HERE"
+      "active": true,
+      "endpoints": [
+        "https://your-update-server.example/{{target}}/{{arch}}/{{current_version}}"
+      ],
+      "pubkey": "YOUR_PUBLIC_KEY"
     }
   }
 }
 ```
 
-生成签名密钥对：
-```bash
-pnpm tauri signer generate -w ~/.tauri/codex-manager.key
-```
+生成签名密钥应按 Tauri 官方发布流程执行，并妥善保管私钥。
 
-### 构建命令
+## 重要边界
 
-```bash
-# Debug 构建
-pnpm tauri build --debug
-
-# Release 构建（含代码签名）
-pnpm tauri build
-
-# 仅构建前端
-pnpm build
-```
-
----
-
-## 扩展指南
-
-### 新增数据源（用量 API 扩展）
-
-在 `src-tauri/src/usage/mod.rs` 中扩展 `UsageRepository`，新增来自 OpenAI Usage API 的真实数据拉取：
-
-```rust
-pub async fn fetch_from_api(&self, account_id: &str, api_key: &str) -> AppResult<()> {
-    let client = reqwest::Client::new();
-    let resp = client
-        .get("https://api.openai.com/v1/usage")
-        .header("Authorization", format!("Bearer {}", api_key))
-        .send()
-        .await?;
-    // 解析并写入 usage_records
-    Ok(())
-}
-```
-
-### 新增认证方式
-
-在 `src-tauri/src/auth/mod.rs` 中扩展 `AuthService`，并在 `src-tauri/src/account/mod.rs` 的 `AuthType` 枚举中添加新变体。
-
----
-
-## License
-
-MIT
+- Codex Manager 不做透明网络代理，也不全局拦截外部 Codex 进程。
+- Codex CLI/App 用量统计只覆盖通过 Codex Manager 显式启动并能在本机 `.codex\sessions` 中找到 usage 记录的会话。
+- OpenAI 官方 API Usage 端点是组织级 API 用量，不等同于 ChatGPT 计划下的本地 Codex 额度。
+- 当前仓库中的 updater endpoint 和 pubkey 仍是占位配置，未配置真实发布服务前无法完成真实在线更新验证。

@@ -1,68 +1,77 @@
 <template>
   <div class="app-page">
-    <section class="surface-panel section-grid">
+    <section class="surface-panel section-grid dashboard-panel">
       <div class="toolbar-header">
-        <h1 class="panel-heading">用量统计</h1>
+        <h1 class="panel-heading">仪表盘</h1>
       </div>
 
-      <div class="controls-grid">
-        <div class="control-block">
-          <span class="control-label">时间范围</span>
-          <n-radio-group v-model:value="selectedPeriod" @update:value="onPeriodChange">
-            <n-radio-button value="day">今日</n-radio-button>
-            <n-radio-button value="week">本周</n-radio-button>
-            <n-radio-button value="month">本月</n-radio-button>
-          </n-radio-group>
+      <div class="dashboard-summary">
+        <div class="dashboard-summary-row">
+          <div class="dashboard-summary-card">
+            <span class="metric-label">总账号数</span>
+            <strong class="metric-value">{{ totalAccountCount }}</strong>
+          </div>
+          <div class="dashboard-summary-card">
+            <span class="metric-label">可用账号</span>
+            <strong class="metric-value">{{ availableAccountCount }}</strong>
+          </div>
+          <div class="dashboard-summary-card">
+            <span class="metric-label">今日 Token</span>
+            <strong class="metric-value">{{ formatTokens(todayTotalTokens) }}</strong>
+          </div>
         </div>
-
-        <div class="control-block">
-          <span class="control-label">图表类型</span>
-          <n-radio-group v-model:value="chartType">
-            <n-radio-button value="line">折线图</n-radio-button>
-            <n-radio-button value="bar">柱状图</n-radio-button>
-          </n-radio-group>
-        </div>
-      </div>
-
-      <div class="metric-grid dashboard-metric-grid">
-        <div class="metric-card metric-card-compact">
-          <span class="metric-label">总账号数</span>
-          <strong class="metric-value">{{ totalAccountCount }}</strong>
-        </div>
-        <div class="metric-card metric-card-compact">
-          <span class="metric-label">今日 Token</span>
-          <strong class="metric-value">{{ formatTokens(todayTotalTokens) }}</strong>
-        </div>
-        <div class="metric-card metric-card-compact">
-          <span class="metric-label">输入 Token</span>
-          <strong class="metric-value">{{ formatTokens(summary?.total_input_tokens ?? 0) }}</strong>
-        </div>
-        <div class="metric-card metric-card-compact">
-          <span class="metric-label">输出 Token</span>
-          <strong class="metric-value">{{ formatTokens(summary?.total_output_tokens ?? 0) }}</strong>
-        </div>
-        <div class="metric-card metric-card-compact">
-          <span class="metric-label">请求次数</span>
-          <strong class="metric-value">{{ (summary?.total_requests ?? 0).toLocaleString() }}</strong>
+        <div class="dashboard-summary-row">
+          <div class="dashboard-summary-card">
+            <span class="metric-label">输入 Token</span>
+            <strong class="metric-value">{{ formatTokens(summary?.total_input_tokens ?? 0) }}</strong>
+          </div>
+          <div class="dashboard-summary-card">
+            <span class="metric-label">输出 Token</span>
+            <strong class="metric-value">{{ formatTokens(summary?.total_output_tokens ?? 0) }}</strong>
+          </div>
+          <div class="dashboard-summary-card">
+            <span class="metric-label">请求次数</span>
+            <strong class="metric-value">{{ (summary?.total_requests ?? 0).toLocaleString() }}</strong>
+          </div>
         </div>
       </div>
-    </section>
 
-    <section v-if="loading" class="surface-panel empty-panel">
-      <n-spin />
-      <p>正在加载数据。</p>
-    </section>
+      <div class="dashboard-chart-shell">
+        <div class="dashboard-chart-head">
+          <h2 class="panel-heading dashboard-chart-title">Token 用量趋势</h2>
+          <div class="dashboard-chart-controls">
+            <div class="control-block">
+              <span class="control-label">时间范围</span>
+              <n-radio-group v-model:value="selectedPeriod" @update:value="onPeriodChange">
+                <n-radio-button value="day">今日</n-radio-button>
+                <n-radio-button value="week">本周</n-radio-button>
+                <n-radio-button value="month">本月</n-radio-button>
+              </n-radio-group>
+            </div>
 
-    <template v-else-if="chartData.length > 0 || summaryRows.length > 0">
-      <section class="surface-panel">
-        <h2 class="panel-heading">Token 用量趋势</h2>
-        <div v-if="chartData.length > 0" ref="tokenChartRef" class="chart-container" />
+            <div class="control-block">
+              <span class="control-label">图表类型</span>
+              <n-radio-group v-model:value="chartType">
+                <n-radio-button value="line">折线图</n-radio-button>
+                <n-radio-button value="bar">柱状图</n-radio-button>
+              </n-radio-group>
+            </div>
+          </div>
+        </div>
+
+        <div v-if="loading" class="usage-empty usage-loading">
+          <n-spin />
+          <p>正在加载数据。</p>
+        </div>
+        <div v-else-if="chartData.length > 0" ref="tokenChartRef" class="chart-container" />
         <div v-else class="usage-empty">
           <p>当前所选周期没有可绘制的趋势数据。</p>
         </div>
-      </section>
+      </div>
+    </section>
 
-      <section class="surface-panel">
+    <template v-if="!loading && summaryRows.length > 0">
+      <section class="surface-panel account-detail-panel">
         <h2 class="panel-heading">账号明细</h2>
         <n-data-table
           :columns="tableColumns"
@@ -74,7 +83,7 @@
       </section>
     </template>
 
-    <section v-else class="surface-panel empty-panel">
+    <section v-else-if="!loading" class="surface-panel empty-panel">
       <p>当前所选周期内还没有用量数据。</p>
     </section>
   </div>
@@ -128,6 +137,12 @@ let chartResizeObserver: ResizeObserver | null = null
 
 const accountIds = computed(() => accountStore.accounts.map((account) => account.id))
 const totalAccountCount = computed(() => accountStore.accounts.length)
+const availableAccountCount = computed(
+  () =>
+    accountStore.accounts.filter(
+      (account) => account.is_active && !['error', 'expired'].includes(account.status),
+    ).length,
+)
 
 const summary = computed(() =>
   usageStore.getSummaryForAccounts(accountIds.value, selectedPeriod.value),
@@ -387,12 +402,6 @@ onUnmounted(() => {
 .toolbar-header {
   display: flex;
   align-items: center;
-  gap: 14px;
-}
-
-.controls-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
 }
 
@@ -408,26 +417,72 @@ onUnmounted(() => {
   color: var(--app-ink-tertiary);
 }
 
-.dashboard-metric-grid {
-  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+.dashboard-panel {
+  gap: 18px;
+}
+
+.dashboard-summary {
+  display: grid;
   gap: 12px;
 }
 
-.metric-card-compact {
-  padding: 14px 16px;
+.dashboard-summary-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.dashboard-summary-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  padding: 16px;
+  border-radius: 22px;
+  border: 1px solid rgba(29, 29, 31, 0.08);
+  background: var(--app-surface);
+  box-shadow: var(--app-shadow);
+}
+
+.dashboard-chart-shell {
+  display: grid;
+  gap: 14px;
+  padding: 18px;
+  border-radius: 22px;
+  background: var(--app-surface-muted);
+}
+
+.dashboard-chart-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.dashboard-chart-title {
+  font-size: 18px;
+}
+
+.dashboard-chart-controls {
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-end;
+  gap: 12px;
+  flex-wrap: wrap;
 }
 
 .chart-container {
   width: 100%;
-  height: 250px;
-  margin-top: 14px;
+  height: 280px;
 }
 
 .usage-empty {
   min-height: 120px;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
+  gap: 10px;
 }
 
 .usage-empty p {
@@ -436,8 +491,16 @@ onUnmounted(() => {
 }
 
 @media (max-width: 960px) {
-  .controls-grid {
+  .dashboard-summary-row,
+  .dashboard-chart-head,
+  .dashboard-chart-controls {
     grid-template-columns: 1fr;
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .dashboard-chart-shell {
+    padding: 16px;
   }
 }
 </style>

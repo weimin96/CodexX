@@ -79,7 +79,6 @@
                 size="small"
                 :disabled="fieldSavingKey === resolvedFieldKey(field)"
                 @update:value="handleNumberFieldUpdate(field, $event)"
-                @blur="() => saveField(field)"
               />
               <n-input
                 v-else-if="fieldControlKind(field) === 'toml'"
@@ -90,7 +89,6 @@
                 :autosize="{ minRows: 2, maxRows: 5 }"
                 :disabled="fieldSavingKey === resolvedFieldKey(field)"
                 @update:value="(value) => setFieldValue(field, value)"
-                @blur="() => saveField(field)"
               />
               <n-input
                 v-else
@@ -99,12 +97,20 @@
                 placeholder="留空会保存为空字符串"
                 :disabled="fieldSavingKey === resolvedFieldKey(field)"
                 @update:value="(value) => setFieldValue(field, value)"
-                @blur="() => saveField(field)"
-                @keyup.enter="() => saveField(field)"
               />
 
-              <div class="config-field-state">
-                {{ fieldStateText(field) }}
+              <div class="config-field-actions">
+                <div class="config-field-state">
+                  {{ fieldStateText(field) }}
+                </div>
+                <n-button
+                  size="tiny"
+                  secondary
+                  :disabled="!canSaveField(field)"
+                  @click="saveField(field)"
+                >
+                  保存
+                </n-button>
               </div>
             </div>
           </div>
@@ -136,7 +142,9 @@ const message = useMessage()
 const loading = ref(false)
 const snapshot = ref<CodexConfigSnapshot | null>(null)
 const fieldValues = ref<Record<string, string | number | boolean | null>>({})
+const savedFieldValues = ref<Record<string, string | number | boolean | null>>({})
 const dynamicFieldKeys = ref<Record<string, string>>({})
+const savedDynamicFieldKeys = ref<Record<string, string>>({})
 const fieldSavingKey = ref<string | null>(null)
 const lastSavedFieldKey = ref<string | null>(null)
 
@@ -343,6 +351,7 @@ function applySnapshot(nextSnapshot: CodexConfigSnapshot) {
   }
 
   fieldValues.value = nextValues
+  savedFieldValues.value = { ...nextValues }
 }
 
 function isDynamicField(field: ConfigReferenceField): boolean {
@@ -420,6 +429,10 @@ function fieldValue(field: ConfigReferenceField) {
   return fieldValues.value[field.key] ?? defaultFieldValue(field)
 }
 
+function savedFieldValue(field: ConfigReferenceField) {
+  return savedFieldValues.value[field.key] ?? defaultFieldValue(field)
+}
+
 function stringFieldValue(field: ConfigReferenceField): string {
   const value = fieldValue(field)
   return typeof value === 'string' ? value : value == null ? '' : String(value)
@@ -451,16 +464,47 @@ function setFieldValue(field: ConfigReferenceField, value: string | number | boo
   }
 }
 
-async function handleFieldValueChange(
+function handleFieldValueChange(
   field: ConfigReferenceField,
   value: string | number | boolean | null,
 ) {
   setFieldValue(field, value)
-  await saveField(field)
+}
+
+function isFieldDirty(field: ConfigReferenceField): boolean {
+  if (fieldValue(field) !== savedFieldValue(field)) {
+    return true
+  }
+
+  if (!isDynamicField(field)) {
+    return false
+  }
+
+  return resolvedFieldKey(field) !== (savedDynamicFieldKeys.value[field.key] ?? field.key)
+}
+
+function canSaveField(field: ConfigReferenceField): boolean {
+  if (fieldSavingKey.value === resolvedFieldKey(field)) {
+    return false
+  }
+
+  if (!isFieldDirty(field)) {
+    return false
+  }
+
+  if (isDynamicField(field) && resolvedFieldKey(field) === field.key) {
+    return false
+  }
+
+  return true
 }
 
 async function saveField(field: ConfigReferenceField) {
   const key = resolvedFieldKey(field)
+  if (!isFieldDirty(field)) {
+    return
+  }
+
   if (isDynamicField(field) && key === field.key) {
     message.warning('请先填写实际字段名')
     return
@@ -475,7 +519,14 @@ async function saveField(field: ConfigReferenceField) {
   fieldSavingKey.value = key
   try {
     const nextSnapshot = await codexConfigService.saveConfigField({ key, value })
-    applySnapshot(nextSnapshot)
+    snapshot.value = nextSnapshot
+    syncSavedFieldState(field, key, nextSnapshot)
+    if (isDynamicField(field)) {
+      savedDynamicFieldKeys.value = {
+        ...savedDynamicFieldKeys.value,
+        [field.key]: key,
+      }
+    }
     lastSavedFieldKey.value = key
     message.success(`已保存 ${key}`)
   } catch (error) {
@@ -483,6 +534,29 @@ async function saveField(field: ConfigReferenceField) {
     message.error(formatError(error, `保存 ${key} 失败`))
   } finally {
     fieldSavingKey.value = null
+  }
+}
+
+function syncSavedFieldState(
+  field: ConfigReferenceField,
+  key: string,
+  nextSnapshot: CodexConfigSnapshot,
+) {
+  const entryMap = new Map(nextSnapshot.parsed_entries.map((entry) => [entry.key, entry]))
+  const nextEntry = entryMap.get(key)
+  const savedValue = isDynamicField(field)
+    ? fieldValue(field)
+    : nextEntry
+      ? normalizeEntryValue(field, nextEntry.value)
+      : defaultFieldValue(field)
+
+  fieldValues.value = {
+    ...fieldValues.value,
+    [field.key]: savedValue,
+  }
+  savedFieldValues.value = {
+    ...savedFieldValues.value,
+    [field.key]: savedValue,
   }
 }
 
@@ -534,11 +608,15 @@ function fieldStateText(field: ConfigReferenceField): string {
     return '保存中'
   }
 
+  if (isFieldDirty(field)) {
+    return isDynamicField(field) && key === field.key ? '动态字段需填写实际字段名' : '已修改，等待保存'
+  }
+
   if (lastSavedFieldKey.value === key) {
     return '已保存'
   }
 
-  return isDynamicField(field) ? '动态字段需填写实际字段名' : '修改后自动保存该字段'
+  return isDynamicField(field) ? '动态字段需填写实际字段名' : '未改动'
 }
 </script>
 
@@ -715,6 +793,13 @@ function fieldStateText(field: ConfigReferenceField): string {
   color: var(--app-ink-tertiary);
   font-size: 11px;
   line-height: 1.33;
+}
+
+.config-field-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
 }
 
 @media (max-width: 1100px) {

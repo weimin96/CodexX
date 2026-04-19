@@ -7,8 +7,6 @@
     :mask-closable="false"
     @update:show="$emit('update:show', $event)"
   >
-    <div class="modal-lead">根据凭证自动识别账号信息。</div>
-
     <n-form
       ref="formRef"
       :model="form"
@@ -16,36 +14,18 @@
       label-placement="top"
       label-width="auto"
     >
-      <n-form-item label="认证方式" path="auth_type">
-        <n-select
-          v-model:value="form.auth_type"
-          :options="authTypeOptions"
-          @update:value="form.credential_value = ''"
-        />
-      </n-form-item>
-
-      <n-form-item :label="credentialLabel" path="credential_value">
+      <n-form-item label="API Key" path="credential_value">
         <n-input
           v-model:value="form.credential_value"
-          :type="form.auth_type === 'cookie_session' ? 'textarea' : 'password'"
-          :rows="form.auth_type === 'cookie_session' ? 4 : 1"
-          :placeholder="credentialPlaceholder"
+          type="password"
+          placeholder="sk-..."
           show-password-on="click"
         />
       </n-form-item>
 
-      <n-grid :cols="2" :x-gap="14">
-        <n-gi>
-          <n-form-item label="邮箱（可选）" path="email">
-            <n-input v-model:value="form.email" placeholder="user@example.com" />
-          </n-form-item>
-        </n-gi>
-        <n-gi>
-          <n-form-item label="组织（可选）" path="organization">
-            <n-input v-model:value="form.organization" placeholder="公司 / 团队名称" />
-          </n-form-item>
-        </n-gi>
-      </n-grid>
+      <n-form-item label="邮箱（可选）" path="email">
+        <n-input v-model:value="form.email" placeholder="user@example.com" />
+      </n-form-item>
 
       <n-form-item label="标识颜色">
         <div class="color-row">
@@ -75,7 +55,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref } from 'vue'
 import type { FormInst, FormRules } from 'naive-ui'
 import { useAccountStore } from '@/stores/account'
 import type { Account, AuthType } from '@/types'
@@ -106,40 +86,11 @@ const PRESET_COLORS = [
 const form = ref({
   auth_type: 'api_key' as AuthType,
   email: '',
-  organization: '',
   color: '#0071e3',
   credential_value: '',
 })
 
-const authTypeOptions = [
-  { label: 'API Key', value: 'api_key' },
-  { label: 'OAuth / Token', value: 'oauth_token' },
-  { label: 'Cookie / Session', value: 'cookie_session' },
-  { label: 'CLI Profile', value: 'cli_profile' },
-]
-
-const credentialLabel = computed(() => {
-  const labels: Record<AuthType, string> = {
-    api_key: 'API Key',
-    oauth_token: 'OAuth Token',
-    cookie_session: 'Cookie / Session',
-    cli_profile: 'CLI Profile 名称',
-  }
-  return labels[form.value.auth_type]
-})
-
-const credentialPlaceholder = computed(() => {
-  const placeholders: Record<AuthType, string> = {
-    api_key: 'sk-...',
-    oauth_token: 'Bearer token...',
-    cookie_session: '粘贴 Cookie 内容...',
-    cli_profile: 'default',
-  }
-  return placeholders[form.value.auth_type]
-})
-
 const rules: FormRules = {
-  auth_type: [{ required: true, message: '请选择认证方式' }],
   credential_value: [{ required: true, message: '请输入凭证信息', trigger: 'blur' }],
 }
 
@@ -155,7 +106,6 @@ async function handleSubmit() {
     const account = await accountStore.createAccount({
       auth_type: form.value.auth_type,
       email: form.value.email || undefined,
-      organization: form.value.organization || undefined,
       color: form.value.color,
       credential_value: form.value.credential_value,
     })
@@ -163,7 +113,6 @@ async function handleSubmit() {
     form.value = {
       auth_type: 'api_key',
       email: '',
-      organization: '',
       color: '#0071e3',
       credential_value: '',
     }
@@ -174,14 +123,6 @@ async function handleSubmit() {
 </script>
 
 <style scoped>
-.modal-lead {
-  margin-bottom: 14px;
-  font-size: 14px;
-  line-height: 1.43;
-  letter-spacing: -0.224px;
-  color: var(--app-ink-secondary);
-}
-
 .color-row {
   display: flex;
   flex-wrap: wrap;

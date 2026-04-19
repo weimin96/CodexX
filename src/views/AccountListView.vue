@@ -1,38 +1,5 @@
 <template>
   <div class="app-page">
-    <section class="page-hero">
-      <div class="page-hero-copy">
-        <h1 class="page-title">账号管理</h1>
-        <div class="page-hero-actions">
-          <n-dropdown
-            trigger="click"
-            :options="accountActionOptions"
-            @select="handleAccountActionSelect"
-          >
-            <n-button
-              circle
-              secondary
-              class="account-action-trigger"
-              title="账号操作"
-              aria-label="账号操作"
-            >
-              <template #icon>
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-                  <path
-                    d="M5 12h.01M12 12h.01M19 12h.01"
-                    stroke="currentColor"
-                    stroke-width="2.4"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                  />
-                </svg>
-              </template>
-            </n-button>
-          </n-dropdown>
-        </div>
-      </div>
-    </section>
-
     <section v-if="loading" class="surface-panel empty-panel">
       <n-spin size="medium" />
       <p>正在加载账号。</p>
@@ -63,16 +30,43 @@
         <div>
           <h2 class="panel-heading">账号信息</h2>
         </div>
-        <div class="search-row">
-          <n-input
-            v-model:value="searchQuery"
-            placeholder="搜索账号名称、邮箱、组织..."
-            clearable
+        <div class="account-header-actions">
+          <div class="search-row">
+            <n-input
+              v-model:value="searchQuery"
+              placeholder="搜索账号名称、邮箱、组织..."
+              clearable
+            >
+              <template #prefix>
+                <n-icon><SearchIcon /></n-icon>
+              </template>
+            </n-input>
+          </div>
+          <n-dropdown
+            trigger="click"
+            :options="accountActionOptions"
+            @select="handleAccountActionSelect"
           >
-            <template #prefix>
-              <n-icon><SearchIcon /></n-icon>
-            </template>
-          </n-input>
+            <n-button
+              secondary
+              class="account-action-trigger"
+              title="账号操作"
+              aria-label="账号操作"
+            >
+              <span class="account-action-content">
+                <span>账号操作</span>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+                  <path
+                    d="M12 5h.01M12 12h.01M12 19h.01"
+                    stroke="currentColor"
+                    stroke-width="2.4"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  />
+                </svg>
+              </span>
+            </n-button>
+          </n-dropdown>
         </div>
       </div>
 
@@ -274,16 +268,22 @@ const accountActionOptions = computed<DropdownOption[]>(() => [
     label: syncingLocalAuth.value ? '本地同步中' : '本地同步',
     key: 'sync-local',
     disabled: syncingLocalAuth.value,
+    icon: () => renderDropdownIcon('M21 12a9 9 0 1 1-2.64-6.36M21 3v6h-6'),
   },
   {
     label: oauthPreparing.value || oauthOpening.value ? 'OAuth 登录中' : 'OAuth 登录',
     key: 'oauth-login',
     disabled: oauthPreparing.value || oauthOpening.value,
+    icon: () =>
+      renderDropdownIcon(
+        'M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06A1.65 1.65 0 0 0 15 19.4a1.65 1.65 0 0 0-1 .6 1.65 1.65 0 0 0-.33 1.82l.03.08a2 2 0 1 1-3.4 0l.03-.08A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-.6-1 1.65 1.65 0 0 0-1.82-.33l-.08.03a2 2 0 1 1 0-3.4l.08.03A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-.6 1.65 1.65 0 0 0 .33-1.82l-.03-.08a2 2 0 1 1 3.4 0l-.03.08A1.65 1.65 0 0 0 15 4.6a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 .6 1 1.65 1.65 0 0 0 1.82.33l.08-.03a2 2 0 1 1 0 3.4l-.08-.03A1.65 1.65 0 0 0 19.4 15z',
+      ),
   },
   {
     label: checkingAll.value ? '检测中' : '检测全部',
     key: 'check-all',
     disabled: checkingAll.value || !hasAccounts.value,
+    icon: () => renderDropdownIcon('M20 12a8 8 0 1 1-2.34-5.66M20 4v6h-6'),
   },
   {
     type: 'divider',
@@ -292,10 +292,12 @@ const accountActionOptions = computed<DropdownOption[]>(() => [
   {
     label: '导入',
     key: 'import',
+    icon: () => renderDropdownIcon('M12 3v12M7 8l5-5 5 5M5 21h14'),
   },
   {
     label: '导出',
     key: 'export',
+    icon: () => renderDropdownIcon('M12 21V9M7 16l5 5 5-5M5 3h14'),
   },
   {
     type: 'divider',
@@ -304,6 +306,7 @@ const accountActionOptions = computed<DropdownOption[]>(() => [
   {
     label: '新增账号',
     key: 'create',
+    icon: () => renderDropdownIcon('M12 5v14M5 12h14'),
   },
 ])
 
@@ -332,6 +335,25 @@ const SearchIcon = {
         'stroke-linecap': 'round',
       }),
     ]),
+}
+
+function renderDropdownIcon(path: string) {
+  return h(
+    'svg',
+    {
+      width: 16,
+      height: 16,
+      viewBox: '0 0 24 24',
+      fill: 'none',
+    },
+    h('path', {
+      d: path,
+      stroke: 'currentColor',
+      'stroke-width': 1.8,
+      'stroke-linecap': 'round',
+      'stroke-linejoin': 'round',
+    }),
+  )
 }
 
 onMounted(() => {
@@ -607,11 +629,6 @@ async function doImport() {
 </script>
 
 <style scoped>
-.page-title {
-  font-size: clamp(21px, 3.1vw, 28px);
-  line-height: 1.08;
-}
-
 .panel-heading {
   font-size: 18px;
 }
@@ -624,17 +641,40 @@ async function doImport() {
   flex-wrap: wrap;
 }
 
-.account-action-trigger {
-  color: var(--app-hero-ink);
-}
-
 .account-section {
   min-width: 0;
   flex-shrink: 0;
 }
 
+.account-header-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  min-width: 0;
+  flex: 1;
+}
+
+.account-action-content {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  line-height: 1;
+}
+
+.account-action-trigger {
+  height: 34px;
+  min-width: 112px;
+  background: var(--app-surface);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.1);
+}
+
 .search-row {
   width: min(360px, 100%);
+}
+
+.search-row :deep(.n-input) {
+  height: 34px;
 }
 
 .search-row :deep(.n-input__input-el) {

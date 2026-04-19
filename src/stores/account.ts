@@ -39,9 +39,16 @@ export const useAccountStore = defineStore('account', () => {
   async function loadAccounts() {
     loading.value = true
     try {
+      const defaultSyncResult = await accountService.syncLocalDefaultAccount()
       accounts.value = await accountService.listAccounts()
-      if (!activeAccountId.value && accounts.value.length > 0) {
-        activeAccountId.value = defaultAccount.value?.id ?? accounts.value[0].id
+      const syncedDefaultId = defaultSyncResult.matched_account_id ?? null
+      const syncedDefaultExists = accounts.value.some((account) => account.id === syncedDefaultId)
+      const activeAccountExists = accounts.value.some((account) => account.id === activeAccountId.value)
+
+      if (syncedDefaultId && syncedDefaultExists) {
+        activeAccountId.value = syncedDefaultId
+      } else if (!activeAccountId.value || !activeAccountExists) {
+        activeAccountId.value = defaultAccount.value?.id ?? accounts.value[0]?.id ?? null
       }
     } finally {
       loading.value = false
@@ -73,9 +80,9 @@ export const useAccountStore = defineStore('account', () => {
   }
 
   async function switchAccount(id: string) {
+    if (!accounts.value.some((account) => account.id === id)) return
     await accountService.switchAccount(id)
     activeAccountId.value = id
-    // 默认账号状态由后端统一维护，切换后重新拉取可以避免前端状态分叉。
     await loadAccounts()
   }
 
@@ -86,6 +93,9 @@ export const useAccountStore = defineStore('account', () => {
   async function syncLocalAuthFile(): Promise<LocalAuthSyncResult> {
     const result = await accountService.syncLocalAuthFile()
     await loadAccounts()
+    if (accounts.value.some((account) => account.id === result.account_id)) {
+      activeAccountId.value = result.account_id
+    }
     return result
   }
 
@@ -129,7 +139,7 @@ export const useAccountStore = defineStore('account', () => {
       accounts.value.push(snapshot)
     }
 
-    if (!activeAccountId.value && snapshot.is_default) {
+    if (snapshot.is_default) {
       activeAccountId.value = snapshot.id
     }
   }

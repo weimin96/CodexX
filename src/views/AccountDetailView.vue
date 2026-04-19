@@ -17,12 +17,8 @@
         </p>
         <div class="page-hero-actions">
           <n-button secondary :loading="checking" @click="handleCheck">检测状态</n-button>
-          <n-button
-            v-if="!account.is_default"
-            type="primary"
-            @click="handleSetDefault"
-          >
-            设为默认
+          <n-button type="primary" @click="handleSwitchAccount">
+            切换账号
           </n-button>
           <n-button secondary @click="showEditModal = true">编辑账号</n-button>
           <n-button secondary :loading="refreshing" @click="handleRefreshToken">
@@ -426,9 +422,13 @@ async function handleCheck() {
   message.success('状态检测完成')
 }
 
-async function handleSetDefault() {
-  await accountStore.switchAccount(accountId.value)
-  message.success('已设为默认账号')
+async function handleSwitchAccount() {
+  try {
+    await accountStore.switchAccount(accountId.value)
+    message.success('已切换当前账号')
+  } catch (error) {
+    message.error(getErrorMessage(error, '切换账号失败'))
+  }
 }
 
 async function handleRefreshToken() {
@@ -491,6 +491,12 @@ function extractCredentialPreview(credential: string): string {
   }
 
   return trimmedCredential
+}
+
+function getErrorMessage(error: unknown, fallback: string): string {
+  if (error instanceof Error && error.message) return error.message
+  if (typeof error === 'string' && error) return error
+  return fallback
 }
 
 async function handleEdit() {

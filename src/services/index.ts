@@ -15,6 +15,9 @@ import type {
   AppSettings,
   StatusCheckResult,
   LocalAuthSyncResult,
+  LocalDefaultAccountSyncResult,
+  AccountExportResult,
+  AccountImportResult,
   PreparedOAuthLogin,
   OAuthLoginResult,
 } from '@/types'
@@ -70,14 +73,25 @@ export const accountService = {
     return invoke('set_default_account', { id })
   },
 
-  async exportAccounts(password: string): Promise<string> {
-    if (!isTauri) return ''
-    return invoke<string>('export_accounts', { password })
+  async exportAccountAuthFile(accountId: string, outputPath: string): Promise<AccountExportResult> {
+    if (!isTauri) {
+      return { exported_count: 0, failed_count: 0, output_path: outputPath, errors: [] }
+    }
+    return invoke<AccountExportResult>('export_account_auth_file', { accountId, outputPath })
   },
 
-  async importAccounts(encryptedData: string, password: string): Promise<number> {
-    if (!isTauri) return 0
-    return invoke<number>('import_accounts', { encryptedData, password })
+  async exportAccounts(outputPath: string): Promise<AccountExportResult> {
+    if (!isTauri) {
+      return { exported_count: 0, failed_count: 0, output_path: outputPath, errors: [] }
+    }
+    return invoke<AccountExportResult>('export_accounts', { outputPath })
+  },
+
+  async importAccounts(inputPath: string): Promise<AccountImportResult> {
+    if (!isTauri) {
+      return { imported_count: 0, skipped_count: 0, failed_count: 0, account_ids: [], errors: [] }
+    }
+    return invoke<AccountImportResult>('import_accounts', { inputPath })
   },
 
   async syncLocalAuthFile(): Promise<LocalAuthSyncResult> {
@@ -85,6 +99,13 @@ export const accountService = {
       throw new Error('本地同步仅在 Tauri 环境中可用')
     }
     return invoke<LocalAuthSyncResult>('sync_local_auth_file', { authFilePath: null })
+  },
+
+  async syncLocalDefaultAccount(): Promise<LocalDefaultAccountSyncResult> {
+    if (!isTauri) {
+      return { updated: false, skipped_reason: '当前不在 Tauri 环境' }
+    }
+    return invoke<LocalDefaultAccountSyncResult>('sync_local_default_account')
   },
 }
 

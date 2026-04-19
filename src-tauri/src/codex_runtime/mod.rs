@@ -685,8 +685,7 @@ fn resolve_codex_home() -> AppResult<PathBuf> {
     }
 
     Err(AppError::InvalidInput(
-        "无法推断 Codex 配置目录，请确认 CODEX_HOME 或 USERPROFILE 环境变量可用"
-            .to_string(),
+        "无法推断 Codex 配置目录，请确认 CODEX_HOME 或 USERPROFILE 环境变量可用".to_string(),
     ))
 }
 

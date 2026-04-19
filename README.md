@@ -24,7 +24,7 @@
 - ✅ 新增、编辑、删除、切换账号
 - ✅ 支持 API Key / OAuth Token / Cookie Session / CLI Profile 四种认证方式
 - ✅ 设置默认账号
-- ✅ 加密导入 / 导出（AES-256-GCM + PBKDF2）
+- ✅ 标准 auth.json 导入 / 导出，支持单文件与 zip 批量处理
 - ✅ 账号颜色标识、头像文字
 
 ### 状态检测
@@ -48,9 +48,10 @@
 
 ### 安全
 - ✅ AES-256-GCM 加密所有凭证
-- ✅ 主密钥存储于系统凭据库（Windows Credential Store）
-- ✅ 导出文件 PBKDF2 密码派生 + AES-256-GCM 加密
-- ✅ 禁止明文存储任何密钥
+- ✅ 正式运行使用系统凭据库保存主密钥，支持 Windows Credential Manager 与 macOS Keychain
+- ✅ 开发和自动化场景可用 `CODEX_MANAGER_MASTER_KEY` 显式覆盖主密钥
+- ✅ 数据库不明文存储 Token 或 API Key
+- ✅ 导出的 auth.json / zip 按标准格式包含明文凭证，需要按密码级别保管
 
 ---
 
@@ -66,7 +67,7 @@
 ├─────────────────────────────────────────────────────────┤
 │  业务层  Rust（account / auth / usage / security / ...）  │
 ├─────────────────────────────────────────────────────────┤
-│  存储层  SQLite（rusqlite）+ 系统 Keyring                  │
+│  存储层  SQLite（rusqlite）+ 系统凭据库                    │
 └─────────────────────────────────────────────────────────┘
 ```
 
@@ -85,7 +86,7 @@
 | 后端语言 | Rust + tokio | 异步业务逻辑 |
 | 数据库 | SQLite（rusqlite bundled） | 本地持久化 |
 | 加密 | AES-256-GCM（aes-gcm crate） | 凭证加密 |
-| 密钥管理 | keyring crate | 系统凭据库集成 |
+| 密钥管理 | keyring crate | Windows Credential Manager / macOS Keychain |
 | HTTP 客户端 | reqwest（rustls） | 状态检测 |
 
 ---
@@ -203,8 +204,9 @@ pnpm tauri build
 | `get_account` | `id: String` | `Account` | 获取单个账号 |
 | `switch_account` | `id: String` | `void` | 切换默认账号 |
 | `set_default_account` | `id: String` | `void` | 设置默认账号 |
-| `export_accounts` | `password: String` | `String` | 导出加密数据 |
-| `import_accounts` | `encrypted_data, password` | `usize` | 导入账号（返回数量） |
+| `export_account_auth_file` | `account_id, output_path` | `AccountExportResult` | 导出单个标准 auth.json |
+| `export_accounts` | `output_path` | `AccountExportResult` | 导出每账号一个 JSON 的 zip 包 |
+| `import_accounts` | `input_path` | `AccountImportResult` | 导入单个 auth.json 或 zip 包 |
 
 #### 认证
 
@@ -256,7 +258,7 @@ pnpm tauri build
        ↓
 security::encrypt()
        ↓
-get_master_key()  ←→  系统 Keyring（Windows Credential Store）
+主密钥提供者
        ↓
 AES-256-GCM 加密（随机 Nonce）
        ↓
@@ -265,19 +267,46 @@ Base64 编码
 存入 SQLite credentials 表
 ```
 
-### 导出加密流程
+### 主密钥提供者
 
+应用按固定优先级获取主密钥：
+
+- 如果当前进程设置了 `CODEX_MANAGER_MASTER_KEY`，使用该环境变量作为显式覆盖主密钥。
+- 如果没有设置环境变量，使用系统凭据库保存或读取主密钥；Windows 对应 Credential Manager，macOS 对应 Keychain。
+
+应用不会自动读取项目根目录或应用数据目录中的 `.env` 文件。`.env` 只适合由开发启动脚本加载到进程环境变量，不作为正式密钥存储。
+
+`CODEX_MANAGER_MASTER_KEY` 必须能解析为 32 字节主密钥，支持三种形式：
+
+- 32 字节原文。
+- 64 位十六进制字符串。
+- base64 编码的 32 字节值。
+
+Windows PowerShell 当前会话设置示例：
+
+```powershell
+$env:CODEX_MANAGER_MASTER_KEY = '<32字节主密钥>'
+pnpm tauri dev
 ```
-原始账号数据（JSON）
-       ↓
-security::encrypt_export(password)
-       ↓
-PBKDF2-HMAC-SHA256（100,000 轮）派生密钥
-       ↓
-AES-256-GCM 加密（随机 Salt + Nonce）
-       ↓
-Base64 编码 → 输出给用户
+
+Windows 用户级设置示例：
+
+```powershell
+[Environment]::SetEnvironmentVariable('CODEX_MANAGER_MASTER_KEY', '<32字节主密钥>', 'User')
 ```
+
+macOS 当前终端会话设置示例：
+
+```bash
+export CODEX_MANAGER_MASTER_KEY='<32字节主密钥>'
+pnpm tauri dev
+```
+
+设置用户级环境变量后需要重新启动 Codex Manager，让新进程读取环境变量。若正式桌面运行不需要跨机器注入固定主密钥，推荐不设置该变量，让系统凭据库管理主密钥。
+
+### 导出文件安全边界
+
+账号导出使用标准 Codex `auth.json` 文件模型，不再进行二次密码加密。单账号导出会生成一个 `auth.json`，批量导出会生成每个账号一个 JSON 的 zip 包。导出文件内包含明文 Token 或 API Key，需要按敏感凭证保管。
 
 ---
 

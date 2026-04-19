@@ -99,11 +99,12 @@ const props = defineProps<{
 const emit = defineEmits<{
   detail: []
   check: []
-  'set-default': []
+  'switch-account': []
+  'export-auth': []
   delete: []
 }>()
 
-type CardActionKey = 'detail' | 'check' | 'set-default' | 'delete'
+type CardActionKey = 'detail' | 'check' | 'switch-account' | 'export-auth' | 'delete'
 
 const displayName = computed(() => resolveAccountDisplayName(props.account))
 const displayAvatarText = computed(() => resolveAccountAvatarText(props.account))
@@ -155,16 +156,23 @@ const cardActionOptions = computed<DropdownOption[]>(() => {
     },
   ]
 
-  if (!props.account.is_default) {
-    options.push({
-      label: '设为默认',
-      key: 'set-default',
-      icon: () =>
-        renderActionIcon(
-          'M12 3.5l2.63 5.33 5.87.85-4.25 4.14 1 5.84L12 17.1l-5.25 2.76 1-5.84-4.25-4.14 5.87-.85L12 3.5z',
-        ),
-    })
-  }
+  options.push({
+    label: '切换账号',
+    key: 'switch-account',
+    icon: () =>
+      renderActionIcon(
+        'M7 7h10l-3-3M17 17H7l3 3M17 7l-10 10',
+      ),
+  })
+
+  options.push({
+    label: '导出',
+    key: 'export-auth',
+    icon: () =>
+      renderActionIcon(
+        'M12 21V9M7 16l5 5 5-5M5 3h14',
+      ),
+  })
 
   options.push(
     {
@@ -221,8 +229,11 @@ function handleCardActionSelect(key: string | number) {
     case 'check':
       emit('check')
       break
-    case 'set-default':
-      emit('set-default')
+    case 'switch-account':
+      emit('switch-account')
+      break
+    case 'export-auth':
+      emit('export-auth')
       break
     case 'delete':
       emit('delete')

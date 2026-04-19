@@ -1,6 +1,7 @@
 use chrono::Utc;
+use serde::Serialize;
 use serde_json::Value;
-use tauri::State;
+use tauri::{AppHandle, Emitter, State};
 use uuid::Uuid;
 
 use crate::account::{Account, AccountRepository};
@@ -11,6 +12,7 @@ use crate::codex_runtime::{
 };
 use crate::error::AppError;
 use crate::local_sync::LocalAuthSyncService;
+use crate::status_sync;
 use crate::usage::{CodexLaunchSessionRecord, UsageRepository};
 use crate::AppState;
 
@@ -18,9 +20,21 @@ const SHORT_CONVERSATION_PROMPT: &str = "hi";
 const SHORT_CONVERSATION_MODEL: &str = "gpt-5.3-codex";
 const SHORT_CONVERSATION_MODEL_LABEL: &str = "GPT-5.3-Codex";
 const LOW_REASONING_OVERRIDE: &str = "model_reasoning_effort=\"low\"";
+const CODEX_QUOTA_EXHAUSTED_EVENT: &str = "codex-quota-exhausted";
+
+#[derive(Debug, Clone, Serialize)]
+struct CodexQuotaExhaustedEvent {
+    account_id: String,
+    account_name: String,
+    plan_type: Option<String>,
+    five_hour_used_percent: Option<f64>,
+    weekly_used_percent: Option<f64>,
+    task_label: String,
+}
 
 #[tauri::command]
 pub async fn run_codex_exec_session(
+    app: AppHandle,
     state: State<'_, AppState>,
     input: CodexExecInput,
 ) -> Result<Value, AppError> {
@@ -89,6 +103,16 @@ pub async fn run_codex_exec_session(
                 })?;
             }
 
+            if status == "completed" {
+                refresh_quota_and_emit_exhausted_event(
+                    &app,
+                    state.inner(),
+                    &input.account_id,
+                    "Codex 任务",
+                )
+                .await;
+            }
+
             Ok(serde_json::to_value(CodexLaunchResult {
                 session_id,
                 status: status.to_string(),
@@ -124,6 +148,7 @@ pub async fn run_codex_exec_session(
 
 #[tauri::command]
 pub async fn trigger_codex_short_conversation(
+    app: AppHandle,
     state: State<'_, AppState>,
     account_id: Option<String>,
 ) -> Result<Value, AppError> {
@@ -200,6 +225,16 @@ pub async fn trigger_codex_short_conversation(
                     usage_event_count,
                     error_message: outcome.stderr_preview.clone(),
                 })?;
+            }
+
+            if status == "completed" {
+                refresh_quota_and_emit_exhausted_event(
+                    &app,
+                    state.inner(),
+                    &selected_account.id,
+                    "一键预热",
+                )
+                .await;
             }
 
             Ok(serde_json::to_value(serde_json::json!({
@@ -428,4 +463,74 @@ async fn prepare_launch_account(
     }
 
     Ok(selected_account)
+}
+
+async fn refresh_quota_and_emit_exhausted_event(
+    app: &AppHandle,
+    state: &AppState,
+    account_id: &str,
+    task_label: &str,
+) {
+    let (account, credential) =
+        match status_sync::load_account_and_credential(state, account_id).await {
+            Ok(pair) => pair,
+            Err(_) => return,
+        };
+    let outcome = match status_sync::evaluate_account_refresh(&account, &credential).await {
+        Ok(outcome) => outcome,
+        Err(_) => return,
+    };
+    let refreshed_account = {
+        let db = state.db.lock().await;
+        let repo = AccountRepository::new(&db);
+        match status_sync::persist_refresh_outcome(&repo, account_id, &outcome) {
+            Ok(account) => account,
+            Err(_) => return,
+        }
+    };
+
+    let _ = app.emit(
+        "account-status-updated",
+        serde_json::json!({
+            "account_id": refreshed_account.id.clone(),
+            "status": refreshed_account.status.to_string(),
+            "message": refreshed_account.status_message.clone(),
+            "account": refreshed_account.clone(),
+        }),
+    );
+
+    if !codex_quota_exhausted(&refreshed_account) {
+        return;
+    }
+
+    let _ = app.emit(
+        CODEX_QUOTA_EXHAUSTED_EVENT,
+        CodexQuotaExhaustedEvent {
+            account_id: refreshed_account.id,
+            account_name: refreshed_account.name,
+            plan_type: refreshed_account.codex_plan_type,
+            five_hour_used_percent: refreshed_account
+                .codex_usage_5h
+                .as_ref()
+                .map(|window| window.used_percent),
+            weekly_used_percent: refreshed_account
+                .codex_usage_week
+                .as_ref()
+                .map(|window| window.used_percent),
+            task_label: task_label.to_string(),
+        },
+    );
+}
+
+fn codex_quota_exhausted(account: &Account) -> bool {
+    let five_hour_exhausted = account
+        .codex_usage_5h
+        .as_ref()
+        .is_some_and(|window| window.used_percent >= 100.0);
+    let weekly_exhausted = account
+        .codex_usage_week
+        .as_ref()
+        .is_some_and(|window| window.used_percent >= 100.0);
+
+    five_hour_exhausted || weekly_exhausted
 }

@@ -309,6 +309,7 @@ export const settingsService = {
         check_interval: '300',
         autostart: 'false',
         token_keepalive_enabled: 'false',
+        quota_alert_enabled: 'false',
       }
     }
     return invoke<AppSettings>('get_settings')

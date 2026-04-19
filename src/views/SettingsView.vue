@@ -61,6 +61,17 @@
             @update:value="handleTokenKeepaliveChange"
           />
         </div>
+
+        <div class="setting-item">
+          <div class="setting-copy">
+            <div class="setting-title">额度用尽提醒</div>
+            <div class="setting-description">受控 Codex 任务完成后，如果 5 小时或 7 天额度用尽，弹窗提示切换账号。</div>
+          </div>
+          <n-switch
+            :value="settingsStore.settings.quota_alert_enabled === 'true'"
+            @update:value="handleQuotaAlertChange"
+          />
+        </div>
       </div>
     </section>
 
@@ -272,6 +283,17 @@ async function handleTokenKeepaliveChange(enabled: boolean) {
   await persistSettingsChange(
     { token_keepalive_enabled: String(enabled) },
     enabled ? '开启 Token 保活失败' : '关闭 Token 保活失败',
+  )
+}
+
+async function handleQuotaAlertChange(enabled: boolean) {
+  if (String(enabled) === settingsStore.settings.quota_alert_enabled) {
+    return
+  }
+
+  await persistSettingsChange(
+    { quota_alert_enabled: String(enabled) },
+    enabled ? '开启额度提醒失败' : '关闭额度提醒失败',
   )
 }
 

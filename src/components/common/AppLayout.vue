@@ -48,7 +48,6 @@
         </div>
         <div class="brand-copy">
           <span class="app-title">CodexX</span>
-          <span class="app-caption">账号与统计</span>
         </div>
       </div>
 
@@ -581,13 +580,6 @@ async function refreshAccountsOnFirstStartup() {
   letter-spacing: -0.12px;
   font-weight: 600;
   color: var(--app-titlebar-ink-strong);
-}
-
-.app-caption {
-  font-size: 10px;
-  line-height: 1.47;
-  letter-spacing: -0.08px;
-  color: var(--app-titlebar-muted);
 }
 
 .titlebar-center {

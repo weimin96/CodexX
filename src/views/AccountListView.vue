@@ -2,7 +2,6 @@
   <div class="app-page">
     <section class="page-hero">
       <div class="page-hero-copy">
-        <span class="page-eyebrow">账号</span>
         <h1 class="page-title">账号管理</h1>
         <p class="page-subtitle">查看、同步和切换账号。</p>
         <div class="page-hero-actions">

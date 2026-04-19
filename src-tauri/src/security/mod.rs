@@ -19,11 +19,19 @@ fn get_master_key() -> AppResult<Vec<u8>> {
         .map_err(|e| AppError::Security(e.to_string()))?;
 
     match entry.get_password() {
-        Ok(key_b64) => BASE64
-            .decode(key_b64)
-            .map_err(|e| AppError::Security(e.to_string())),
-        Err(_) => {
-            // Generate a new master key
+        Ok(key_b64) => {
+            let key = BASE64
+                .decode(key_b64)
+                .map_err(|_| AppError::Security("本地主密钥格式无效".to_string()))?;
+            if key.len() != 32 {
+                return Err(AppError::Security(
+                    "本地主密钥长度无效，请检查系统凭据存储".to_string(),
+                ));
+            }
+            Ok(key)
+        }
+        Err(keyring::Error::NoEntry) => {
+            // 只有确认系统凭据中没有旧主密钥时才创建新密钥，避免临时读取失败覆盖历史密钥。
             let key: Vec<u8> = (0..32).map(|_| rand::random::<u8>()).collect();
             let key_b64 = BASE64.encode(&key);
             entry
@@ -31,6 +39,9 @@ fn get_master_key() -> AppResult<Vec<u8>> {
                 .map_err(|e| AppError::Security(e.to_string()))?;
             Ok(key)
         }
+        Err(error) => Err(AppError::Security(format!(
+            "无法读取本地主密钥: {error}"
+        ))),
     }
 }
 
@@ -69,7 +80,7 @@ pub fn decrypt(ciphertext_b64: &str) -> AppResult<String> {
     let nonce = Nonce::from_slice(nonce_bytes);
     let plaintext = cipher
         .decrypt(nonce, ciphertext)
-        .map_err(|e| AppError::Security(e.to_string()))?;
+        .map_err(|_| AppError::Security("本地凭证无法用当前主密钥解密".to_string()))?;
 
     String::from_utf8(plaintext).map_err(|e| AppError::Security(e.to_string()))
 }

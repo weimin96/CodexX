@@ -9,7 +9,6 @@
 
     <section class="page-hero page-hero-light">
       <div class="page-hero-copy">
-        <span class="page-eyebrow">账号</span>
         <h1 class="page-title">{{ displayName }}</h1>
         <p class="page-subtitle">
           {{ AUTH_TYPE_LABELS[account.auth_type] }}
@@ -45,6 +44,19 @@
             {{ formatPlanType(account.codex_plan_type) }}
           </span>
           <span class="hero-pill">创建于 {{ formatDate(account.created_at) }}</span>
+        </div>
+        <div v-if="hasCodexUsage" class="detail-quota-grid">
+          <div class="detail-quota-item">
+            <span>5 小时剩余</span>
+            <strong>{{ formatRemainingUsageWindow(account.codex_usage_5h) }}</strong>
+          </div>
+          <div class="detail-quota-item">
+            <span>周剩余</span>
+            <strong>{{ formatRemainingUsageWindow(account.codex_usage_week) }}</strong>
+          </div>
+          <div v-if="nextUsageResetAt" class="detail-quota-reset">
+            下次重置 {{ formatUnixDate(nextUsageResetAt) }}
+          </div>
         </div>
         <div v-if="account.status_message" class="status-message" :class="account.status">
           {{ account.status_message }}
@@ -239,7 +251,7 @@ import { useAccountStore } from '@/stores/account'
 import { useUsageStore } from '@/stores/usage'
 import { accountService, authService } from '@/services'
 import { AUTH_TYPE_LABELS } from '@/types'
-import type { AuthCheckResult } from '@/types'
+import type { AuthCheckResult, CodexUsageWindow } from '@/types'
 import StatusDot from '@/components/common/StatusDot.vue'
 import { format, parseISO } from 'date-fns'
 import {
@@ -267,6 +279,12 @@ const displayAvatarText = computed(() =>
 const checking = computed(() => accountStore.checkingStatus.has(accountId.value))
 const usageLoading = ref(false)
 const summary = computed(() => usageStore.getSummary(accountId.value, 'month'))
+const hasCodexUsage = computed(() =>
+  Boolean(account.value?.codex_usage_5h || account.value?.codex_usage_week),
+)
+const nextUsageResetAt = computed(() =>
+  account.value ? resolveNextUsageResetAt(account.value.codex_usage_5h, account.value.codex_usage_week) : null,
+)
 
 const showEditModal = ref(false)
 const editLoading = ref(false)
@@ -346,6 +364,11 @@ function formatDate(iso: string) {
   }
 }
 
+function formatUnixDate(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds <= 0) return '未知'
+  return format(new Date(seconds * 1000), 'yyyy-MM-dd HH:mm')
+}
+
 function formatTokens(value: number): string {
   if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`
   if (value >= 1_000) return `${(value / 1_000).toFixed(1)}K`
@@ -355,6 +378,26 @@ function formatTokens(value: number): string {
 function formatPlanType(planType: string): string {
   const normalized = planType.trim()
   return normalized ? normalized.toUpperCase() : '未知计划'
+}
+
+function formatRemainingUsageWindow(window?: CodexUsageWindow): string {
+  if (!window) return '未知'
+  return formatPercent(100 - window.used_percent)
+}
+
+function formatPercent(value: number): string {
+  if (!Number.isFinite(value)) return '未知'
+  return `${Math.max(0, Math.min(100, value)).toFixed(1)}%`
+}
+
+function resolveNextUsageResetAt(
+  fiveHour?: CodexUsageWindow,
+  oneWeek?: CodexUsageWindow,
+): number | null {
+  const resetTimes = [fiveHour?.reset_at, oneWeek?.reset_at]
+    .filter((value): value is number => typeof value === 'number' && Number.isFinite(value) && value > 0)
+
+  return resetTimes.length > 0 ? Math.min(...resetTimes) : null
 }
 
 async function handleCheck() {
@@ -510,6 +553,39 @@ function goToUsage() {
 .hero-pill-blue {
   background: rgba(0, 113, 227, 0.12);
   color: var(--app-blue);
+}
+
+.detail-quota-grid {
+  width: 100%;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.detail-quota-item {
+  padding: 10px 12px;
+  border-radius: 16px;
+  background: var(--app-surface-muted);
+}
+
+.detail-quota-item span,
+.detail-quota-reset {
+  display: block;
+  font-size: 11px;
+  line-height: 1.33;
+  color: var(--app-ink-tertiary);
+}
+
+.detail-quota-item strong {
+  display: block;
+  margin-top: 4px;
+  font-family: var(--font-display);
+  font-size: 16px;
+  line-height: 1.2;
+}
+
+.detail-quota-reset {
+  grid-column: 1 / -1;
 }
 
 .detail-list .data-pair-value {

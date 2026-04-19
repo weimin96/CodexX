@@ -2,7 +2,6 @@
   <div class="app-page">
     <section class="page-hero">
       <div class="page-hero-copy">
-        <span class="page-eyebrow">用量</span>
         <h1 class="page-title">用量统计</h1>
         <p class="page-subtitle">查看趋势与费用。</p>
       </div>

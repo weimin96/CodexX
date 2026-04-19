@@ -434,6 +434,42 @@ impl<'a> AccountRepository<'a> {
         Ok(())
     }
 
+    pub fn update_codex_profile(&self, id: &str, profile: &CodexAccountProfile) -> AppResult<()> {
+        let now = Utc::now().to_rfc3339();
+        let replace_windows = if profile.usage_error.is_none() { 1 } else { 0 };
+
+        self.db.get_conn().execute(
+            "UPDATE accounts SET
+                codex_plan_type = COALESCE(?1, codex_plan_type),
+                codex_usage_fetched_at = COALESCE(?2, codex_usage_fetched_at),
+                codex_usage_5h_used_percent = CASE WHEN ?10 = 1 THEN ?3 ELSE codex_usage_5h_used_percent END,
+                codex_usage_5h_window_seconds = CASE WHEN ?10 = 1 THEN ?4 ELSE codex_usage_5h_window_seconds END,
+                codex_usage_5h_reset_at = CASE WHEN ?10 = 1 THEN ?5 ELSE codex_usage_5h_reset_at END,
+                codex_usage_week_used_percent = CASE WHEN ?10 = 1 THEN ?6 ELSE codex_usage_week_used_percent END,
+                codex_usage_week_window_seconds = CASE WHEN ?10 = 1 THEN ?7 ELSE codex_usage_week_window_seconds END,
+                codex_usage_week_reset_at = CASE WHEN ?10 = 1 THEN ?8 ELSE codex_usage_week_reset_at END,
+                codex_usage_error = ?9,
+                updated_at = ?11
+             WHERE id = ?12",
+            params![
+                &profile.plan_type,
+                &profile.fetched_at,
+                profile.five_hour.as_ref().map(|window| window.used_percent),
+                profile.five_hour.as_ref().map(|window| window.window_seconds),
+                profile.five_hour.as_ref().and_then(|window| window.reset_at),
+                profile.one_week.as_ref().map(|window| window.used_percent),
+                profile.one_week.as_ref().map(|window| window.window_seconds),
+                profile.one_week.as_ref().and_then(|window| window.reset_at),
+                &profile.usage_error,
+                replace_windows,
+                &now,
+                id,
+            ],
+        )?;
+
+        Ok(())
+    }
+
     pub fn get_credential(&self, account_id: &str) -> AppResult<String> {
         let conn = self.db.get_conn();
         let encrypted: String = conn

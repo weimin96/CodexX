@@ -1,26 +1,6 @@
 <template>
   <div class="app-page codex-config-page">
     <section class="surface-panel section-grid">
-      <div class="toolbar-header">
-        <div class="toolbar-copy">
-          <h2 class="panel-heading">Codex 配置</h2>
-        </div>
-        <div class="config-actions">
-          <n-button secondary :loading="loading" @click="loadConfig">重新加载</n-button>
-        </div>
-      </div>
-
-      <div class="config-meta-grid">
-        <div class="config-meta-item">
-          <span>文件路径</span>
-          <strong>{{ configPath }}</strong>
-        </div>
-        <div class="config-meta-item">
-          <span>文件状态</span>
-          <strong>{{ snapshot?.exists ? '已存在' : '未创建' }}</strong>
-        </div>
-      </div>
-
       <n-alert v-if="snapshot?.backup_path" type="success" :show-icon="false">
         已保存，原配置备份到 {{ snapshot.backup_path }}。
       </n-alert>
@@ -32,14 +12,35 @@
 
     <section class="surface-panel section-grid">
       <div class="config-form-groups">
-        <section
-          v-for="group in officialConfigGroups"
-          :key="group.title"
-          class="config-form-group"
-        >
+        <section v-for="(group, index) in officialConfigGroups" :key="group.title" class="config-form-group">
           <div class="config-form-group-head">
-            <h3>{{ group.title }}</h3>
-            <p>{{ group.description }}</p>
+            <div class="config-form-group-copy">
+              <h3>{{ group.title }}</h3>
+              <p>{{ group.description }}</p>
+              <span v-if="index === 0" class="config-form-group-meta">
+                当前文件：{{ configPath }}{{ snapshot?.exists ? '' : '（保存后创建）' }}
+              </span>
+            </div>
+            <n-button
+              v-if="index === 0"
+              quaternary
+              circle
+              class="config-refresh-button"
+              :loading="loading"
+              title="刷新配置"
+              aria-label="刷新配置"
+              @click="loadConfig"
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+                <path
+                  d="M20 11a8 8 0 0 0-14.9-3M4 13a8 8 0 0 0 14.9 3M4 4v4h4M20 20v-4h-4"
+                  stroke="currentColor"
+                  stroke-width="1.8"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                />
+              </svg>
+            </n-button>
           </div>
           <div class="config-field-list">
             <div v-for="field in group.fields" :key="field.key" class="config-field-row">
@@ -143,7 +144,7 @@ const configPath = computed(() => snapshot.value?.path ?? '~/.codex/config.toml'
 
 const officialConfigGroups: ConfigReferenceGroup[] = [
   {
-    title: '基础与模型',
+    title: 'codex配置',
     description: '控制默认模型、模型上下文、服务层级和通用通信风格。',
     fields: [
       { key: 'model', type: 'string', description: 'Codex 默认使用的模型。' },
@@ -546,7 +547,6 @@ function fieldStateText(field: ConfigReferenceField): string {
   gap: 14px;
 }
 
-.toolbar-header,
 .panel-inline-head {
   display: flex;
   align-items: flex-start;
@@ -560,7 +560,6 @@ function fieldStateText(field: ConfigReferenceField): string {
   gap: 6px;
 }
 
-.config-actions,
 .doc-links {
   display: flex;
   align-items: center;
@@ -574,38 +573,6 @@ function fieldStateText(field: ConfigReferenceField): string {
   font-size: 12px;
   line-height: 1.33;
   text-decoration: none;
-}
-
-.config-meta-grid {
-  display: grid;
-  grid-template-columns: minmax(0, 2fr) minmax(120px, 0.6fr);
-  gap: 10px;
-}
-
-.config-meta-item {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  min-width: 0;
-  padding: 12px;
-  border-radius: 12px;
-  background: var(--app-surface-muted);
-}
-
-.config-meta-item span {
-  font-size: 11px;
-  line-height: 1.33;
-  color: var(--app-ink-tertiary);
-}
-
-.config-meta-item strong {
-  min-width: 0;
-  font-size: 13px;
-  line-height: 1.35;
-  color: var(--app-ink);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .codex-config-grid {
@@ -658,6 +625,13 @@ function fieldStateText(field: ConfigReferenceField): string {
 
 .config-form-group-head {
   display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.config-form-group-copy {
+  display: flex;
   flex-direction: column;
   gap: 4px;
 }
@@ -674,6 +648,17 @@ function fieldStateText(field: ConfigReferenceField): string {
   font-size: 12px;
   line-height: 1.43;
   color: var(--app-ink-secondary);
+}
+
+.config-form-group-meta {
+  font-size: 11px;
+  line-height: 1.33;
+  color: var(--app-ink-tertiary);
+  word-break: break-all;
+}
+
+.config-refresh-button {
+  flex-shrink: 0;
 }
 
 .config-field-list {
@@ -735,10 +720,6 @@ function fieldStateText(field: ConfigReferenceField): string {
 @media (max-width: 1100px) {
   .codex-config-grid,
   .config-field-list {
-    grid-template-columns: 1fr;
-  }
-
-  .config-meta-grid {
     grid-template-columns: 1fr;
   }
 }

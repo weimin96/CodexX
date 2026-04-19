@@ -17,7 +17,11 @@
         </p>
         <div class="page-hero-actions">
           <n-button secondary :loading="checking" @click="handleCheck">检测状态</n-button>
-          <n-button type="primary" @click="handleSwitchAccount">
+          <n-button
+            secondary
+            :disabled="account.is_default"
+            @click="handleSwitchAccount"
+          >
             切换账号
           </n-button>
           <n-button secondary @click="showEditModal = true">编辑账号</n-button>

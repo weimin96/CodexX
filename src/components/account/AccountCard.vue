@@ -177,6 +177,7 @@ const cardActionOptions = computed<DropdownOption[]>(() => {
   options.push({
     label: '切换账号',
     key: 'switch-account',
+    disabled: props.account.is_default,
     icon: () =>
       renderActionIcon(
         'M7 7h10l-3-3M17 17H7l3 3M17 7l-10 10',

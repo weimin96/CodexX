@@ -36,8 +36,14 @@ pub struct CodexInteractiveInput {
 
 #[derive(Debug, Deserialize)]
 pub struct CodexCliLaunchInput {
+    pub account_id: Option<String>,
     pub working_directory: Option<String>,
     pub model: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CodexAppLaunchInput {
+    pub account_id: Option<String>,
 }
 
 #[derive(Debug, Serialize)]

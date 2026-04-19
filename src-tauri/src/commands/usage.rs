@@ -1,17 +1,20 @@
 use serde_json::Value;
 use tauri::State;
 
+use crate::codex_session_import::import_codex_session_usage_for_account;
 use crate::error::AppError;
 use crate::usage::{UsageQuery, UsageRepository};
 use crate::AppState;
 
 #[tauri::command]
-pub async fn fetch_usage(state: State<'_, AppState>, account_id: String) -> Result<(), AppError> {
-    // 用量刷新只读取本地统计库；真实 Token 记录由受控 Codex 启动入口写入。
+pub async fn fetch_usage(
+    state: State<'_, AppState>,
+    account_id: String,
+) -> Result<Value, AppError> {
     let db = state.db.lock().await;
     let repo = UsageRepository::new(&db);
-    let _ = repo.get_summary(&account_id, "month")?;
-    Ok(())
+    let import_result = import_codex_session_usage_for_account(&repo, &account_id)?;
+    Ok(serde_json::to_value(import_result)?)
 }
 
 #[tauri::command]

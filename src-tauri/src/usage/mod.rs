@@ -53,6 +53,14 @@ pub struct CodexLaunchSessionRecord {
 }
 
 #[derive(Debug, Clone)]
+pub struct UsageImportSession {
+    pub id: String,
+    pub account_id: String,
+    pub launch_mode: String,
+    pub started_at: String,
+}
+
+#[derive(Debug, Clone)]
 pub struct ApiUsageEventRecord {
     pub id: String,
     pub account_id: String,
@@ -143,9 +151,9 @@ impl<'a> UsageRepository<'a> {
         Ok(())
     }
 
-    pub fn insert_api_usage_event(&self, record: &ApiUsageEventRecord) -> AppResult<()> {
-        self.db.get_conn().execute(
-            "INSERT INTO api_usage_events (
+    pub fn insert_api_usage_event(&self, record: &ApiUsageEventRecord) -> AppResult<bool> {
+        let changed = self.db.get_conn().execute(
+            "INSERT OR IGNORE INTO api_usage_events (
                 id, account_id, session_id, source, endpoint, model, response_id, request_id,
                 status_code, input_tokens, output_tokens, total_tokens, cached_input_tokens,
                 reasoning_tokens, estimated_cost, raw_usage_json, is_complete, error_message,
@@ -179,7 +187,56 @@ impl<'a> UsageRepository<'a> {
                 &record.created_at,
             ],
         )?;
+        Ok(changed > 0)
+    }
+
+    pub fn add_launch_session_usage_count(
+        &self,
+        session_id: &str,
+        imported_count: i64,
+    ) -> AppResult<()> {
+        if imported_count <= 0 {
+            return Ok(());
+        }
+
+        self.db.get_conn().execute(
+            "UPDATE codex_launch_sessions
+             SET usage_event_count = usage_event_count + ?2,
+                 status = CASE WHEN status = 'launched' THEN 'completed' ELSE status END,
+                 completed_at = COALESCE(completed_at, ?3)
+             WHERE id = ?1",
+            params![session_id, imported_count, Utc::now().to_rfc3339()],
+        )?;
         Ok(())
+    }
+
+    pub fn list_session_log_import_candidates(
+        &self,
+        account_id: &str,
+    ) -> AppResult<Vec<UsageImportSession>> {
+        let since = (Utc::now() - Duration::days(35)).to_rfc3339();
+        let mut stmt = self.db.get_conn().prepare(
+            "SELECT id, account_id, launch_mode, started_at
+             FROM codex_launch_sessions
+             WHERE account_id = ?1
+               AND started_at >= ?2
+               AND launch_mode IN ('interactive_terminal', 'cli_terminal', 'codex_app')
+               AND status <> 'failed'
+             ORDER BY started_at DESC",
+        )?;
+
+        let sessions = stmt
+            .query_map(params![account_id, since], |row| {
+                Ok(UsageImportSession {
+                    id: row.get(0)?,
+                    account_id: row.get(1)?,
+                    launch_mode: row.get(2)?,
+                    started_at: row.get(3)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+
+        Ok(sessions)
     }
 
     pub fn get_summary(&self, account_id: &str, period: &str) -> AppResult<UsageSummary> {

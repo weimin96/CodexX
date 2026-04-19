@@ -83,12 +83,14 @@ import { isTauri as detectTauriRuntime } from '@tauri-apps/api/core'
 import { useMessage } from 'naive-ui'
 import { usageService } from '@/services'
 import type { CodexLaunchResult, CodexModelOption } from '@/types'
+import { useAccountStore } from '@/stores/account'
 
 const PROJECT_HISTORY_KEY = 'codex-manager.codex-project-history'
 const MAX_PROJECT_HISTORY = 8
 
 const isTauri = detectTauriRuntime()
 const message = useMessage()
+const accountStore = useAccountStore()
 
 const codexWorkingDirectory = ref('')
 const codexModel = ref<string | null>(null)
@@ -99,6 +101,9 @@ const projectHistory = ref<string[]>([])
 const modelOptions = ref<CodexModelOption[]>([])
 
 onMounted(async () => {
+  if (accountStore.accounts.length === 0) {
+    await accountStore.loadAccounts()
+  }
   projectHistory.value = readProjectHistory()
   await loadLauncherConfig()
 })
@@ -131,6 +136,7 @@ async function handleLaunchCodexCli() {
   try {
     const workingDirectory = normalizeOptionalText(codexWorkingDirectory.value)
     const result = await usageService.launchCodexCli({
+      account_id: accountStore.activeAccount?.id,
       working_directory: workingDirectory,
       model: normalizeOptionalText(codexModel.value),
     })
@@ -148,7 +154,9 @@ async function handleLaunchCodexCli() {
 async function handleLaunchCodexApp() {
   launchingApp.value = true
   try {
-    const result = await usageService.launchCodexApp()
+    const result = await usageService.launchCodexApp({
+      account_id: accountStore.activeAccount?.id,
+    })
     lastCodexResult.value = result
     message.success(result.message)
   } catch (error) {

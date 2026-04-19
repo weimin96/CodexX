@@ -17,6 +17,7 @@ export const useUsageStore = defineStore('usage', () => {
     loading.value = true
     try {
       const query = { account_id: accountId, period: p }
+      await usageService.fetchUsage(accountId)
       const [summary, chart] = await Promise.all([
         usageService.getUsageStats(query),
         usageService.getUsageChartData(query),

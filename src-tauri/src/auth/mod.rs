@@ -425,7 +425,7 @@ async fn exchange_authorization_code(
     pending: &PendingOAuthLogin,
 ) -> AppResult<CompletedOAuthLogin> {
     let client = Client::builder()
-        .user_agent("codexx/0.1.0")
+        .user_agent(crate::APP_USER_AGENT)
         .timeout(std::time::Duration::from_secs(20))
         .build()?;
     let token_url = format!("{OAUTH_ISSUER}/oauth/token");
@@ -667,7 +667,7 @@ async fn fetch_identity_from_bearer_token(
     }
 
     let client = Client::builder()
-        .user_agent("codexx/0.1.0")
+        .user_agent(crate::APP_USER_AGENT)
         .timeout(std::time::Duration::from_secs(12))
         .build()?;
     let response = client

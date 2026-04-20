@@ -42,7 +42,7 @@ CodexX 是一个基于 Tauri 2、Vue 3 和 Rust 的桌面应用，用于管理 C
 - 支持开机自启。
 - 支持后台状态检测间隔配置。
 - 支持 OAuth Token 定期保活；启用后按最小间隔刷新 `access_token` 和 `refresh_token`，并回写加密数据库。
-- 支持手动检查更新和启动时自动检查更新。真实在线更新需要在 `src-tauri\tauri.conf.json` 中配置有效 updater endpoint 和签名公钥。
+- 支持手动检查更新和启动时自动检查更新。稳定版默认通过 GitHub Releases `latest.json` 检查并下载新版本。
 
 ## 安全设计
 
@@ -173,27 +173,64 @@ codexx
 
 ## 更新配置
 
-Tauri updater 已接入前端手动检查和启动自动检查。发布前需要配置真实更新端点和公钥：
+Tauri updater 已接入前端手动检查和启动自动检查。当前仓库默认使用 GitHub Releases 作为稳定更新入口：
 
 ```json
 {
+  "bundle": {
+    "createUpdaterArtifacts": true
+  },
   "plugins": {
     "updater": {
       "active": true,
       "endpoints": [
-        "https://your-update-server.example/{{target}}/{{arch}}/{{current_version}}"
+        "https://github.com/weimin96/CodexX/releases/latest/download/latest.json"
       ],
-      "pubkey": "YOUR_PUBLIC_KEY"
+      "pubkey": "仓库当前生成的 updater 公钥",
+      "windows": {
+        "installMode": "passive"
+      }
     }
   }
 }
 ```
 
-生成签名密钥应按 Tauri 官方发布流程执行，并妥善保管私钥。
+`pubkey` 需要与 GitHub Actions 中用于签名 updater 产物的私钥配套。私钥不要提交到仓库。
+
+## 发布稳定版
+
+### 必备仓库 Secret
+
+- `TAURI_SIGNING_PRIVATE_KEY`：updater 私钥内容。
+- `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`：私钥密码；无密码时可留空或不设置。
+
+### 触发方式
+
+- 向远程仓库推送 `v*` 格式 tag，例如 `v0.1.1`。
+- GitHub Actions 工作流 `Tag 发布` 会构建安装包、签名 updater 产物并上传 `latest.json`。
+- 应用内稳定更新地址固定为：
+
+```text
+https://github.com/weimin96/CodexX/releases/latest/download/latest.json
+```
+
+### 本地生成签名密钥
+
+Windows PowerShell 示例：
+
+```powershell
+pnpm exec tauri signer generate -- --ci -w "$env:USERPROFILE\.tauri\codexx-updater.key"
+```
+
+生成后：
+
+- 私钥文件默认位于 `C:\Users\<用户名>\.tauri\codexx-updater.key`
+- 公钥文件默认位于 `C:\Users\<用户名>\.tauri\codexx-updater.key.pub`
+- GitHub Actions 需要读取私钥内容作为 `TAURI_SIGNING_PRIVATE_KEY`
 
 ## 重要边界
 
 - CodexX 不做透明网络代理，也不全局拦截外部 Codex 进程。
 - Codex CLI/App 用量统计只覆盖通过 CodexX 显式启动并能在本机 `.codex\sessions` 中找到 usage 记录的会话。
 - OpenAI 官方 API Usage 端点是组织级 API 用量，不等同于 ChatGPT 计划下的本地 Codex 额度。
-- 当前仓库中的 updater endpoint 和 pubkey 仍是占位配置，未配置真实发布服务前无法完成真实在线更新验证。
+- 只有最新正式版 GitHub Release 会被 `releases/latest` 解析；draft 和 prerelease 不会作为稳定更新源。

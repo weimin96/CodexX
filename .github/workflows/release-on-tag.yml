@@ -64,7 +64,7 @@ jobs:
 
       # GitHub Releases 同时承担安装包分发和 latest.json 更新入口。
       - name: 构建并上传到 GitHub Release
-        uses: tauri-apps/tauri-action@v1
+        uses: tauri-apps/tauri-action@v0.6.2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}

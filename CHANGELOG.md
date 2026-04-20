@@ -1,5 +1,12 @@
 # 变更记录
 
+## 0.1.2 - 2026-04-20
+
+### 修复
+
+- 修正 GitHub Actions 发布工作流中的 `tauri-apps/tauri-action` 引用，改为真实存在的稳定标签 `v0.6.2`。
+- 补发稳定版补丁号，避免重写已经推送到远端的 `v0.1.1` 标签。
+
 ## 0.1.1 - 2026-04-20
 
 ### 新增
@@ -10,6 +17,6 @@
 ### 修改
 
 - `src-tauri\tauri.conf.json` 改为启用 `createUpdaterArtifacts`，并固定使用 GitHub Releases 稳定更新地址。
-- `release-on-tag.yml` 升级为使用 `tauri-apps/tauri-action@v1` 产出 updater 资产与 `latest.json`。
+- `release-on-tag.yml` 改为使用官方 `tauri-apps/tauri-action` 发布 updater 资产与 `latest.json`。
 - 设置页版本展示改为读取工程版本号，避免手工发版后界面版本漂移。
 - Rust 请求 `User-Agent` 改为读取编译期版本，避免继续发送旧版本号。

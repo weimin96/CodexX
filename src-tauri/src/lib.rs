@@ -23,6 +23,9 @@ use tokio::sync::Mutex;
 
 use crate::auth::PendingOAuthLogin;
 
+#[cfg(all(desktop))]
+const TRAY_ICON_BYTES: &[u8] = include_bytes!("../icons/64x64.png");
+
 pub struct OAuthCallbackListenerHandle {
     pub shutdown_tx: Option<Sender<()>>,
     pub task: Option<JoinHandle<()>>,
@@ -179,43 +182,64 @@ fn copy_sqlite_sidecar_file(
 
 #[cfg(all(desktop))]
 fn setup_tray(handle: tauri::AppHandle) -> tauri::Result<()> {
+    use tauri::image::Image;
     use tauri::menu::{Menu, MenuItem};
-    use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
+    use tauri::tray::{MouseButton, TrayIconBuilder, TrayIconEvent};
 
-    let show = MenuItem::with_id(&handle, "show", "显示主窗口", true, None::<&str>)?;
+    let open = MenuItem::with_id(&handle, "open", "打开", true, None::<&str>)?;
     let quit = MenuItem::with_id(&handle, "quit", "退出", true, None::<&str>)?;
-    let menu = Menu::with_items(&handle, &[&show, &quit])?;
+    let menu = Menu::with_items(&handle, &[&open, &quit])?;
+    let tray_icon = Image::from_bytes(TRAY_ICON_BYTES)?;
 
-    TrayIconBuilder::new()
+    TrayIconBuilder::with_id("main")
+        .icon(tray_icon)
+        .icon_as_template(false)
         .menu(&menu)
+        .tooltip("CodexX")
         .show_menu_on_left_click(false)
         .on_menu_event(|app, event| match event.id.as_ref() {
-            "show" => {
-                if let Some(window) = app.get_webview_window("main") {
-                    let _ = window.show();
-                    let _ = window.set_focus();
-                }
-            }
+            "open" => open_main_window(app),
             "quit" => {
                 app.exit(0);
             }
-            _ => {}
+            unknown_id => {
+                log::warn!("忽略未知托盘菜单事件: {unknown_id}");
+            }
         })
         .on_tray_icon_event(|tray, event| {
-            if let TrayIconEvent::Click {
+            if let TrayIconEvent::DoubleClick {
                 button: MouseButton::Left,
-                button_state: MouseButtonState::Up,
                 ..
             } = event
             {
-                let app = tray.app_handle();
-                if let Some(window) = app.get_webview_window("main") {
-                    let _ = window.show();
-                    let _ = window.set_focus();
-                }
+                open_main_window(tray.app_handle());
             }
         })
         .build(&handle)?;
 
     Ok(())
+}
+
+#[cfg(all(desktop))]
+fn open_main_window(app: &tauri::AppHandle) {
+    let Some(window) = app.get_webview_window("main") else {
+        log::warn!("无法打开主窗口: main 窗口不存在");
+        return;
+    };
+
+    restore_main_window(&window);
+}
+
+#[cfg(all(desktop))]
+fn restore_main_window(window: &tauri::WebviewWindow) {
+    log_window_operation("取消主窗口最小化", window.unminimize());
+    log_window_operation("显示主窗口", window.show());
+    log_window_operation("聚焦主窗口", window.set_focus());
+}
+
+#[cfg(all(desktop))]
+fn log_window_operation(action: &str, result: tauri::Result<()>) {
+    if let Err(error) = result {
+        log::warn!("{action}失败: {error}");
+    }
 }

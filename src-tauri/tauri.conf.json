@@ -14,7 +14,7 @@
       {
         "title": "CodexX",
         "width": 1200,
-      "height": 720,
+        "height": 720,
         "minWidth": 900,
         "minHeight": 600,
         "resizable": true,
@@ -25,10 +25,6 @@
     ],
     "security": {
       "csp": null
-    },
-    "trayIcon": {
-      "iconPath": "icons/icon.png",
-      "iconAsTemplate": true
     }
   },
   "bundle": {

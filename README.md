@@ -197,6 +197,8 @@ Tauri updater 已接入前端手动检查和启动自动检查。当前仓库默
 
 `pubkey` 需要与 GitHub Actions 中用于签名 updater 产物的私钥配套。私钥不要提交到仓库。
 
+GitHub Releases 方案有一个前提：`latest.json` 和安装包地址必须能被客户端匿名访问。如果仓库是私有仓库，GitHub 会对未登录请求返回 `404`，Tauri updater 无法使用该地址完成真实终端更新。
+
 ## 发布稳定版
 
 ### 必备仓库 Secret
@@ -234,3 +236,4 @@ pnpm exec tauri signer generate -- --ci -w "$env:USERPROFILE\.tauri\codexx-updat
 - Codex CLI/App 用量统计只覆盖通过 CodexX 显式启动并能在本机 `.codex\sessions` 中找到 usage 记录的会话。
 - OpenAI 官方 API Usage 端点是组织级 API 用量，不等同于 ChatGPT 计划下的本地 Codex 额度。
 - 只有最新正式版 GitHub Release 会被 `releases/latest` 解析；draft 和 prerelease 不会作为稳定更新源。
+- 当前仓库如果保持 `private`，GitHub Releases 只适合作为内部发布资产存储，不适合作为面向终端用户的 updater 源。要让应用内在线更新真正可用，至少需要公开仓库，或把 `latest.json` 与安装包迁移到公开可访问地址。

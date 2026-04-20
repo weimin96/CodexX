@@ -107,7 +107,7 @@
         </div>
         <div>
           <div class="about-title">CodexX</div>
-          <div class="about-version">版本 0.1.0</div>
+          <div class="about-version">版本 {{ appVersion }}</div>
         </div>
       </div>
 
@@ -195,6 +195,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useDialog, useMessage } from 'naive-ui'
+import packageJson from '../../package.json'
 import { usageService } from '@/services'
 import { useSettingsStore } from '@/stores/settings'
 import type { AppSettings } from '@/types'
@@ -203,6 +204,7 @@ import { checkAppUpdate, installAppUpdate } from '@/utils/app-updater'
 const message = useMessage()
 const dialog = useDialog()
 const settingsStore = useSettingsStore()
+const appVersion = packageJson.version
 
 const autosaveState = ref<'idle' | 'saving' | 'saved' | 'error'>('idle')
 const checkingUpdate = ref(false)

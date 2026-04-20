@@ -25,6 +25,7 @@ use crate::auth::PendingOAuthLogin;
 
 #[cfg(all(desktop))]
 const TRAY_ICON_BYTES: &[u8] = include_bytes!("../icons/64x64.png");
+pub const APP_USER_AGENT: &str = concat!("codexx/", env!("CARGO_PKG_VERSION"));
 
 pub struct OAuthCallbackListenerHandle {
     pub shutdown_tx: Option<Sender<()>>,

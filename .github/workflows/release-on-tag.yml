@@ -3,7 +3,7 @@ name: Tag 发布
 on:
   push:
     tags:
-      - '*'
+      - 'v*'
 
 permissions:
   contents: write
@@ -55,18 +55,32 @@ jobs:
       - name: 安装前端依赖
         run: pnpm install --frozen-lockfile
 
-      # 当前仓库的 updater 仍是占位配置，因此这里先只负责安装包发布。
+      - name: 校验 updater 签名密钥
+        shell: pwsh
+        run: |
+          if ([string]::IsNullOrWhiteSpace("${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}")) {
+            throw "缺少仓库 Secret TAURI_SIGNING_PRIVATE_KEY，无法生成在线更新签名。"
+          }
+
+      # GitHub Releases 同时承担安装包分发和 latest.json 更新入口。
       - name: 构建并上传到 GitHub Release
-        uses: tauri-apps/tauri-action@v0
+        uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           tagName: ${{ github.ref_name }}
           releaseName: CodexX ${{ github.ref_name }}
           releaseBody: |
             自动发布于 GitHub Actions。
 
+            稳定更新入口：
+            https://github.com/weimin96/CodexX/releases/latest/download/latest.json
+
             请在下方 Assets 中下载对应平台的安装包。
           releaseDraft: false
           prerelease: ${{ contains(github.ref_name, '-') }}
+          tauriScript: pnpm tauri
+          uploadUpdaterJson: true
           args: ${{ matrix.args }}

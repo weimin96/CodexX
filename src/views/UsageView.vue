@@ -77,27 +77,6 @@
                 <strong>{{ row.request_count.toLocaleString() }}</strong>
               </div>
             </div>
-
-            <div class="account-detail-share">
-              <div class="account-detail-share-track">
-                <div
-                  class="account-detail-share-fill"
-                  :style="{ width: segmentWidth(row.total_tokens, totalTokensInPeriod) }"
-                >
-                  <span
-                    class="account-detail-share-segment input"
-                    :style="{ width: segmentWidth(row.input_tokens, row.total_tokens) }"
-                  />
-                  <span
-                    class="account-detail-share-segment output"
-                    :style="{ width: segmentWidth(row.output_tokens, row.total_tokens) }"
-                  />
-                </div>
-              </div>
-              <span class="account-detail-share-note">
-                占近一年整体 Token {{ formatShare(row.total_tokens, totalTokensInPeriod) }}
-              </span>
-            </div>
           </article>
         </div>
       </section>
@@ -149,10 +128,6 @@ const summary = computed(() =>
 
 const chartData = computed<ChartDataPoint[]>(() =>
   usageStore.getChartDataForAccounts(accountIds.value, annualPeriod),
-)
-
-const totalTokensInPeriod = computed(
-  () => (summary.value?.total_input_tokens ?? 0) + (summary.value?.total_output_tokens ?? 0),
 )
 
 const todayTotalTokens = computed(() => {
@@ -207,23 +182,6 @@ function formatTokens(value: number): string {
   }
 
   return `${(value / compactUnit.threshold).toFixed(1)} ${compactUnit.label}`
-}
-
-function formatShare(value: number, total: number): string {
-  if (total <= 0) {
-    return '0%'
-  }
-
-  const share = (value / total) * 100
-  return `${share.toFixed(share >= 10 ? 0 : 1)}%`
-}
-
-function segmentWidth(value: number, total: number): string {
-  if (total <= 0) {
-    return '0%'
-  }
-
-  return `${Math.min(100, Math.max(0, (value / total) * 100))}%`
 }
 
 async function loadData() {
@@ -430,8 +388,7 @@ onMounted(async () => {
 }
 
 .account-detail-card-total span,
-.account-detail-metric span,
-.account-detail-share-note {
+.account-detail-metric span {
   font-size: 11px;
   line-height: 1.33;
   color: var(--app-ink-tertiary);
@@ -462,38 +419,6 @@ onMounted(async () => {
   font-size: 14px;
   line-height: 1.24;
   color: var(--app-ink);
-}
-
-.account-detail-share {
-  display: grid;
-  gap: 8px;
-}
-
-.account-detail-share-track {
-  overflow: hidden;
-  height: 8px;
-  border-radius: 999px;
-  background: rgba(29, 29, 31, 0.08);
-}
-
-.account-detail-share-fill {
-  display: flex;
-  height: 100%;
-  border-radius: inherit;
-  overflow: hidden;
-}
-
-.account-detail-share-segment {
-  display: block;
-  height: 100%;
-}
-
-.account-detail-share-segment.input {
-  background: rgba(0, 113, 227, 0.82);
-}
-
-.account-detail-share-segment.output {
-  background: rgba(29, 29, 31, 0.68);
 }
 
 @media (max-width: 960px) {

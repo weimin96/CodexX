@@ -30,11 +30,11 @@
             <n-button
               secondary
               class="account-action-trigger"
-              title="账号操作"
-              aria-label="账号操作"
+              title="操作"
+              aria-label="操作"
             >
               <span class="account-action-content">
-                <span>账号操作</span>
+                <span>操作</span>
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
                   <path
                     d="M12 5h.01M12 12h.01M12 19h.01"
@@ -93,7 +93,7 @@
       </section>
 
       <div v-if="!hasAccounts" class="inline-empty-state">
-        <p>还没有添加任何账号，请通过账号操作添加、导入或同步账号。</p>
+        <p>还没有添加任何账号，请通过操作添加、导入或同步账号。</p>
       </div>
 
       <div v-else-if="filteredAccounts.length === 0" class="inline-empty-state">

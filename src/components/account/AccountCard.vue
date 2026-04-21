@@ -37,8 +37,8 @@
             secondary
             size="small"
             class="card-icon-button"
-            title="账号操作"
-            aria-label="账号操作"
+            title="操作"
+            aria-label="操作"
           >
             <template #icon>
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none">

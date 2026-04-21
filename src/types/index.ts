@@ -103,7 +103,7 @@ export interface ChartDataPoint {
   cost: number
 }
 
-export type UsagePeriod = 'day' | 'week' | 'month'
+export type UsagePeriod = 'day' | 'week' | 'month' | 'year'
 
 export interface UsageQuery {
   account_id: string

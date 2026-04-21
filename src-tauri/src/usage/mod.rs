@@ -388,6 +388,7 @@ fn get_period_range(period: &str) -> (String, String) {
         "day" => today,
         "week" => today - Duration::days(6),
         "month" => today - Duration::days(29),
+        "year" => today - Duration::days(364),
         _ => today - Duration::days(29),
     };
     (
@@ -412,8 +413,12 @@ fn normalize_existing_working_directory(value: &str) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{normalize_existing_working_directory, CodexLaunchSessionRecord, UsageRepository};
+    use super::{
+        get_period_range, normalize_existing_working_directory, CodexLaunchSessionRecord,
+        UsageRepository,
+    };
     use crate::storage::Database;
+    use chrono::{Duration, Utc};
     use rusqlite::params;
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -553,6 +558,18 @@ mod tests {
         );
 
         let _ = std::fs::remove_dir_all(temp_dir);
+    }
+
+    #[test]
+    fn year_period_covers_recent_365_days() {
+        let today = Utc::now().date_naive();
+        let (start, end) = get_period_range("year");
+
+        assert_eq!(end, today.format("%Y-%m-%d").to_string());
+        assert_eq!(
+            start,
+            (today - Duration::days(364)).format("%Y-%m-%d").to_string()
+        );
     }
 
     fn seed_account(db: &Database, account_id: &str) {

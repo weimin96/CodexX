@@ -16,7 +16,7 @@
             <strong class="metric-value">{{ availableAccountCount }}</strong>
           </div>
           <div class="dashboard-summary-card metric-request-card">
-            <span class="metric-label">请求次数</span>
+            <span class="metric-label">近一年请求</span>
             <strong class="metric-value">{{ (summary?.total_requests ?? 0).toLocaleString() }}</strong>
           </div>
         </div>
@@ -26,54 +26,23 @@
             <strong class="metric-value">{{ formatTokens(todayTotalTokens) }}</strong>
           </div>
           <div class="dashboard-summary-card metric-input-card">
-            <span class="metric-label">输入 Token</span>
+            <span class="metric-label">近一年输入 Token</span>
             <strong class="metric-value">{{ formatTokens(summary?.total_input_tokens ?? 0) }}</strong>
           </div>
           <div class="dashboard-summary-card metric-output-card">
-            <span class="metric-label">输出 Token</span>
+            <span class="metric-label">近一年输出 Token</span>
             <strong class="metric-value">{{ formatTokens(summary?.total_output_tokens ?? 0) }}</strong>
           </div>
         </div>
       </div>
     </section>
 
-    <section class="surface-panel section-grid trend-panel">
-      <div class="dashboard-chart-head">
-        <h2 class="panel-heading dashboard-chart-title">Token 用量趋势</h2>
-        <div class="dashboard-chart-controls">
-          <div class="control-block">
-            <span class="control-label">时间范围</span>
-            <n-radio-group v-model:value="selectedPeriod" @update:value="onPeriodChange">
-              <n-radio-button value="day">今日</n-radio-button>
-              <n-radio-button value="week">本周</n-radio-button>
-              <n-radio-button value="month">本月</n-radio-button>
-            </n-radio-group>
-          </div>
-
-          <div class="control-block">
-            <span class="control-label">图表类型</span>
-            <n-radio-group v-model:value="chartType">
-              <n-radio-button value="line">折线图</n-radio-button>
-              <n-radio-button value="bar">柱状图</n-radio-button>
-            </n-radio-group>
-          </div>
-        </div>
-      </div>
-
-      <div v-if="loading" class="usage-empty usage-loading">
-        <n-spin />
-        <p>正在加载数据。</p>
-      </div>
-      <div v-else-if="chartData.length > 0" ref="tokenChartRef" class="chart-container" />
-      <div v-else class="usage-empty">
-        <p>当前所选周期没有可绘制的趋势数据。</p>
-      </div>
-    </section>
+    <TokenUsageHeatmap :loading="loading" :daily-data="chartData" />
 
     <template v-if="!loading && summaryRows.length > 0">
       <section class="surface-panel account-detail-panel">
         <div class="account-detail-head">
-          <h2 class="panel-heading">账号明细</h2>
+          <h2 class="panel-heading">近一年账号明细</h2>
           <span class="account-detail-count">{{ summaryRows.length }} 个账号</span>
         </div>
 
@@ -126,7 +95,7 @@
                 </div>
               </div>
               <span class="account-detail-share-note">
-                占整体 Token {{ formatShare(row.total_tokens, totalTokensInPeriod) }}
+                占近一年整体 Token {{ formatShare(row.total_tokens, totalTokensInPeriod) }}
               </span>
             </div>
           </article>
@@ -135,36 +104,18 @@
     </template>
 
     <section v-else-if="!loading" class="surface-panel empty-panel">
-      <p>当前所选周期内还没有用量数据。</p>
+      <p>最近一年还没有可展示的账号用量数据。</p>
     </section>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, watch, nextTick, onUnmounted } from 'vue'
-import * as echarts from 'echarts/core'
-import { LineChart, BarChart } from 'echarts/charts'
-import {
-  GridComponent,
-  TooltipComponent,
-  LegendComponent,
-  DataZoomComponent,
-} from 'echarts/components'
-import { CanvasRenderer } from 'echarts/renderers'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useAccountStore } from '@/stores/account'
 import { useUsageStore } from '@/stores/usage'
 import type { ChartDataPoint, UsagePeriod } from '@/types'
 import { resolveAccountDisplayName } from '@/utils/account-display'
-
-echarts.use([
-  LineChart,
-  BarChart,
-  GridComponent,
-  TooltipComponent,
-  LegendComponent,
-  DataZoomComponent,
-  CanvasRenderer,
-])
+import TokenUsageHeatmap from '@/components/usage/TokenUsageHeatmap.vue'
 
 interface UsageSummaryRow {
   account_id: string
@@ -177,14 +128,9 @@ interface UsageSummaryRow {
 
 const accountStore = useAccountStore()
 const usageStore = useUsageStore()
-
-const selectedPeriod = ref<UsagePeriod>('month')
-const chartType = ref<'line' | 'bar'>('line')
+const annualPeriod: UsagePeriod = 'year'
 const loading = ref(false)
-
-const tokenChartRef = ref<HTMLElement | null>(null)
-let tokenChart: echarts.ECharts | null = null
-let chartResizeObserver: ResizeObserver | null = null
+const initialized = ref(false)
 
 const accountIds = computed(() => accountStore.accounts.map((account) => account.id))
 const totalAccountCount = computed(() => accountStore.accounts.length)
@@ -196,29 +142,26 @@ const availableAccountCount = computed(
 )
 
 const summary = computed(() =>
-  usageStore.getSummaryForAccounts(accountIds.value, selectedPeriod.value),
+  usageStore.getSummaryForAccounts(accountIds.value, annualPeriod),
 )
 
-const todaySummary = computed(() =>
-  usageStore.getSummaryForAccounts(accountIds.value, 'day'),
+const chartData = computed<ChartDataPoint[]>(() =>
+  usageStore.getChartDataForAccounts(accountIds.value, annualPeriod),
 )
 
 const totalTokensInPeriod = computed(
   () => (summary.value?.total_input_tokens ?? 0) + (summary.value?.total_output_tokens ?? 0),
 )
 
-const chartData = computed<ChartDataPoint[]>(() =>
-  usageStore.getChartDataForAccounts(accountIds.value, selectedPeriod.value),
-)
-
-const todayTotalTokens = computed(
-  () => (todaySummary.value?.total_input_tokens ?? 0) + (todaySummary.value?.total_output_tokens ?? 0),
-)
+const todayTotalTokens = computed(() => {
+  const todayPoint = chartData.value.find((point) => point.date === formatDateKey(new Date()))
+  return (todayPoint?.input_tokens ?? 0) + (todayPoint?.output_tokens ?? 0)
+})
 
 const summaryRows = computed<UsageSummaryRow[]>(() =>
   accountStore.accounts
     .map((account) => {
-      const accountSummary = usageStore.getSummary(account.id, selectedPeriod.value)
+      const accountSummary = usageStore.getSummary(account.id, annualPeriod)
       if (!accountSummary) {
         return null
       }
@@ -281,182 +224,36 @@ function segmentWidth(value: number, total: number): string {
   return `${Math.min(100, Math.max(0, (value / total) * 100))}%`
 }
 
-const CHART_COLORS = {
-  input: '#0071e3',
-  output: '#06b6d4',
-}
-
 async function loadData() {
   if (accountIds.value.length === 0) {
-    disposeTokenChart()
     return
   }
 
   loading.value = true
-  // 加载态会卸载图表容器，旧实例必须释放，否则后续会继续渲染到已移除的 DOM。
-  disposeTokenChart()
-  let shouldRenderChart = false
   try {
-    await usageStore.loadUsageForAccounts(accountIds.value, selectedPeriod.value)
-    if (selectedPeriod.value !== 'day') {
-      await usageStore.loadUsageForAccounts(accountIds.value, 'day')
-    }
-    shouldRenderChart = true
+    await usageStore.loadUsageForAccounts(accountIds.value, annualPeriod)
   } finally {
     loading.value = false
   }
-
-  if (!shouldRenderChart) {
-    return
-  }
-
-  await nextTick()
-  observeTokenChartContainer()
-  renderCharts()
 }
 
-function onPeriodChange() {
-  void loadData()
+function formatDateKey(date: Date): string {
+  const year = date.getFullYear()
+  const month = `${date.getMonth() + 1}`.padStart(2, '0')
+  const day = `${date.getDate()}`.padStart(2, '0')
+  return `${year}-${month}-${day}`
 }
 
-function getBaseChartOptions() {
-  return {
-    backgroundColor: 'transparent',
-    textStyle: {
-      color: 'rgba(29, 29, 31, 0.72)',
-      fontFamily:
-        '"SF Pro Text", "SF Pro Display", -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", "Helvetica Neue", Arial, sans-serif',
-    },
-    tooltip: {
-      trigger: 'axis',
-      backgroundColor: '#ffffff',
-      borderColor: 'rgba(29, 29, 31, 0.08)',
-      borderWidth: 1,
-      textStyle: { color: '#1d1d1f' },
-      extraCssText: 'box-shadow: rgba(0, 0, 0, 0.16) 0 12px 30px;',
-    },
-    legend: {
-      textStyle: { color: 'rgba(29, 29, 31, 0.72)' },
-      top: 0,
-    },
-    grid: { left: 48, right: 18, top: 48, bottom: 42 },
-    xAxis: {
-      type: 'category',
-      data: chartData.value.map((item) => item.date),
-      axisLine: { lineStyle: { color: 'rgba(29, 29, 31, 0.12)' } },
-      axisTick: { show: false },
-      axisLabel: { color: 'rgba(29, 29, 31, 0.56)', fontSize: 11 },
-    },
-    yAxis: {
-      type: 'value',
-      splitLine: { lineStyle: { color: 'rgba(29, 29, 31, 0.08)' } },
-      axisLabel: { color: 'rgba(29, 29, 31, 0.56)', fontSize: 11 },
-    },
-    dataZoom:
-      chartData.value.length > 14
-        ? [
-            { type: 'inside' },
-            {
-              type: 'slider',
-              height: 18,
-              bottom: 5,
-              borderColor: 'rgba(29, 29, 31, 0.08)',
-              backgroundColor: 'rgba(29, 29, 31, 0.04)',
-              fillerColor: 'rgba(0, 113, 227, 0.14)',
-              handleStyle: { color: '#0071e3' },
-            },
-          ]
-        : [],
-  }
-}
+watch(
+  () => accountIds.value.join('|'),
+  (currentValue, previousValue) => {
+    if (!initialized.value || !currentValue || currentValue === previousValue) {
+      return
+    }
 
-function renderCharts() {
-  if (!tokenChartRef.value || chartData.value.length === 0) {
-    disposeTokenChart()
-    return
-  }
-
-  if (!tokenChart) tokenChart = echarts.init(tokenChartRef.value)
-
-  const baseOptions = getBaseChartOptions()
-  const seriesType = chartType.value
-
-  tokenChart.setOption(
-    {
-      ...baseOptions,
-      series: [
-        {
-          name: '输入 Token',
-          type: seriesType,
-          data: chartData.value.map((item) => item.input_tokens),
-          smooth: true,
-          symbol: 'circle',
-          symbolSize: 6,
-          lineStyle: { color: CHART_COLORS.input, width: 2 },
-          itemStyle: { color: CHART_COLORS.input },
-          areaStyle:
-            seriesType === 'line'
-              ? {
-                  color: {
-                    type: 'linear',
-                    x: 0,
-                    y: 0,
-                    x2: 0,
-                    y2: 1,
-                    colorStops: [
-                      { offset: 0, color: 'rgba(0, 113, 227, 0.18)' },
-                      { offset: 1, color: 'rgba(0, 113, 227, 0)' },
-                    ],
-                  },
-                }
-              : undefined,
-        },
-        {
-          name: '输出 Token',
-          type: seriesType,
-          data: chartData.value.map((item) => item.output_tokens),
-          smooth: true,
-          symbol: 'circle',
-          symbolSize: 6,
-          lineStyle: { color: CHART_COLORS.output, width: 2 },
-          itemStyle: { color: CHART_COLORS.output },
-          areaStyle:
-            seriesType === 'line'
-              ? {
-                  color: {
-                    type: 'linear',
-                    x: 0,
-                    y: 0,
-                    x2: 0,
-                    y2: 1,
-                    colorStops: [
-                      { offset: 0, color: 'rgba(6, 182, 212, 0.16)' },
-                      { offset: 1, color: 'rgba(6, 182, 212, 0)' },
-                    ],
-                  },
-                }
-              : undefined,
-        },
-      ],
-    },
-    true,
-  )
-}
-
-watch(chartType, () => {
-  renderCharts()
-})
-
-function observeTokenChartContainer() {
-  if (!chartResizeObserver || !tokenChartRef.value) return
-  chartResizeObserver.disconnect()
-  chartResizeObserver.observe(tokenChartRef.value)
-}
-
-function disposeTokenChart() {
-  tokenChart?.dispose()
-  tokenChart = null
-}
+    void loadData()
+  },
+)
 
 onMounted(async () => {
   if (accountStore.accounts.length === 0) {
@@ -467,16 +264,7 @@ onMounted(async () => {
     await loadData()
   }
 
-  chartResizeObserver = new ResizeObserver(() => {
-    tokenChart?.resize()
-  })
-
-  observeTokenChartContainer()
-})
-
-onUnmounted(() => {
-  chartResizeObserver?.disconnect()
-  disposeTokenChart()
+  initialized.value = true
 })
 </script>
 
@@ -485,18 +273,6 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   gap: 12px;
-}
-
-.control-block {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.control-label {
-  font-size: 11px;
-  line-height: 1.33;
-  color: var(--app-ink-tertiary);
 }
 
 .dashboard-panel {
@@ -559,48 +335,6 @@ onUnmounted(() => {
 .metric-request-card {
   --card-accent: #7c3aed;
   --card-border: rgba(124, 58, 237, 0.16);
-}
-
-.dashboard-chart-head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
-}
-
-.dashboard-chart-title {
-  font-size: 18px;
-}
-
-.dashboard-chart-controls {
-  display: flex;
-  align-items: flex-start;
-  justify-content: flex-end;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-
-.trend-panel {
-  gap: 14px;
-}
-
-.chart-container {
-  width: 100%;
-  height: 280px;
-}
-
-.usage-empty {
-  min-height: 120px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-}
-
-.usage-empty p {
-  margin: 0;
-  color: var(--app-ink-secondary);
 }
 
 .account-detail-panel {
@@ -748,12 +482,8 @@ onUnmounted(() => {
 }
 
 @media (max-width: 960px) {
-  .dashboard-summary-row,
-  .dashboard-chart-head,
-  .dashboard-chart-controls {
+  .dashboard-summary-row {
     grid-template-columns: 1fr;
-    flex-direction: column;
-    align-items: stretch;
   }
 
   .account-detail-head,

@@ -2,8 +2,7 @@
   <section class="surface-panel section-grid heatmap-panel">
     <div class="heatmap-head">
       <div class="heatmap-copy">
-        <h2 class="panel-heading heatmap-title">最近一年 Token 热力图</h2>
-        <p class="heatmap-caption">按天聚合，颜色越深表示当日总 Token 越高。</p>
+        <h2 class="panel-heading heatmap-title">token用量</h2>
       </div>
 
       <div class="heatmap-meta">
@@ -38,51 +37,49 @@
         最近一年还没有 Token 记录，当前格子均为零用量。
       </p>
 
-      <div class="heatmap-board-scroll">
-        <div class="heatmap-board">
-          <div class="heatmap-corner" aria-hidden="true" />
+      <div class="heatmap-board">
+        <div class="heatmap-corner" aria-hidden="true" />
 
-          <div class="heatmap-month-row">
+        <div class="heatmap-month-row">
+          <span
+            v-for="week in heatmapWeeks"
+            :key="`month-${week.key}`"
+            class="heatmap-month-slot"
+          >
+            {{ week.month_label }}
+          </span>
+        </div>
+
+        <div class="heatmap-weekday-labels" aria-hidden="true">
+          <span
+            v-for="(label, index) in heatmapWeekdayLabels"
+            :key="`weekday-${index}`"
+            class="heatmap-weekday-label"
+          >
+            {{ label }}
+          </span>
+        </div>
+
+        <div class="heatmap-week-columns">
+          <div
+            v-for="week in heatmapWeeks"
+            :key="week.key"
+            class="heatmap-week-column"
+          >
             <span
-              v-for="week in heatmapWeeks"
-              :key="`month-${week.key}`"
-              class="heatmap-month-slot"
-            >
-              {{ week.month_label }}
-            </span>
-          </div>
-
-          <div class="heatmap-weekday-labels" aria-hidden="true">
-            <span
-              v-for="(label, index) in heatmapWeekdayLabels"
-              :key="`weekday-${index}`"
-              class="heatmap-weekday-label"
-            >
-              {{ label }}
-            </span>
-          </div>
-
-          <div class="heatmap-week-columns">
-            <div
-              v-for="week in heatmapWeeks"
-              :key="week.key"
-              class="heatmap-week-column"
-            >
-              <span
-                v-for="cell in week.cells"
-                :key="cell.key"
-                class="heatmap-cell"
-                :class="[
-                  `level-${cell.level}`,
-                  {
-                    'outside-range': !cell.in_range,
-                    today: cell.is_today,
-                  },
-                ]"
-                :title="buildCellTitle(cell)"
-                :aria-label="buildCellTitle(cell)"
-              />
-            </div>
+              v-for="cell in week.cells"
+              :key="cell.key"
+              class="heatmap-cell"
+              :class="[
+                `level-${cell.level}`,
+                {
+                  'outside-range': !cell.in_range,
+                  today: cell.is_today,
+                },
+              ]"
+              :title="buildCellTitle(cell)"
+              :aria-label="buildCellTitle(cell)"
+            />
           </div>
         </div>
       </div>
@@ -375,26 +372,24 @@ function formatMonthDay(dateKey: string): string {
 
 <style scoped>
 .heatmap-panel {
-  gap: 14px;
+  gap: 18px;
 }
 
 .heatmap-head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
+  display: grid;
+  gap: 12px;
+  align-items: stretch;
 }
 
 .heatmap-copy {
   display: grid;
-  gap: 6px;
+  gap: 4px;
 }
 
 .heatmap-title {
   font-size: 18px;
 }
 
-.heatmap-caption,
 .heatmap-empty-note {
   margin: 0;
   font-size: 12px;
@@ -405,7 +400,7 @@ function formatMonthDay(dateKey: string): string {
 .heatmap-meta {
   display: flex;
   align-items: flex-start;
-  justify-content: flex-end;
+  justify-content: flex-start;
   gap: 10px;
   flex-wrap: wrap;
 }
@@ -447,8 +442,7 @@ function formatMonthDay(dateKey: string): string {
   background: var(--app-surface-muted);
 }
 
-.heatmap-legend-cell,
-.heatmap-cell {
+.heatmap-legend-cell {
   width: 12px;
   height: 12px;
   border-radius: 3px;
@@ -456,33 +450,34 @@ function formatMonthDay(dateKey: string): string {
   box-sizing: border-box;
 }
 
-.heatmap-board-scroll {
-  overflow-x: auto;
-  padding-bottom: 4px;
-}
-
 .heatmap-board {
+  --heatmap-gap: 4px;
+  --heatmap-column-gap: 10px;
+  --heatmap-weekday-width: 22px;
   display: grid;
-  grid-template-columns: 22px max-content;
+  grid-template-columns: var(--heatmap-weekday-width) minmax(0, 1fr);
   grid-template-rows: 16px auto;
-  gap: 8px 10px;
-  min-width: max-content;
+  gap: 8px var(--heatmap-column-gap);
+  width: 100%;
+  min-width: 0;
+  margin-top: 2px;
 }
 
 .heatmap-corner {
-  width: 22px;
+  width: var(--heatmap-weekday-width);
   height: 16px;
 }
 
 .heatmap-month-row {
   display: flex;
-  gap: 4px;
-  min-width: max-content;
+  gap: var(--heatmap-gap);
+  width: 100%;
+  min-width: 0;
 }
 
 .heatmap-month-slot {
-  width: 12px;
-  flex: 0 0 12px;
+  flex: 1 1 0;
+  min-width: 0;
   font-size: 11px;
   line-height: 1.2;
   color: var(--app-ink-tertiary);
@@ -491,15 +486,14 @@ function formatMonthDay(dateKey: string): string {
 
 .heatmap-weekday-labels {
   display: grid;
-  grid-template-rows: repeat(7, 12px);
-  gap: 4px;
+  grid-template-rows: repeat(7, 1fr);
+  row-gap: var(--heatmap-gap);
 }
 
 .heatmap-weekday-label {
   display: flex;
   align-items: center;
   justify-content: flex-start;
-  height: 12px;
   font-size: 10px;
   line-height: 1;
   color: var(--app-ink-tertiary);
@@ -507,18 +501,28 @@ function formatMonthDay(dateKey: string): string {
 
 .heatmap-week-columns {
   display: flex;
-  gap: 4px;
-  min-width: max-content;
+  gap: var(--heatmap-gap);
+  width: 100%;
+  min-width: 0;
 }
 
 .heatmap-week-column {
   display: grid;
-  grid-template-rows: repeat(7, 12px);
-  gap: 4px;
+  grid-template-rows: repeat(7, 1fr);
+  row-gap: var(--heatmap-gap);
+  flex: 1 1 0;
+  min-width: 0;
 }
 
 .heatmap-cell {
   display: block;
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  min-width: 4px;
+  min-height: 4px;
+  border-radius: 3px;
+  border: 1px solid transparent;
+  box-sizing: border-box;
   background: rgba(29, 29, 31, 0.06);
 }
 
@@ -571,13 +575,18 @@ function formatMonthDay(dateKey: string): string {
 }
 
 @media (max-width: 960px) {
-  .heatmap-head {
-    flex-direction: column;
-    align-items: stretch;
+  .heatmap-board {
+    --heatmap-gap: 3px;
+    --heatmap-column-gap: 8px;
+    --heatmap-weekday-width: 16px;
   }
 
-  .heatmap-meta {
-    justify-content: flex-start;
+  .heatmap-month-slot {
+    font-size: 10px;
+  }
+
+  .heatmap-weekday-label {
+    font-size: 9px;
   }
 }
 </style>

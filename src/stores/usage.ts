@@ -13,9 +13,12 @@ export const useUsageStore = defineStore('usage', () => {
     return `${accountId}:${p}`
   }
 
-  async function loadUsageData(accountId: string, p: UsagePeriod) {
+  function normalizeAccountIds(accountIds: string[]): string[] {
+    return [...new Set(accountIds.filter(Boolean))]
+  }
+
+  async function readUsageData(accountId: string, p: UsagePeriod) {
     const query = { account_id: accountId, period: p }
-    await usageService.fetchUsage(accountId)
     const [summary, chart] = await Promise.all([
       usageService.getUsageStats(query),
       usageService.getUsageChartData(query),
@@ -24,10 +27,15 @@ export const useUsageStore = defineStore('usage', () => {
     chartData.value.set(cacheKey(accountId, p), chart)
   }
 
+  async function refreshUsageData(accountId: string, p: UsagePeriod) {
+    await usageService.fetchUsage(accountId)
+    await readUsageData(accountId, p)
+  }
+
   async function loadUsage(accountId: string, p: UsagePeriod = period.value) {
     loading.value = true
     try {
-      await loadUsageData(accountId, p)
+      await refreshUsageData(accountId, p)
       period.value = p
     } finally {
       loading.value = false
@@ -37,14 +45,42 @@ export const useUsageStore = defineStore('usage', () => {
   async function loadUsageForAccounts(accountIds: string[], p: UsagePeriod = period.value) {
     loading.value = true
     try {
-      const uniqueAccountIds = [...new Set(accountIds.filter(Boolean))]
-      for (const accountId of uniqueAccountIds) {
-        await loadUsageData(accountId, p)
-      }
-      period.value = p
+      await refreshUsageForAccounts(accountIds, p)
     } finally {
       loading.value = false
     }
+  }
+
+  async function loadCachedUsageForAccounts(
+    accountIds: string[],
+    p: UsagePeriod = period.value,
+  ) {
+    for (const accountId of normalizeAccountIds(accountIds)) {
+      await readUsageData(accountId, p)
+    }
+    period.value = p
+  }
+
+  async function refreshUsageForAccounts(
+    accountIds: string[],
+    p: UsagePeriod = period.value,
+  ) {
+    for (const accountId of normalizeAccountIds(accountIds)) {
+      await refreshUsageData(accountId, p)
+    }
+    period.value = p
+  }
+
+  function hasCachedUsage(accountId: string, p: UsagePeriod = period.value): boolean {
+    const key = cacheKey(accountId, p)
+    return summaries.value.has(key) || chartData.value.has(key)
+  }
+
+  function hasCachedUsageForAccounts(
+    accountIds: string[],
+    p: UsagePeriod = period.value,
+  ): boolean {
+    return normalizeAccountIds(accountIds).some((accountId) => hasCachedUsage(accountId, p))
   }
 
   function getSummary(accountId: string, p: UsagePeriod = period.value): UsageSummary | null {
@@ -59,7 +95,7 @@ export const useUsageStore = defineStore('usage', () => {
     accountIds: string[],
     p: UsagePeriod = period.value,
   ): UsageSummary | null {
-    const uniqueAccountIds = [...new Set(accountIds.filter(Boolean))]
+    const uniqueAccountIds = normalizeAccountIds(accountIds)
     if (uniqueAccountIds.length === 0) {
       return null
     }
@@ -98,7 +134,7 @@ export const useUsageStore = defineStore('usage', () => {
   ): ChartDataPoint[] {
     const pointMap = new Map<string, ChartDataPoint>()
 
-    for (const accountId of [...new Set(accountIds.filter(Boolean))]) {
+    for (const accountId of normalizeAccountIds(accountIds)) {
       for (const point of getChartData(accountId, p)) {
         const existingPoint = pointMap.get(point.date)
         if (existingPoint) {
@@ -125,10 +161,13 @@ export const useUsageStore = defineStore('usage', () => {
     loading,
     loadUsage,
     loadUsageForAccounts,
+    loadCachedUsageForAccounts,
+    refreshUsageForAccounts,
     getSummary,
     getChartData,
     getSummaryForAccounts,
     getChartDataForAccounts,
+    hasCachedUsageForAccounts,
     setPeriod,
   }
 })

@@ -111,6 +111,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
+import { useMessage } from 'naive-ui'
 import { useAccountStore } from '@/stores/account'
 import { useUsageStore } from '@/stores/usage'
 import type { ChartDataPoint, UsagePeriod } from '@/types'
@@ -128,6 +129,7 @@ interface UsageSummaryRow {
 
 const accountStore = useAccountStore()
 const usageStore = useUsageStore()
+const message = useMessage()
 const annualPeriod: UsagePeriod = 'year'
 const loading = ref(false)
 const initialized = ref(false)
@@ -225,13 +227,26 @@ function segmentWidth(value: number, total: number): string {
 }
 
 async function loadData() {
-  if (accountIds.value.length === 0) {
+  const currentAccountIds = accountIds.value
+  if (currentAccountIds.length === 0) {
     return
   }
 
-  loading.value = true
+  const hasMemoryCache = usageStore.hasCachedUsageForAccounts(currentAccountIds, annualPeriod)
+  loading.value = !hasMemoryCache
   try {
-    await usageStore.loadUsageForAccounts(accountIds.value, annualPeriod)
+    if (!hasMemoryCache) {
+      await usageStore.loadCachedUsageForAccounts(currentAccountIds, annualPeriod)
+    }
+
+    if (usageStore.hasCachedUsageForAccounts(currentAccountIds, annualPeriod)) {
+      loading.value = false
+    }
+
+    await usageStore.refreshUsageForAccounts(currentAccountIds, annualPeriod)
+  } catch (error) {
+    console.warn('刷新 Token 用量失败', error)
+    message.error('刷新 Token 用量失败')
   } finally {
     loading.value = false
   }

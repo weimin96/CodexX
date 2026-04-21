@@ -133,7 +133,6 @@
         <div class="setting-item">
           <div class="setting-copy">
             <div class="setting-title">更新日志</div>
-            <div class="setting-description">查看当前版本的变更记录。</div>
           </div>
           <n-button secondary @click="showCurrentChangelogDialog">
             查看日志
@@ -209,18 +208,23 @@ import { usageService } from '@/services'
 import { useSettingsStore } from '@/stores/settings'
 import type { AppSettings } from '@/types'
 import { checkAppUpdate, installAppUpdate } from '@/utils/app-updater'
-import { extractVersionChangelog, normalizeUpdateChangelogBody } from '@/utils/update-changelog'
+import { renderMarkdownLite } from '@/utils/markdown-lite'
+import {
+  extractLatestChangelogSections,
+  normalizeUpdateChangelogBody,
+} from '@/utils/update-changelog'
 
 const message = useMessage()
 const dialog = useDialog()
 const settingsStore = useSettingsStore()
 const appVersion = packageJson.version
 const githubRepositoryUrl = 'https://github.com/weimin96/CodexX'
+const githubReleasesUrl = `${githubRepositoryUrl}/releases`
 
 const autosaveState = ref<'idle' | 'saving' | 'saved' | 'error'>('idle')
 const checkingUpdate = ref(false)
 let autosaveResetTimer: ReturnType<typeof setTimeout> | null = null
-const currentVersionChangelog = computed(() => extractVersionChangelog(changelogMarkdown, appVersion))
+const recentChangelog = computed(() => extractLatestChangelogSections(changelogMarkdown, 3))
 
 const intervalOptions = [
   { label: '1 分钟', value: '60' },
@@ -387,16 +391,24 @@ function handleClearUsage() {
 }
 
 function showCurrentChangelogDialog() {
-  showChangelogDialog(appVersion, currentVersionChangelog.value)
+  showRecentChangelogDialog(recentChangelog.value)
 }
 
 async function handleOpenGitHub() {
+  await openExternalLink(githubRepositoryUrl, '打开 GitHub 地址失败')
+}
+
+async function handleOpenGitHubReleases() {
+  await openExternalLink(githubReleasesUrl, '打开 GitHub Releases 失败')
+}
+
+async function openExternalLink(url: string, failureLog: string) {
   try {
     const { open } = await import('@tauri-apps/plugin-shell')
-    await open(githubRepositoryUrl)
+    await open(url)
   } catch (error) {
-    console.warn('打开 GitHub 地址失败', error)
-    window.open(githubRepositoryUrl, '_blank', 'noopener,noreferrer')
+    console.warn(failureLog, error)
+    window.open(url, '_blank', 'noopener,noreferrer')
   }
 }
 
@@ -442,31 +454,30 @@ function showUpdateInstallDialog(version: string, body?: string) {
   })
 }
 
-function showChangelogDialog(version: string, body?: string) {
+function showRecentChangelogDialog(body?: string) {
   dialog.info({
-    title: `更新日志 ${version}`,
+    title: '更新日志（最近三个版本）',
     content: () => renderChangelogDialogContent(body),
     positiveText: '知道了',
+    negativeText: '查看更多日志',
+    onNegativeClick: () => {
+      void handleOpenGitHubReleases()
+    },
   })
 }
 
 function renderChangelogDialogContent(body?: string) {
+  const markdownBody = normalizeUpdateChangelogBody(body)
   return h(
-    'pre',
+    'div',
     {
-      style: {
-        maxHeight: '360px',
-        overflow: 'auto',
-        margin: '0',
-        whiteSpace: 'pre-wrap',
-        wordBreak: 'break-word',
-        fontFamily: 'var(--font-sans)',
-        fontSize: '13px',
-        lineHeight: '1.6',
-        color: 'var(--app-ink)',
-      },
+      class: 'changelog-dialog-content',
     },
-    normalizeUpdateChangelogBody(body),
+    [
+      renderMarkdownLite(markdownBody, (url) => {
+        void openExternalLink(url, '打开外部链接失败')
+      }),
+    ],
   )
 }
 </script>
@@ -623,6 +634,87 @@ function renderChangelogDialogContent(body?: string) {
 
 .github-address {
   word-break: break-all;
+}
+
+.changelog-dialog-content {
+  max-height: 360px;
+  overflow: auto;
+  margin: 0;
+  font-family: var(--font-sans);
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--app-ink);
+}
+
+.changelog-dialog-content :deep(.markdown-lite-h1) {
+  font-size: 15px;
+  margin: 0 0 10px 0;
+  font-weight: 700;
+}
+
+.changelog-dialog-content :deep(.markdown-lite-h2) {
+  font-size: 14px;
+  margin: 14px 0 8px 0;
+  font-weight: 700;
+}
+
+.changelog-dialog-content :deep(.markdown-lite-h3) {
+  font-size: 13px;
+  margin: 12px 0 6px 0;
+  font-weight: 700;
+  color: var(--app-ink-secondary);
+}
+
+.changelog-dialog-content :deep(.markdown-lite-p) {
+  margin: 8px 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.changelog-dialog-content :deep(.markdown-lite-ul) {
+  margin: 8px 0;
+  padding-left: 18px;
+}
+
+.changelog-dialog-content :deep(.markdown-lite-li) {
+  margin: 4px 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.changelog-dialog-content :deep(.markdown-lite-inline-code) {
+  padding: 1px 6px;
+  border-radius: 8px;
+  background: var(--app-surface-muted);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.changelog-dialog-content :deep(.markdown-lite-fence) {
+  margin: 10px 0;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: var(--app-surface-muted);
+}
+
+.changelog-dialog-content :deep(.markdown-lite-pre) {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.changelog-dialog-content :deep(.markdown-lite-code) {
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.changelog-dialog-content :deep(.markdown-lite-link) {
+  color: var(--app-blue);
+  text-decoration: none;
+}
+
+.changelog-dialog-content :deep(.markdown-lite-link:hover) {
+  text-decoration: underline;
 }
 
 @media (max-width: 640px) {

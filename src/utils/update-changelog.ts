@@ -32,6 +32,31 @@ export function extractVersionChangelog(markdown: string, version: string): stri
   return normalizeUpdateChangelogBody(sectionContent)
 }
 
+export function extractLatestChangelogSections(markdown: string, sectionCount: number): string {
+  if (sectionCount <= 0) {
+    return normalizeUpdateChangelogBody()
+  }
+
+  const normalizedMarkdown = (markdown ?? '').replace(/\r\n/g, '\n')
+  const headingMatches = Array.from(normalizedMarkdown.matchAll(/^##\s+.+$/gm))
+  if (headingMatches.length === 0) {
+    return normalizeUpdateChangelogBody()
+  }
+
+  const sectionsToTake = Math.min(sectionCount, headingMatches.length)
+  const sections: string[] = []
+
+  for (let index = 0; index < sectionsToTake; index += 1) {
+    const match = headingMatches[index]
+    const start = match.index ?? 0
+    const end =
+      index + 1 < headingMatches.length ? (headingMatches[index + 1].index ?? normalizedMarkdown.length) : normalizedMarkdown.length
+    sections.push(normalizedMarkdown.slice(start, end).trimEnd())
+  }
+
+  return normalizeUpdateChangelogBody(sections.join('\n\n'))
+}
+
 export function rememberInstalledUpdateChangelog(payload: UpdateChangelogPayload) {
   if (typeof window === 'undefined') {
     return

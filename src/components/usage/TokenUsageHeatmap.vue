@@ -40,14 +40,13 @@
       <div class="heatmap-board">
         <div class="heatmap-corner" aria-hidden="true" />
 
-        <div class="heatmap-month-row" :style="heatmapMonthRowStyle">
+        <div class="heatmap-month-row">
           <span
-            v-for="monthLabel in heatmapMonthLabels"
-            :key="monthLabel.key"
-            class="heatmap-month-label"
-            :style="buildMonthLabelStyle(monthLabel)"
+            v-for="slot in heatmapMonthSlots"
+            :key="`month-${slot.key}`"
+            class="heatmap-month-slot"
           >
-            {{ monthLabel.label }}
+            {{ slot.label }}
           </span>
         </div>
 
@@ -109,11 +108,9 @@ interface HeatmapWeek {
   cells: HeatmapCell[]
 }
 
-interface HeatmapMonthLabel {
+interface HeatmapMonthSlot {
   key: string
   label: string
-  start_week_index: number
-  week_span: number
 }
 
 const props = defineProps<{
@@ -194,11 +191,11 @@ const heatmapWeeks = computed<HeatmapWeek[]>(() => {
   return weeks
 })
 
-const heatmapMonthRowStyle = computed(() => ({
-  gridTemplateColumns: `repeat(${heatmapWeeks.value.length}, minmax(0, 1fr))`,
-}))
-
-const heatmapMonthLabels = computed<HeatmapMonthLabel[]>(() => {
+const heatmapMonthSlots = computed<HeatmapMonthSlot[]>(() => {
+  const slots = heatmapWeeks.value.map((week) => ({
+    key: week.key,
+    label: '',
+  }))
   const monthRanges = new Map<
     string,
     {
@@ -232,14 +229,16 @@ const heatmapMonthLabels = computed<HeatmapMonthLabel[]>(() => {
     }
   })
 
-  return Array.from(monthRanges.values())
-    .map((range) => ({
-      key: range.key,
-      label: range.label,
-      start_week_index: range.start_week_index,
-      week_span: range.end_week_index - range.start_week_index + 1,
-    }))
-    .filter((label, index) => index > 0 || label.week_span >= 2)
+  Array.from(monthRanges.values()).forEach((range, index) => {
+    const weekSpan = range.end_week_index - range.start_week_index + 1
+    if (index === 0 && weekSpan < 2) {
+      return
+    }
+
+    slots[range.start_week_index].label = range.label
+  })
+
+  return slots
 })
 
 const activeDayCount = computed(() =>
@@ -346,12 +345,6 @@ function resolveHeatmapLevel(totalTokens: number, thresholds: [number, number, n
   }
 
   return 4
-}
-
-function buildMonthLabelStyle(label: HeatmapMonthLabel) {
-  return {
-    gridColumn: `${label.start_week_index + 1} / span ${label.week_span}`,
-  }
 }
 
 function startOfDay(date: Date): Date {
@@ -501,19 +494,19 @@ function formatMonthDay(dateKey: string): string {
 }
 
 .heatmap-month-row {
-  display: grid;
-  column-gap: var(--heatmap-gap);
+  display: flex;
+  gap: var(--heatmap-gap);
   width: 100%;
   min-width: 0;
 }
 
-.heatmap-month-label {
+.heatmap-month-slot {
+  flex: 1 1 0;
   min-width: 0;
   font-size: 11px;
   line-height: 1.2;
   color: var(--app-ink-tertiary);
   white-space: nowrap;
-  overflow: hidden;
 }
 
 .heatmap-weekday-labels {
@@ -613,7 +606,7 @@ function formatMonthDay(dateKey: string): string {
     --heatmap-weekday-width: 16px;
   }
 
-  .heatmap-month-label {
+  .heatmap-month-slot {
     font-size: 10px;
   }
 

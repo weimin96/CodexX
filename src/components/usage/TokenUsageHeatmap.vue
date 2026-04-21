@@ -229,9 +229,15 @@ const heatmapMonthSlots = computed<HeatmapMonthSlot[]>(() => {
     }
   })
 
-  Array.from(monthRanges.values()).forEach((range, index) => {
+  const visibleMonthRanges = Array.from(monthRanges.values())
+  const lastMonthRange = visibleMonthRanges[visibleMonthRanges.length - 1]
+
+  visibleMonthRanges.forEach((range, index) => {
     const weekSpan = range.end_week_index - range.start_week_index + 1
-    if (index === 0 && weekSpan < 2) {
+    const sameAsEndMonth = Boolean(
+      lastMonthRange && range.key !== lastMonthRange.key && range.label === lastMonthRange.label,
+    )
+    if (index === 0 && (weekSpan < 2 || sameAsEndMonth)) {
       return
     }
 

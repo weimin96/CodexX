@@ -219,9 +219,9 @@ fn collect_usage_candidates(root: &Value, value: &Value, items: &mut Vec<ParsedS
                 if let Some(item) = parse_usage_candidate(root, usage) {
                     items.push(item);
                 }
-            }
-
-            if let Some(item) = parse_usage_candidate(root, value) {
+            } else if let Some(item) = parse_usage_candidate(root, value) {
+                // 设计取舍：当对象同时存在 usage 子对象与同级 token 字段时，
+                // 以 usage 子对象为准，避免同一条日志被重复计入用量。
                 items.push(item);
             }
 
@@ -420,5 +420,28 @@ mod tests {
             build_session_usage_event_id("session-a", file_path, 7, 1),
             build_session_usage_event_id("session-a", file_path, 7, 1)
         );
+    }
+
+    #[test]
+    fn avoids_double_count_when_usage_object_and_flat_tokens_coexist() {
+        let value = json!({
+            "timestamp": "2026-04-19T00:00:00Z",
+            "payload": {
+                "model": "gpt-5.4",
+                "input_tokens": 12,
+                "output_tokens": 5,
+                "total_tokens": 17,
+                "usage": {
+                    "input_tokens": 12,
+                    "output_tokens": 5,
+                    "total_tokens": 17
+                }
+            }
+        });
+
+        let items = parse_usage_items(&value);
+
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].total_tokens, 17);
     }
 }

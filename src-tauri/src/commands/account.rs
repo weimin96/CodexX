@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 
 use serde::Serialize;
 use serde_json::Value;
-use tauri::State;
+use tauri::{AppHandle, State};
 use zip::write::SimpleFileOptions;
 
 use crate::account::{
@@ -13,6 +13,7 @@ use crate::account::{
 use crate::auth;
 use crate::error::AppError;
 use crate::local_sync::LocalAuthSyncService;
+use crate::refresh_tray_menu;
 use crate::AppState;
 
 #[derive(Debug, Serialize)]
@@ -34,32 +35,48 @@ pub struct AccountImportResult {
 
 #[tauri::command]
 pub async fn create_account(
+    app: AppHandle,
     state: State<'_, AppState>,
     input: CreateAccountInput,
 ) -> Result<Value, AppError> {
     let resolved_input = resolve_create_account_input(input).await?;
-    let db = state.db.lock().await;
-    let repo = AccountRepository::new(&db);
-    let account = repo.create(resolved_input)?;
+    let account = {
+        let db = state.db.lock().await;
+        let repo = AccountRepository::new(&db);
+        repo.create(resolved_input)?
+    };
+    refresh_tray_menu(&app, &state.db).await;
     Ok(serde_json::to_value(account)?)
 }
 
 #[tauri::command]
 pub async fn update_account(
+    app: AppHandle,
     state: State<'_, AppState>,
     input: UpdateAccountInput,
 ) -> Result<Value, AppError> {
-    let db = state.db.lock().await;
-    let repo = AccountRepository::new(&db);
-    let account = repo.update(input)?;
+    let account = {
+        let db = state.db.lock().await;
+        let repo = AccountRepository::new(&db);
+        repo.update(input)?
+    };
+    refresh_tray_menu(&app, &state.db).await;
     Ok(serde_json::to_value(account)?)
 }
 
 #[tauri::command]
-pub async fn delete_account(state: State<'_, AppState>, id: String) -> Result<(), AppError> {
-    let db = state.db.lock().await;
-    let repo = AccountRepository::new(&db);
-    repo.delete(&id)
+pub async fn delete_account(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    id: String,
+) -> Result<(), AppError> {
+    {
+        let db = state.db.lock().await;
+        let repo = AccountRepository::new(&db);
+        repo.delete(&id)?;
+    }
+    refresh_tray_menu(&app, &state.db).await;
+    Ok(())
 }
 
 #[tauri::command]
@@ -89,18 +106,33 @@ pub async fn get_account_credential(
 }
 
 #[tauri::command]
-pub async fn switch_account(state: State<'_, AppState>, id: String) -> Result<(), AppError> {
-    let db = state.db.lock().await;
-    let repo = AccountRepository::new(&db);
-    LocalAuthSyncService::write_account_to_default_auth_file(&repo, &id)?;
+pub async fn switch_account(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    id: String,
+) -> Result<(), AppError> {
+    {
+        let db = state.db.lock().await;
+        let repo = AccountRepository::new(&db);
+        LocalAuthSyncService::write_account_to_default_auth_file(&repo, &id)?;
+    }
+    refresh_tray_menu(&app, &state.db).await;
     Ok(())
 }
 
 #[tauri::command]
-pub async fn set_default_account(state: State<'_, AppState>, id: String) -> Result<(), AppError> {
-    let db = state.db.lock().await;
-    let repo = AccountRepository::new(&db);
-    repo.set_default(&id)
+pub async fn set_default_account(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    id: String,
+) -> Result<(), AppError> {
+    {
+        let db = state.db.lock().await;
+        let repo = AccountRepository::new(&db);
+        repo.set_default(&id)?;
+    }
+    refresh_tray_menu(&app, &state.db).await;
+    Ok(())
 }
 
 #[tauri::command]
@@ -177,28 +209,33 @@ pub async fn export_accounts(
 
 #[tauri::command]
 pub async fn import_accounts(
+    app: AppHandle,
     state: State<'_, AppState>,
     input_path: String,
 ) -> Result<AccountImportResult, AppError> {
-    let db = state.db.lock().await;
-    let repo = AccountRepository::new(&db);
     let path = non_empty_path(&input_path, "请选择要导入的 auth.json 或 zip 文件")?;
-
-    match path.extension().and_then(|extension| extension.to_str()) {
-        Some(extension) if extension.eq_ignore_ascii_case("zip") => {
-            import_accounts_from_zip(&repo, path)
-        }
-        Some(extension) if extension.eq_ignore_ascii_case("json") => {
-            import_account_from_json_file(&repo, path)
-        }
-        _ => Err(AppError::InvalidInput(
-            "导入文件只支持 auth.json 或 zip 压缩包".to_string(),
-        )),
-    }
+    let result = {
+        let db = state.db.lock().await;
+        let repo = AccountRepository::new(&db);
+        match path.extension().and_then(|extension| extension.to_str()) {
+            Some(extension) if extension.eq_ignore_ascii_case("zip") => {
+                import_accounts_from_zip(&repo, path)
+            }
+            Some(extension) if extension.eq_ignore_ascii_case("json") => {
+                import_account_from_json_file(&repo, path)
+            }
+            _ => Err(AppError::InvalidInput(
+                "导入文件只支持 auth.json 或 zip 压缩包".to_string(),
+            )),
+        }?
+    };
+    refresh_tray_menu(&app, &state.db).await;
+    Ok(result)
 }
 
 #[tauri::command]
 pub async fn sync_local_auth_file(
+    app: AppHandle,
     state: State<'_, AppState>,
     auth_file_path: Option<String>,
 ) -> Result<Value, AppError> {
@@ -209,11 +246,15 @@ pub async fn sync_local_auth_file(
         let repo = AccountRepository::new(&db);
         LocalAuthSyncService::sync_prepared_auth(&repo, prepared, codex_profile)?
     };
+    refresh_tray_menu(&app, &state.db).await;
     Ok(serde_json::to_value(result)?)
 }
 
 #[tauri::command]
-pub async fn sync_local_default_account(state: State<'_, AppState>) -> Result<Value, AppError> {
+pub async fn sync_local_default_account(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<Value, AppError> {
     let prepared = match LocalAuthSyncService::prepare_auth_file(None) {
         Ok(prepared) => prepared,
         Err(error) => {
@@ -230,6 +271,7 @@ pub async fn sync_local_default_account(state: State<'_, AppState>) -> Result<Va
         let repo = AccountRepository::new(&db);
         LocalAuthSyncService::sync_default_account_marker(&repo, &prepared)?
     };
+    refresh_tray_menu(&app, &state.db).await;
     Ok(serde_json::to_value(result)?)
 }
 

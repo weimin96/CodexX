@@ -210,17 +210,7 @@ export interface AppSettings {
   check_interval: string
   autostart: string
   token_keepalive_enabled: string
-  quota_alert_enabled: string
   auto_update_enabled: string
-}
-
-export interface CodexQuotaExhaustedEvent {
-  account_id: string
-  account_name: string
-  plan_type?: string
-  five_hour_used_percent?: number
-  weekly_used_percent?: number
-  task_label: string
 }
 
 // ============================================================

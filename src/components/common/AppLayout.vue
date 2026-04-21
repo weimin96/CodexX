@@ -208,7 +208,6 @@ import { NIcon, useDialog } from 'naive-ui'
 import { useAccountStore } from '@/stores/account'
 import { useSettingsStore } from '@/stores/settings'
 import { AUTH_TYPE_LABELS } from '@/types'
-import type { CodexQuotaExhaustedEvent } from '@/types'
 import StatusDot from '@/components/common/StatusDot.vue'
 import { resolveAccountAvatarText, resolveAccountDisplayName } from '@/utils/account-display'
 import { resolveAccountStatusDisplay } from '@/utils/account-status'
@@ -224,7 +223,6 @@ const dialog = useDialog()
 const accountStore = useAccountStore()
 const settingsStore = useSettingsStore()
 const { activeAccount } = storeToRefs(accountStore)
-const quotaAlertShownKeys = new Set<string>()
 let startupAccountRefreshStarted = false
 
 const currentRoute = computed(() => route.name as string)
@@ -293,7 +291,6 @@ function handleNav(key: string) {
 }
 
 const nonDragSelector = 'button, a, input, textarea, select, [role="button"]'
-const QUOTA_EXHAUSTED_THRESHOLD = 99.9
 type WindowResizeDirection =
   | 'North'
   | 'South'
@@ -358,9 +355,6 @@ onMounted(async () => {
       await listen<{ account_id: string }>('default-account-updated', () => {
         void accountStore.loadAccounts()
       })
-      await listen<CodexQuotaExhaustedEvent>('codex-quota-exhausted', ({ payload }) => {
-        handleQuotaExhausted(payload)
-      })
     } catch (error) {
       console.warn('状态事件监听失败', error)
     }
@@ -368,48 +362,6 @@ onMounted(async () => {
 
   void refreshAccountsOnFirstStartup()
 })
-
-function handleQuotaExhausted(payload: CodexQuotaExhaustedEvent) {
-  if (settingsStore.settings.quota_alert_enabled !== 'true') {
-    return
-  }
-
-  const exhaustedWindows = [
-    payload.five_hour_used_percent !== undefined &&
-    payload.five_hour_used_percent >= QUOTA_EXHAUSTED_THRESHOLD
-      ? '5 小时额度'
-      : '',
-    payload.weekly_used_percent !== undefined &&
-    payload.weekly_used_percent >= QUOTA_EXHAUSTED_THRESHOLD
-      ? '7 天额度'
-      : '',
-  ].filter(Boolean)
-
-  if (exhaustedWindows.length === 0) {
-    return
-  }
-
-  const alertKey = [
-    payload.account_id,
-    payload.task_label,
-    exhaustedWindows.join(','),
-  ].join('|')
-  if (quotaAlertShownKeys.has(alertKey)) {
-    return
-  }
-  quotaAlertShownKeys.add(alertKey)
-
-  const planText = payload.plan_type ? `，计划 ${payload.plan_type.toUpperCase()}` : ''
-  dialog.warning({
-    title: 'Codex 额度已用尽',
-    content: `${payload.task_label}完成后检测到账号「${payload.account_name}」${exhaustedWindows.join('、')}已用尽${planText}。请切换到仍有剩余额度的账号后继续任务。`,
-    positiveText: '去切换账号',
-    negativeText: '稍后处理',
-    onPositiveClick: () => {
-      void router.push({ name: 'AccountList' })
-    },
-  })
-}
 
 function showInstalledUpdateChangelog() {
   const changelog = consumeInstalledUpdateChangelog()

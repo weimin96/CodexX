@@ -21,19 +21,6 @@ const SHORT_CONVERSATION_PROMPT: &str = "hi";
 const SHORT_CONVERSATION_MODEL: &str = "gpt-5.2";
 const SHORT_CONVERSATION_MODEL_LABEL: &str = "GPT-5.2";
 const LOW_REASONING_OVERRIDE: &str = "model_reasoning_effort=\"low\"";
-const CODEX_QUOTA_EXHAUSTED_EVENT: &str = "codex-quota-exhausted";
-const QUOTA_EXHAUSTED_THRESHOLD: f64 = 99.9;
-
-#[derive(Debug, Clone, Serialize)]
-struct CodexQuotaExhaustedEvent {
-    account_id: String,
-    account_name: String,
-    plan_type: Option<String>,
-    five_hour_used_percent: Option<f64>,
-    weekly_used_percent: Option<f64>,
-    task_label: String,
-}
-
 #[derive(Debug, Clone, Copy, Serialize)]
 #[serde(rename_all = "snake_case")]
 enum WarmupWorkingDirectorySource {
@@ -120,13 +107,7 @@ pub async fn run_codex_exec_session(
             }
 
             if status == "completed" {
-                refresh_quota_and_emit_exhausted_event(
-                    &app,
-                    state.inner(),
-                    &input.account_id,
-                    "Codex 任务",
-                )
-                .await;
+                refresh_quota_after_codex_task(&app, state.inner(), &input.account_id).await;
             }
 
             Ok(serde_json::to_value(CodexLaunchResult {
@@ -247,13 +228,7 @@ pub async fn trigger_codex_short_conversation(
             }
 
             if status == "completed" {
-                refresh_quota_and_emit_exhausted_event(
-                    &app,
-                    state.inner(),
-                    &selected_account.id,
-                    "一键预热",
-                )
-                .await;
+                refresh_quota_after_codex_task(&app, state.inner(), &selected_account.id).await;
             }
 
             let selected_account_name = account_email_or_name(&selected_account);
@@ -521,12 +496,7 @@ async fn prepare_launch_account(
     Ok(selected_account)
 }
 
-async fn refresh_quota_and_emit_exhausted_event(
-    app: &AppHandle,
-    state: &AppState,
-    account_id: &str,
-    task_label: &str,
-) {
+async fn refresh_quota_after_codex_task(app: &AppHandle, state: &AppState, account_id: &str) {
     let (account, credential) =
         match status_sync::load_account_and_credential(state, account_id).await {
             Ok(pair) => pair,
@@ -554,29 +524,6 @@ async fn refresh_quota_and_emit_exhausted_event(
             "account": refreshed_account.clone(),
         }),
     );
-
-    if !codex_quota_exhausted(&refreshed_account) {
-        return;
-    }
-
-    let exhausted_account_name = account_email_or_name(&refreshed_account);
-    let _ = app.emit(
-        CODEX_QUOTA_EXHAUSTED_EVENT,
-        CodexQuotaExhaustedEvent {
-            account_id: refreshed_account.id,
-            account_name: exhausted_account_name,
-            plan_type: refreshed_account.codex_plan_type,
-            five_hour_used_percent: refreshed_account
-                .codex_usage_5h
-                .as_ref()
-                .map(|window| window.used_percent),
-            weekly_used_percent: refreshed_account
-                .codex_usage_week
-                .as_ref()
-                .map(|window| window.used_percent),
-            task_label: task_label.to_string(),
-        },
-    );
 }
 
 fn account_email_or_name(account: &Account) -> String {
@@ -587,39 +534,4 @@ fn account_email_or_name(account: &Account) -> String {
         .filter(|email| !email.is_empty())
         .unwrap_or(&account.name)
         .to_string()
-}
-
-fn codex_quota_exhausted(account: &Account) -> bool {
-    let five_hour_exhausted = quota_window_exhausted(
-        account
-            .codex_usage_5h
-            .as_ref()
-            .map(|window| window.used_percent),
-    );
-    let weekly_exhausted = quota_window_exhausted(
-        account
-            .codex_usage_week
-            .as_ref()
-            .map(|window| window.used_percent),
-    );
-
-    five_hour_exhausted || weekly_exhausted
-}
-
-// 资料接口返回的 used_percent 可能带有浮点误差，接近 100% 也按用尽处理，避免提醒漏报。
-fn quota_window_exhausted(used_percent: Option<f64>) -> bool {
-    used_percent.is_some_and(|value| value >= QUOTA_EXHAUSTED_THRESHOLD)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::quota_window_exhausted;
-
-    #[test]
-    fn treats_near_hundred_percent_as_exhausted() {
-        assert!(quota_window_exhausted(Some(100.0)));
-        assert!(quota_window_exhausted(Some(99.95)));
-        assert!(!quota_window_exhausted(Some(99.0)));
-        assert!(!quota_window_exhausted(None));
-    }
 }

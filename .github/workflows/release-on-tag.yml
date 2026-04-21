@@ -35,7 +35,7 @@ jobs:
       - name: 安装 pnpm
         uses: pnpm/action-setup@v6.0.1
         with:
-          version: 9
+          version: 10.28.0
 
       - name: 安装 Node.js
         uses: actions/setup-node@v6.4.0

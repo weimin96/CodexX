@@ -3,6 +3,7 @@
   "private": true,
   "version": "0.1.3",
   "type": "module",
+  "packageManager": "pnpm@10.28.0",
   "scripts": {
     "dev": "vite",
     "build": "vue-tsc --noEmit && vite build",
@@ -37,5 +38,11 @@
     "vfonts": "^0.0.3",
     "vite": "^5.2.0",
     "vue-tsc": "^2.0.0"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild",
+      "vue-demi"
+    ]
   }
 }

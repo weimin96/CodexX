@@ -425,6 +425,15 @@ function renderChangelogDialogContent(body?: string) {
     'div',
     {
       class: 'changelog-dialog-content',
+      style: {
+        maxHeight: '300px',
+        overflow: 'auto',
+        margin: '0',
+        fontFamily: 'var(--font-sans)',
+        fontSize: '13px',
+        lineHeight: '1.6',
+        color: 'var(--app-ink)',
+      },
     },
     [
       renderMarkdownLite(markdownBody, (url) => {

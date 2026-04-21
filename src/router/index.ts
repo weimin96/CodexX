@@ -26,12 +26,6 @@ const router = createRouter({
       meta: { title: '用量统计' },
     },
     {
-      path: '/codex',
-      name: 'CodexLaunch',
-      component: () => import('@/views/CodexLaunchView.vue'),
-      meta: { title: '启动器' },
-    },
-    {
       path: '/codex-config',
       name: 'CodexConfig',
       component: () => import('@/views/CodexConfigView.vue'),

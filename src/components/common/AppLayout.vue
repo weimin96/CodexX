@@ -181,7 +181,9 @@
                 />
               </svg>
             </span>
-            <span v-if="!sidebarCollapsed">{{ restartingCodexApp ? '重启中' : '重启 App' }}</span>
+            <span v-if="!sidebarCollapsed">
+              {{ restartingCodexApp ? '重启中' : '重启 Codex App' }}
+            </span>
           </button>
         </div>
       </aside>

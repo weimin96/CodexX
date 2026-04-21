@@ -2,7 +2,7 @@
   <section class="surface-panel section-grid heatmap-panel">
     <div class="heatmap-head">
       <div class="heatmap-copy">
-        <h2 class="panel-heading heatmap-title">token用量</h2>
+        <h2 class="panel-heading heatmap-title">Token用量</h2>
       </div>
 
       <div class="heatmap-meta">

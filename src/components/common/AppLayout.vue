@@ -163,16 +163,17 @@
 
         <div class="sidebar-footer">
           <button
-            class="codex-launch-button"
-            :class="{ active: currentRoute === 'CodexLaunch', collapsed: sidebarCollapsed }"
+            class="codex-restart-button"
+            :class="{ collapsed: sidebarCollapsed, restarting: restartingCodexApp }"
             type="button"
-            :title="sidebarCollapsed ? '启动器' : undefined"
-            @click="router.push({ name: 'CodexLaunch' })"
+            :disabled="restartingCodexApp"
+            :title="sidebarCollapsed ? '重启 Codex App' : undefined"
+            @click="handleRestartCodexApp"
           >
-            <span class="codex-launch-icon">
+            <span class="codex-restart-icon">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
                 <path
-                  d="M8 9l-4 3 4 3m8-6 4 3-4 3M14 5l-4 14"
+                  d="M21 12a9 9 0 1 1-2.64-6.36M21 3v6h-6"
                   stroke="currentColor"
                   stroke-width="1.8"
                   stroke-linecap="round"
@@ -180,7 +181,7 @@
                 />
               </svg>
             </span>
-            <span v-if="!sidebarCollapsed">启动器</span>
+            <span v-if="!sidebarCollapsed">{{ restartingCodexApp ? '重启中' : '重启 App' }}</span>
           </button>
         </div>
       </aside>
@@ -204,11 +205,12 @@ import { isTauri as detectTauriRuntime } from '@tauri-apps/api/core'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { listen } from '@tauri-apps/api/event'
 import type { MenuOption } from 'naive-ui'
-import { NIcon, useDialog } from 'naive-ui'
+import { NIcon, useDialog, useMessage } from 'naive-ui'
 import { useAccountStore } from '@/stores/account'
 import { useSettingsStore } from '@/stores/settings'
 import { AUTH_TYPE_LABELS } from '@/types'
 import StatusDot from '@/components/common/StatusDot.vue'
+import { usageService } from '@/services'
 import { resolveAccountAvatarText, resolveAccountDisplayName } from '@/utils/account-display'
 import { resolveAccountStatusDisplay } from '@/utils/account-status'
 import { checkAppUpdate, installAppUpdate } from '@/utils/app-updater'
@@ -220,6 +222,7 @@ import {
 const router = useRouter()
 const route = useRoute()
 const dialog = useDialog()
+const message = useMessage()
 const accountStore = useAccountStore()
 const settingsStore = useSettingsStore()
 const { activeAccount } = storeToRefs(accountStore)
@@ -278,10 +281,6 @@ const menuOptions: MenuOption[] = [
 ]
 
 const currentSectionLabel = computed(() => {
-  if (currentRoute.value === 'CodexLaunch') {
-    return '启动器'
-  }
-
   const currentOption = menuOptions.find((option) => option.key === currentRoute.value)
   return typeof currentOption?.label === 'string' ? currentOption.label : 'CodexX'
 })
@@ -304,6 +303,7 @@ type WindowResizeDirection =
 let appWindow: ReturnType<typeof getCurrentWindow> | null = null
 const isTauri = ref(detectTauriRuntime())
 const sidebarCollapsed = ref(false)
+const restartingCodexApp = ref(false)
 
 const minimizeWindow = () => appWindow?.minimize()
 const toggleMaximize = () => appWindow?.toggleMaximize()
@@ -326,6 +326,24 @@ function handleResizeZoneMouseDown(direction: WindowResizeDirection, event: Mous
   void appWindow.startResizeDragging(direction).catch((error) => {
     console.warn(`窗口缩放启动失败: ${direction}`, error)
   })
+}
+
+async function handleRestartCodexApp() {
+  if (restartingCodexApp.value) {
+    return
+  }
+
+  restartingCodexApp.value = true
+  try {
+    await usageService.closeCodexApp()
+    await usageService.launchCodexApp()
+    message.success('Codex App 已重启')
+  } catch (error) {
+    console.warn('重启 Codex App 失败', error)
+    message.error('重启 Codex App 失败')
+  } finally {
+    restartingCodexApp.value = false
+  }
 }
 
 onMounted(async () => {
@@ -782,7 +800,7 @@ async function refreshAccountsOnFirstStartup() {
   margin-top: auto;
 }
 
-.codex-launch-button {
+.codex-restart-button {
   width: 100%;
   min-height: 42px;
   border: none;
@@ -803,19 +821,24 @@ async function refreshAccountsOnFirstStartup() {
     transform 0.18s ease;
 }
 
-.codex-launch-button.collapsed {
+.codex-restart-button.collapsed {
   justify-content: center;
   padding-inline: 0;
 }
 
-.codex-launch-button:hover,
-.codex-launch-button.active {
+.codex-restart-button:hover:not(:disabled),
+.codex-restart-button.restarting {
   background: var(--app-sidebar-panel-hover);
   color: var(--app-blue);
   transform: translateY(-1px);
 }
 
-.codex-launch-icon {
+.codex-restart-button:disabled {
+  cursor: wait;
+  opacity: 0.74;
+}
+
+.codex-restart-icon {
   display: inline-flex;
   align-items: center;
   justify-content: center;

@@ -358,12 +358,12 @@ fn tray_account_menu_label(account: &Account) -> String {
         .filter(|email| !email.is_empty())
         .unwrap_or(&account.name);
 
-    let plan_label = resolve_tray_plan_label(account);
+    let plan_label = resolve_tray_plan_label(account).to_ascii_uppercase();
     let remaining_five_hour = resolve_remaining_percent(account.codex_usage_5h.as_ref());
     let remaining_one_week = resolve_remaining_percent(account.codex_usage_week.as_ref());
 
     format!(
-        "{display_name} ({plan_label}) · 5h {remaining_five_hour}% · 7d {remaining_one_week}%"
+        "{display_name} [{plan_label}]  5h {remaining_five_hour:>3}%  7d {remaining_one_week:>3}%"
     )
 }
 

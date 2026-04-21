@@ -637,7 +637,7 @@ function renderChangelogDialogContent(body?: string) {
 }
 
 .changelog-dialog-content {
-  max-height: 360px;
+  max-height: 300px;
   overflow: auto;
   margin: 0;
   font-family: var(--font-sans);

@@ -40,13 +40,14 @@
       <div class="heatmap-board">
         <div class="heatmap-corner" aria-hidden="true" />
 
-        <div class="heatmap-month-row">
+        <div class="heatmap-month-row" :style="heatmapMonthRowStyle">
           <span
-            v-for="week in heatmapWeeks"
-            :key="`month-${week.key}`"
-            class="heatmap-month-slot"
+            v-for="monthLabel in heatmapMonthLabels"
+            :key="monthLabel.key"
+            class="heatmap-month-label"
+            :style="buildMonthLabelStyle(monthLabel)"
           >
-            {{ week.month_label }}
+            {{ monthLabel.label }}
           </span>
         </div>
 
@@ -105,8 +106,14 @@ interface HeatmapCell {
 
 interface HeatmapWeek {
   key: string
-  month_label: string
   cells: HeatmapCell[]
+}
+
+interface HeatmapMonthLabel {
+  key: string
+  label: string
+  start_week_index: number
+  week_span: number
 }
 
 const props = defineProps<{
@@ -152,7 +159,6 @@ const heatmapWeeks = computed<HeatmapWeek[]>(() => {
   const { start, end, grid_start, grid_end } = annualRange.value
   const weeks: HeatmapWeek[] = []
   let cursor = new Date(grid_start)
-  let lastLabeledMonthKey = ''
 
   while (cursor <= grid_end) {
     const weekStart = new Date(cursor)
@@ -178,21 +184,62 @@ const heatmapWeeks = computed<HeatmapWeek[]>(() => {
       })
     }
 
-    const monthAnchor = resolveMonthAnchor(cells, lastLabeledMonthKey)
-    const monthLabel = monthAnchor ? formatMonthLabel(parseDateKey(monthAnchor)) : ''
-    if (monthAnchor) {
-      lastLabeledMonthKey = monthKey(parseDateKey(monthAnchor))
-    }
-
     weeks.push({
       key: formatDateKey(weekStart),
-      month_label: monthLabel,
       cells,
     })
     cursor = addDays(weekStart, 7)
   }
 
   return weeks
+})
+
+const heatmapMonthRowStyle = computed(() => ({
+  gridTemplateColumns: `repeat(${heatmapWeeks.value.length}, minmax(0, 1fr))`,
+}))
+
+const heatmapMonthLabels = computed<HeatmapMonthLabel[]>(() => {
+  const monthRanges = new Map<
+    string,
+    {
+      key: string
+      label: string
+      start_week_index: number
+      end_week_index: number
+    }
+  >()
+
+  heatmapWeeks.value.forEach((week, weekIndex) => {
+    for (const cell of week.cells) {
+      if (!cell.in_range) {
+        continue
+      }
+
+      const date = parseDateKey(cell.date)
+      const key = monthKey(date)
+      const existingRange = monthRanges.get(key)
+      if (existingRange) {
+        existingRange.end_week_index = weekIndex
+        continue
+      }
+
+      monthRanges.set(key, {
+        key,
+        label: formatMonthLabel(date),
+        start_week_index: weekIndex,
+        end_week_index: weekIndex,
+      })
+    }
+  })
+
+  return Array.from(monthRanges.values())
+    .map((range) => ({
+      key: range.key,
+      label: range.label,
+      start_week_index: range.start_week_index,
+      week_span: range.end_week_index - range.start_week_index + 1,
+    }))
+    .filter((label, index) => index > 0 || label.week_span >= 2)
 })
 
 const activeDayCount = computed(() =>
@@ -301,25 +348,10 @@ function resolveHeatmapLevel(totalTokens: number, thresholds: [number, number, n
   return 4
 }
 
-function resolveMonthAnchor(cells: HeatmapCell[], lastLabeledMonthKey: string): string | null {
-  const inRangeCells = cells.filter((cell) => cell.in_range)
-  if (inRangeCells.length === 0) {
-    return null
+function buildMonthLabelStyle(label: HeatmapMonthLabel) {
+  return {
+    gridColumn: `${label.start_week_index + 1} / span ${label.week_span}`,
   }
-
-  const monthStartCell = inRangeCells.find((cell) => {
-    const currentDate = parseDateKey(cell.date)
-    return currentDate.getDate() <= 7 && monthKey(currentDate) !== lastLabeledMonthKey
-  })
-  if (monthStartCell) {
-    return monthStartCell.date
-  }
-
-  if (!lastLabeledMonthKey) {
-    return inRangeCells[0].date
-  }
-
-  return null
 }
 
 function startOfDay(date: Date): Date {
@@ -469,19 +501,19 @@ function formatMonthDay(dateKey: string): string {
 }
 
 .heatmap-month-row {
-  display: flex;
-  gap: var(--heatmap-gap);
+  display: grid;
+  column-gap: var(--heatmap-gap);
   width: 100%;
   min-width: 0;
 }
 
-.heatmap-month-slot {
-  flex: 1 1 0;
+.heatmap-month-label {
   min-width: 0;
   font-size: 11px;
   line-height: 1.2;
   color: var(--app-ink-tertiary);
   white-space: nowrap;
+  overflow: hidden;
 }
 
 .heatmap-weekday-labels {
@@ -581,7 +613,7 @@ function formatMonthDay(dateKey: string): string {
     --heatmap-weekday-width: 16px;
   }
 
-  .heatmap-month-slot {
+  .heatmap-month-label {
     font-size: 10px;
   }
 

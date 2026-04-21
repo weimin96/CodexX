@@ -18,13 +18,28 @@ use std::sync::mpsc::Sender;
 use std::sync::Arc;
 use std::thread::JoinHandle;
 use storage::Database;
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 use tokio::sync::Mutex;
 
+use crate::account::{Account, AccountRepository};
 use crate::auth::PendingOAuthLogin;
+use crate::codex_runtime::{close_codex_desktop_app, open_codex_desktop_app};
+use crate::local_sync::LocalAuthSyncService;
 
 #[cfg(all(desktop))]
 const TRAY_ICON_BYTES: &[u8] = include_bytes!("../icons/64x64.png");
+#[cfg(all(desktop))]
+const MAIN_TRAY_ID: &str = "main";
+#[cfg(all(desktop))]
+const TRAY_MENU_OPEN_ID: &str = "open";
+#[cfg(all(desktop))]
+const TRAY_MENU_RESTART_CODEX_APP_ID: &str = "restart-codex-app";
+#[cfg(all(desktop))]
+const TRAY_MENU_QUIT_ID: &str = "quit";
+#[cfg(all(desktop))]
+const TRAY_MENU_SWITCH_ACCOUNT_PREFIX: &str = "switch-account::";
+#[cfg(all(desktop))]
+const TRAY_DEFAULT_ACCOUNT_UPDATED_EVENT: &str = "default-account-updated";
 pub const APP_USER_AGENT: &str = concat!("codexx/", env!("CARGO_PKG_VERSION"));
 
 pub struct OAuthCallbackListenerHandle {
@@ -57,6 +72,13 @@ pub fn run() {
             let db_path = resolve_codex_manager_db_path().expect("无法解析数据库目录");
             migrate_legacy_database(&legacy_db_path, &db_path).expect("迁移旧数据库失败");
             let db = Database::new(&db_path).expect("初始化数据库失败");
+            let initial_tray_accounts =
+                AccountRepository::new(&db)
+                    .list_all()
+                    .unwrap_or_else(|error| {
+                        log::warn!("读取托盘初始账号列表失败: {error}");
+                        Vec::new()
+                    });
 
             app.manage(AppState {
                 db: Arc::new(Mutex::new(db)),
@@ -69,7 +91,7 @@ pub fn run() {
             #[cfg(all(desktop))]
             {
                 let handle = app.handle().clone();
-                setup_tray(handle)?;
+                setup_tray(handle, &initial_tray_accounts)?;
             }
 
             // 启动后台调度器，周期性刷新账号状态但不读取本地 auth.json。
@@ -182,34 +204,38 @@ fn copy_sqlite_sidecar_file(
 }
 
 #[cfg(all(desktop))]
-fn setup_tray(handle: tauri::AppHandle) -> tauri::Result<()> {
+fn setup_tray(handle: tauri::AppHandle, accounts: &[Account]) -> tauri::Result<()> {
     use tauri::image::Image;
-    use tauri::menu::{Menu, MenuItem};
-    use tauri::tray::{MouseButton, TrayIconBuilder, TrayIconEvent};
+    use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 
-    let open = MenuItem::with_id(&handle, "open", "打开", true, None::<&str>)?;
-    let quit = MenuItem::with_id(&handle, "quit", "退出", true, None::<&str>)?;
-    let menu = Menu::with_items(&handle, &[&open, &quit])?;
+    let menu = build_tray_menu(&handle, accounts)?;
     let tray_icon = Image::from_bytes(TRAY_ICON_BYTES)?;
 
-    TrayIconBuilder::with_id("main")
+    TrayIconBuilder::with_id(MAIN_TRAY_ID)
         .icon(tray_icon)
         .icon_as_template(false)
         .menu(&menu)
         .tooltip("CodexX")
         .show_menu_on_left_click(false)
         .on_menu_event(|app, event| match event.id.as_ref() {
-            "open" => open_main_window(app),
-            "quit" => {
+            TRAY_MENU_OPEN_ID => open_main_window(app),
+            TRAY_MENU_RESTART_CODEX_APP_ID => restart_codex_app_from_tray(),
+            TRAY_MENU_QUIT_ID => {
                 app.exit(0);
+            }
+            menu_id
+                if let Some(account_id) = menu_id.strip_prefix(TRAY_MENU_SWITCH_ACCOUNT_PREFIX) =>
+            {
+                switch_account_from_tray(app.clone(), account_id.to_string());
             }
             unknown_id => {
                 log::warn!("忽略未知托盘菜单事件: {unknown_id}");
             }
         })
         .on_tray_icon_event(|tray, event| {
-            if let TrayIconEvent::DoubleClick {
+            if let TrayIconEvent::Click {
                 button: MouseButton::Left,
+                button_state: MouseButtonState::Up,
                 ..
             } = event
             {
@@ -219,6 +245,156 @@ fn setup_tray(handle: tauri::AppHandle) -> tauri::Result<()> {
         .build(&handle)?;
 
     Ok(())
+}
+
+#[cfg(all(desktop))]
+pub async fn refresh_tray_menu(app: &tauri::AppHandle, db: &Arc<Mutex<Database>>) {
+    let accounts = {
+        let db = db.lock().await;
+        let repo = AccountRepository::new(&db);
+        match repo.list_all() {
+            Ok(accounts) => accounts,
+            Err(error) => {
+                log::warn!("读取托盘账号列表失败: {error}");
+                return;
+            }
+        }
+    };
+
+    if let Err(error) = apply_tray_menu(app, &accounts) {
+        log::warn!("刷新托盘菜单失败: {error}");
+    }
+}
+
+#[cfg(not(all(desktop)))]
+pub async fn refresh_tray_menu(_app: &tauri::AppHandle, _db: &Arc<Mutex<Database>>) {}
+
+#[cfg(all(desktop))]
+fn apply_tray_menu(app: &tauri::AppHandle, accounts: &[Account]) -> tauri::Result<()> {
+    let Some(tray) = app.tray_by_id(MAIN_TRAY_ID) else {
+        return Ok(());
+    };
+
+    tray.set_menu(Some(build_tray_menu(app, accounts)?))?;
+    tray.set_show_menu_on_left_click(false)?;
+    Ok(())
+}
+
+#[cfg(all(desktop))]
+fn build_tray_menu<R: tauri::Runtime, M: tauri::Manager<R>>(
+    manager: &M,
+    accounts: &[Account],
+) -> tauri::Result<tauri::menu::Menu<R>> {
+    use tauri::menu::{CheckMenuItem, IsMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
+
+    let open = MenuItem::with_id(manager, TRAY_MENU_OPEN_ID, "打开", true, None::<&str>)?;
+    let restart = MenuItem::with_id(
+        manager,
+        TRAY_MENU_RESTART_CODEX_APP_ID,
+        "重启 Codex App",
+        true,
+        None::<&str>,
+    )?;
+    let quit = MenuItem::with_id(manager, TRAY_MENU_QUIT_ID, "退出", true, None::<&str>)?;
+    let first_separator = PredefinedMenuItem::separator(manager)?;
+    let second_separator = PredefinedMenuItem::separator(manager)?;
+
+    let switch_account_submenu = if accounts.is_empty() {
+        let empty = MenuItem::with_id(
+            manager,
+            "switch-account-empty",
+            "暂无账号",
+            false,
+            None::<&str>,
+        )?;
+        Submenu::with_items(manager, "切换账号", false, &[&empty])?
+    } else {
+        let switch_items = accounts
+            .iter()
+            .map(|account| {
+                CheckMenuItem::with_id(
+                    manager,
+                    format!("{TRAY_MENU_SWITCH_ACCOUNT_PREFIX}{}", account.id),
+                    tray_account_menu_label(account),
+                    true,
+                    account.is_default,
+                    None::<&str>,
+                )
+            })
+            .collect::<tauri::Result<Vec<_>>>()?;
+        let switch_refs = switch_items
+            .iter()
+            .map(|item| item as &dyn IsMenuItem<R>)
+            .collect::<Vec<_>>();
+        Submenu::with_items(manager, "切换账号", true, &switch_refs)?
+    };
+
+    Menu::with_items(
+        manager,
+        &[
+            &open,
+            &switch_account_submenu,
+            &first_separator,
+            &restart,
+            &second_separator,
+            &quit,
+        ],
+    )
+}
+
+#[cfg(all(desktop))]
+fn tray_account_menu_label(account: &Account) -> String {
+    account
+        .email
+        .as_deref()
+        .map(str::trim)
+        .filter(|email| !email.is_empty())
+        .unwrap_or(&account.name)
+        .to_string()
+}
+
+#[cfg(all(desktop))]
+fn switch_account_from_tray(app: tauri::AppHandle, account_id: String) {
+    let db = app.state::<AppState>().db.clone();
+    tauri::async_runtime::spawn(async move {
+        let switch_result = {
+            let db = db.lock().await;
+            let repo = AccountRepository::new(&db);
+            LocalAuthSyncService::write_account_to_default_auth_file(&repo, &account_id)
+        };
+
+        match switch_result {
+            Ok(account) => {
+                refresh_tray_menu(&app, &db).await;
+                let _ = app.emit(
+                    TRAY_DEFAULT_ACCOUNT_UPDATED_EVENT,
+                    serde_json::json!({ "account_id": account.id }),
+                );
+            }
+            Err(error) => {
+                log::warn!("托盘切换账号失败: {error}");
+            }
+        }
+    });
+}
+
+#[cfg(all(desktop))]
+fn restart_codex_app_from_tray() {
+    std::thread::spawn(|| {
+        match close_codex_desktop_app() {
+            Ok(result) => {
+                log::info!("托盘重启 Codex App 前关闭结果: {}", result.message);
+            }
+            Err(error) => {
+                log::warn!("托盘重启 Codex App 前关闭失败: {error}");
+                return;
+            }
+        }
+
+        if let Err(error) = open_codex_desktop_app() {
+            log::warn!("托盘重启 Codex App 失败: {error}");
+        }
+    });
 }
 
 #[cfg(all(desktop))]

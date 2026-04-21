@@ -350,6 +350,9 @@ onMounted(async () => {
           )
         },
       )
+      await listen<{ account_id: string }>('default-account-updated', () => {
+        void accountStore.loadAccounts()
+      })
       await listen<CodexQuotaExhaustedEvent>('codex-quota-exhausted', ({ payload }) => {
         handleQuotaExhausted(payload)
       })

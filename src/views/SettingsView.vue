@@ -88,7 +88,7 @@
     <section class="surface-panel">
       <div class="settings-section-head">
         <div>
-          <h2 class="panel-heading">更新与版本</h2>
+          <h2 class="panel-heading">关于</h2>
         </div>
       </div>
 
@@ -120,6 +120,16 @@
             :value="settingsStore.settings.auto_update_enabled === 'true'"
             @update:value="handleAutoUpdateChange"
           />
+        </div>
+
+        <div class="setting-item">
+          <div class="setting-copy">
+            <div class="setting-title">GitHub</div>
+            <div class="setting-description github-address">{{ githubRepositoryUrl }}</div>
+          </div>
+          <n-button secondary @click="handleOpenGitHub">
+            打开仓库
+          </n-button>
         </div>
 
         <div class="setting-item">
@@ -216,6 +226,7 @@ const message = useMessage()
 const dialog = useDialog()
 const settingsStore = useSettingsStore()
 const appVersion = packageJson.version
+const githubRepositoryUrl = 'https://github.com/weimin96/CodexX'
 
 const autosaveState = ref<'idle' | 'saving' | 'saved' | 'error'>('idle')
 const checkingUpdate = ref(false)
@@ -399,6 +410,16 @@ function handleClearUsage() {
 
 function showCurrentChangelogDialog() {
   showChangelogDialog(appVersion, currentVersionChangelog.value)
+}
+
+async function handleOpenGitHub() {
+  try {
+    const { open } = await import('@tauri-apps/plugin-shell')
+    await open(githubRepositoryUrl)
+  } catch (error) {
+    console.warn('打开 GitHub 地址失败', error)
+    window.open(githubRepositoryUrl, '_blank', 'noopener,noreferrer')
+  }
 }
 
 async function handleCheckUpdate() {
@@ -620,6 +641,10 @@ function renderChangelogDialogContent(body?: string) {
   font-size: 13px;
   line-height: 1.43;
   color: var(--app-ink-secondary);
+}
+
+.github-address {
+  word-break: break-all;
 }
 
 @media (max-width: 640px) {

@@ -89,7 +89,6 @@
       <div class="settings-section-head">
         <div>
           <h2 class="panel-heading">更新与版本</h2>
-          <p class="panel-copy">查看当前版本并控制自动更新。</p>
         </div>
       </div>
 
@@ -129,6 +128,16 @@
           </div>
           <n-button secondary :loading="checkingUpdate" @click="handleCheckUpdate">
             检查更新
+          </n-button>
+        </div>
+
+        <div class="setting-item">
+          <div class="setting-copy">
+            <div class="setting-title">更新日志</div>
+            <div class="setting-description">查看当前版本的变更记录。</div>
+          </div>
+          <n-button secondary @click="showCurrentChangelogDialog">
+            查看日志
           </n-button>
         </div>
       </div>
@@ -193,13 +202,15 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, h, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useDialog, useMessage } from 'naive-ui'
 import packageJson from '../../package.json'
+import changelogMarkdown from '../../CHANGELOG.md?raw'
 import { usageService } from '@/services'
 import { useSettingsStore } from '@/stores/settings'
 import type { AppSettings } from '@/types'
 import { checkAppUpdate, installAppUpdate } from '@/utils/app-updater'
+import { extractVersionChangelog, normalizeUpdateChangelogBody } from '@/utils/update-changelog'
 
 const message = useMessage()
 const dialog = useDialog()
@@ -209,6 +220,7 @@ const appVersion = packageJson.version
 const autosaveState = ref<'idle' | 'saving' | 'saved' | 'error'>('idle')
 const checkingUpdate = ref(false)
 let autosaveResetTimer: ReturnType<typeof setTimeout> | null = null
+const currentVersionChangelog = computed(() => extractVersionChangelog(changelogMarkdown, appVersion))
 
 const intervalOptions = [
   { label: '1 分钟', value: '60' },
@@ -385,6 +397,10 @@ function handleClearUsage() {
   })
 }
 
+function showCurrentChangelogDialog() {
+  showChangelogDialog(appVersion, currentVersionChangelog.value)
+}
+
 async function handleCheckUpdate() {
   checkingUpdate.value = true
   try {
@@ -407,7 +423,7 @@ async function handleCheckUpdate() {
 function showUpdateInstallDialog(version: string, body?: string) {
   dialog.info({
     title: `发现新版本 ${version}`,
-    content: body?.trim() || '可以在线下载并安装，安装完成后应用会重启。',
+    content: () => renderChangelogDialogContent(body),
     positiveText: '下载并重启',
     negativeText: '稍后处理',
     onPositiveClick: async () => {
@@ -425,6 +441,34 @@ function showUpdateInstallDialog(version: string, body?: string) {
       }
     },
   })
+}
+
+function showChangelogDialog(version: string, body?: string) {
+  dialog.info({
+    title: `更新日志 ${version}`,
+    content: () => renderChangelogDialogContent(body),
+    positiveText: '知道了',
+  })
+}
+
+function renderChangelogDialogContent(body?: string) {
+  return h(
+    'pre',
+    {
+      style: {
+        maxHeight: '360px',
+        overflow: 'auto',
+        margin: '0',
+        whiteSpace: 'pre-wrap',
+        wordBreak: 'break-word',
+        fontFamily: 'var(--font-sans)',
+        fontSize: '13px',
+        lineHeight: '1.6',
+        color: 'var(--app-ink)',
+      },
+    },
+    normalizeUpdateChangelogBody(body),
+  )
 }
 </script>
 

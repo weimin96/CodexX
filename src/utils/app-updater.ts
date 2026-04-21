@@ -1,10 +1,11 @@
 import { isTauri as detectTauriRuntime } from '@tauri-apps/api/core'
+import { rememberInstalledUpdateChangelog } from '@/utils/update-changelog'
 
 export type AppUpdateOutcome =
   | { status: 'unsupported' }
   | { status: 'not_available' }
   | { status: 'available'; version: string; body?: string }
-  | { status: 'installed'; version: string }
+  | { status: 'installed'; version: string; body?: string }
 
 export async function checkAppUpdate(): Promise<AppUpdateOutcome> {
   if (!detectTauriRuntime()) {
@@ -39,10 +40,15 @@ export async function installAppUpdate(): Promise<AppUpdateOutcome> {
   }
 
   await update.downloadAndInstall()
+  rememberInstalledUpdateChangelog({
+    version: update.version,
+    body: update.body,
+  })
   await relaunch()
 
   return {
     status: 'installed',
     version: update.version,
+    body: update.body,
   }
 }

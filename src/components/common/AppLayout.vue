@@ -213,6 +213,10 @@ import StatusDot from '@/components/common/StatusDot.vue'
 import { resolveAccountAvatarText, resolveAccountDisplayName } from '@/utils/account-display'
 import { resolveAccountStatusDisplay } from '@/utils/account-status'
 import { checkAppUpdate, installAppUpdate } from '@/utils/app-updater'
+import {
+  consumeInstalledUpdateChangelog,
+  normalizeUpdateChangelogBody,
+} from '@/utils/update-changelog'
 
 const router = useRouter()
 const route = useRoute()
@@ -335,6 +339,7 @@ onMounted(async () => {
   }
 
   await Promise.all([accountStore.loadAccounts(), settingsStore.loadSettings()])
+  showInstalledUpdateChangelog()
   void runStartupAutoUpdateCheck()
 
   if (isTauri.value) {
@@ -404,6 +409,39 @@ function handleQuotaExhausted(payload: CodexQuotaExhaustedEvent) {
       void router.push({ name: 'AccountList' })
     },
   })
+}
+
+function showInstalledUpdateChangelog() {
+  const changelog = consumeInstalledUpdateChangelog()
+  if (!changelog) {
+    return
+  }
+
+  dialog.info({
+    title: `更新日志 ${changelog.version}`,
+    content: () => renderChangelogDialogContent(changelog.body),
+    positiveText: '知道了',
+  })
+}
+
+function renderChangelogDialogContent(body?: string) {
+  return h(
+    'pre',
+    {
+      style: {
+        maxHeight: '360px',
+        overflow: 'auto',
+        margin: '0',
+        whiteSpace: 'pre-wrap',
+        wordBreak: 'break-word',
+        fontFamily: 'var(--font-sans)',
+        fontSize: '13px',
+        lineHeight: '1.6',
+        color: 'var(--app-ink)',
+      },
+    },
+    normalizeUpdateChangelogBody(body),
+  )
 }
 
 async function runStartupAutoUpdateCheck() {

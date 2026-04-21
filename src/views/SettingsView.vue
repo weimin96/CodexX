@@ -144,40 +144,6 @@
     <section class="surface-panel">
       <div class="settings-section-head">
         <div>
-          <h2 class="panel-heading">安全</h2>
-        </div>
-      </div>
-
-      <div class="security-note">
-        <div class="security-note-icon">
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
-            <path
-              d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"
-              stroke="currentColor"
-              stroke-width="1.6"
-            />
-          </svg>
-        </div>
-        <div>
-          <div class="security-note-title">主密钥</div>
-          <div class="security-note-copy">重置后需要重新导入所有凭证。</div>
-        </div>
-      </div>
-
-      <div class="setting-list">
-        <div class="setting-item">
-          <div class="setting-copy">
-            <div class="setting-title">重新生成主密钥</div>
-            <div class="setting-description">会使现有凭证失效。</div>
-          </div>
-          <n-button type="error" secondary @click="handleRegenKey">重新生成</n-button>
-        </div>
-      </div>
-    </section>
-
-    <section class="surface-panel">
-      <div class="settings-section-head">
-        <div>
           <h2 class="panel-heading">危险操作</h2>
         </div>
       </div>
@@ -357,19 +323,6 @@ function clearAutosaveResetTimer() {
 
   clearTimeout(autosaveResetTimer)
   autosaveResetTimer = null
-}
-
-function handleRegenKey() {
-  dialog.error({
-    title: '警告',
-    content:
-      '重新生成主密钥后，所有已存储的凭证将无法解密，账号需要重新录入凭证。确定继续？',
-    positiveText: '确认重新生成',
-    negativeText: '取消',
-    onPositiveClick: () => {
-      message.info('请在系统凭据库中手动删除 CodexX 使用的 codex-manager 条目后重启应用')
-    },
-  })
 }
 
 function handleClearUsage() {
@@ -560,43 +513,6 @@ function renderChangelogDialogContent(body?: string) {
 .autosave-pill-error {
   background: var(--status-error-soft);
   color: var(--status-error);
-}
-
-.security-note {
-  margin-top: 14px;
-  padding: 16px;
-  border-radius: 18px;
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
-  background: var(--app-surface-muted);
-}
-
-.security-note-icon {
-  width: 36px;
-  height: 36px;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(0, 113, 227, 0.12);
-  color: var(--app-blue);
-  flex-shrink: 0;
-}
-
-.security-note-title {
-  font-size: 15px;
-  line-height: 1.3;
-  letter-spacing: -0.12px;
-  font-weight: 600;
-}
-
-.security-note-copy {
-  margin-top: 4px;
-  font-size: 13px;
-  line-height: 1.43;
-  letter-spacing: -0.12px;
-  color: var(--app-ink-secondary);
 }
 
 .about-header {

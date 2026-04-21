@@ -103,11 +103,13 @@ export interface ChartDataPoint {
   cost: number
 }
 
-export type UsagePeriod = 'day' | 'week' | 'month' | 'year'
+export type UsagePeriod = 'day' | 'week' | 'month' | 'year' | 'current_month' | 'current_year'
 
 export interface UsageQuery {
   account_id: string
   period: UsagePeriod
+  // 后端按该偏移把 UTC 完成时间归入用户本地日期，避免“今日”口径错位。
+  timezone_offset_minutes?: number
 }
 
 export interface CodexExecInput {

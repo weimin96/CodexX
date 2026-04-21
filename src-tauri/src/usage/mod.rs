@@ -1,9 +1,13 @@
-use crate::error::AppResult;
+use crate::error::{AppError, AppResult};
 use crate::storage::Database;
-use chrono::{Duration, Utc};
+use chrono::{DateTime, Datelike, Duration, FixedOffset, Local, NaiveDate, Offset, TimeZone, Utc};
 use rusqlite::params;
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::path::Path;
+
+const MIN_TIMEZONE_OFFSET_MINUTES: i32 = -14 * 60;
+const MAX_TIMEZONE_OFFSET_MINUTES: i32 = 14 * 60;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UsageRecord {
@@ -89,7 +93,33 @@ pub struct ApiUsageEventRecord {
 #[derive(Debug, Deserialize)]
 pub struct UsageQuery {
     pub account_id: String,
-    pub period: String, // 可选值："day"、"week"、"month"
+    pub period: String,
+    // 前端显式传入本机偏移，避免按 UTC 截断 completed_at 时把本地今日统计到昨天。
+    pub timezone_offset_minutes: Option<i32>,
+}
+
+#[derive(Debug, Clone)]
+struct UsageDateScope {
+    period: String,
+    offset: FixedOffset,
+    start_date: NaiveDate,
+    end_date: NaiveDate,
+}
+
+#[derive(Debug, Clone)]
+struct ApiUsageEventSummary {
+    completed_at: String,
+    input_tokens: i64,
+    output_tokens: i64,
+    estimated_cost: f64,
+}
+
+#[derive(Debug, Clone, Default)]
+struct UsagePointAccumulator {
+    input_tokens: i64,
+    output_tokens: i64,
+    request_count: i64,
+    cost: f64,
 }
 
 pub struct UsageRepository<'a> {
@@ -262,49 +292,61 @@ impl<'a> UsageRepository<'a> {
             .find_map(|directory| normalize_existing_working_directory(&directory)))
     }
 
-    pub fn get_summary(&self, account_id: &str, period: &str) -> AppResult<UsageSummary> {
-        let (start_date, _end_date) = get_period_range(period);
-
-        let conn = self.db.get_conn();
-        let row = conn.query_row(
-            "SELECT
-                COALESCE(SUM(input_tokens), 0),
-                COALESCE(SUM(output_tokens), 0),
-                COALESCE(SUM(request_count), 0),
-                COALESCE(SUM(estimated_cost), 0.0)
-             FROM (
-                SELECT input_tokens, output_tokens, request_count, estimated_cost
-                FROM usage_records
-                WHERE account_id = ?1 AND date >= ?2
-                UNION ALL
-                SELECT input_tokens, output_tokens, 1 AS request_count, estimated_cost
-                FROM api_usage_events
-                WHERE account_id = ?1 AND substr(completed_at, 1, 10) >= ?2
-             )",
-            params![account_id, start_date],
-            |row| {
-                Ok((
-                    row.get::<_, i64>(0)?,
-                    row.get::<_, i64>(1)?,
-                    row.get::<_, i64>(2)?,
-                    row.get::<_, f64>(3)?,
-                ))
+    pub fn get_summary(&self, query: &UsageQuery) -> AppResult<UsageSummary> {
+        let scope = UsageDateScope::from_query(query)?;
+        let points = self.collect_usage_points(&query.account_id, &scope)?;
+        let total = points.iter().fold(
+            UsagePointAccumulator::default(),
+            |mut accumulator, point| {
+                accumulator.input_tokens += point.input_tokens;
+                accumulator.output_tokens += point.output_tokens;
+                accumulator.request_count += point.request_count;
+                accumulator.cost += point.cost;
+                accumulator
             },
-        )?;
+        );
 
         Ok(UsageSummary {
-            account_id: account_id.to_string(),
-            period: period.to_string(),
-            total_input_tokens: row.0,
-            total_output_tokens: row.1,
-            total_requests: row.2,
-            total_cost: row.3,
+            account_id: query.account_id.clone(),
+            period: scope.period,
+            total_input_tokens: total.input_tokens,
+            total_output_tokens: total.output_tokens,
+            total_requests: total.request_count,
+            total_cost: total.cost,
         })
     }
 
-    pub fn get_chart_data(&self, account_id: &str, period: &str) -> AppResult<Vec<ChartDataPoint>> {
-        let (start_date, _) = get_period_range(period);
+    pub fn get_chart_data(&self, query: &UsageQuery) -> AppResult<Vec<ChartDataPoint>> {
+        let scope = UsageDateScope::from_query(query)?;
+        self.collect_usage_points(&query.account_id, &scope)
+    }
 
+    fn collect_usage_points(
+        &self,
+        account_id: &str,
+        scope: &UsageDateScope,
+    ) -> AppResult<Vec<ChartDataPoint>> {
+        let mut point_map = BTreeMap::new();
+        self.add_usage_record_points(account_id, scope, &mut point_map)?;
+        self.add_api_usage_event_points(account_id, scope, &mut point_map)?;
+        Ok(point_map
+            .into_iter()
+            .map(|(date, accumulator)| ChartDataPoint {
+                date,
+                input_tokens: accumulator.input_tokens,
+                output_tokens: accumulator.output_tokens,
+                request_count: accumulator.request_count,
+                cost: accumulator.cost,
+            })
+            .collect())
+    }
+
+    fn add_usage_record_points(
+        &self,
+        account_id: &str,
+        scope: &UsageDateScope,
+        point_map: &mut BTreeMap<String, UsagePointAccumulator>,
+    ) -> AppResult<()> {
         let conn = self.db.get_conn();
         let mut stmt = conn.prepare(
             "SELECT date,
@@ -312,36 +354,84 @@ impl<'a> UsageRepository<'a> {
                     SUM(output_tokens),
                     SUM(request_count),
                     SUM(estimated_cost)
-             FROM (
-                SELECT date, input_tokens, output_tokens, request_count, estimated_cost
-                FROM usage_records
-                WHERE account_id = ?1 AND date >= ?2
-                UNION ALL
-                SELECT substr(completed_at, 1, 10) AS date,
-                       input_tokens,
-                       output_tokens,
-                       1 AS request_count,
-                       estimated_cost
-                FROM api_usage_events
-                WHERE account_id = ?1 AND substr(completed_at, 1, 10) >= ?2
-             )
+             FROM usage_records
+             WHERE account_id = ?1
+               AND date BETWEEN ?2 AND ?3
              GROUP BY date
              ORDER BY date ASC",
         )?;
+        let rows = stmt
+            .query_map(
+                params![account_id, scope.start_date_key(), scope.end_date_key()],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, i64>(1)?,
+                        row.get::<_, i64>(2)?,
+                        row.get::<_, i64>(3)?,
+                        row.get::<_, f64>(4)?,
+                    ))
+                },
+            )?
+            .collect::<Result<Vec<_>, _>>()?;
 
-        let points = stmt
-            .query_map(params![account_id, start_date], |row| {
-                Ok(ChartDataPoint {
-                    date: row.get(0)?,
+        for (date, input_tokens, output_tokens, request_count, cost) in rows {
+            let accumulator = point_map.entry(date).or_default();
+            accumulator.input_tokens += input_tokens;
+            accumulator.output_tokens += output_tokens;
+            accumulator.request_count += request_count;
+            accumulator.cost += cost;
+        }
+
+        Ok(())
+    }
+
+    fn add_api_usage_event_points(
+        &self,
+        account_id: &str,
+        scope: &UsageDateScope,
+        point_map: &mut BTreeMap<String, UsagePointAccumulator>,
+    ) -> AppResult<()> {
+        for event in self.list_api_usage_events_since(account_id, scope)? {
+            let local_date = scope.completed_at_date(&event.completed_at)?;
+            if !scope.contains_date(local_date) {
+                continue;
+            }
+
+            let accumulator = point_map.entry(format_date_key(local_date)).or_default();
+            accumulator.input_tokens += event.input_tokens;
+            accumulator.output_tokens += event.output_tokens;
+            accumulator.request_count += 1;
+            accumulator.cost += event.estimated_cost;
+        }
+
+        Ok(())
+    }
+
+    fn list_api_usage_events_since(
+        &self,
+        account_id: &str,
+        scope: &UsageDateScope,
+    ) -> AppResult<Vec<ApiUsageEventSummary>> {
+        let conn = self.db.get_conn();
+        let mut stmt = conn.prepare(
+            "SELECT completed_at, input_tokens, output_tokens, estimated_cost
+             FROM api_usage_events
+             WHERE account_id = ?1
+               AND completed_at >= ?2",
+        )?;
+        let events = stmt
+            .query_map(params![account_id, scope.start_utc_key()?], |row| {
+                Ok(ApiUsageEventSummary {
+                    completed_at: row.get(0)?,
                     input_tokens: row.get(1)?,
                     output_tokens: row.get(2)?,
-                    request_count: row.get(3)?,
-                    cost: row.get(4)?,
+                    estimated_cost: row.get(3)?,
                 })
             })?
             .collect::<Result<Vec<_>, _>>()?;
 
-        Ok(points)
+        Ok(events)
     }
 
     pub fn clear_all_usage(&self) -> AppResult<()> {
@@ -354,7 +444,7 @@ impl<'a> UsageRepository<'a> {
 
     /// 插入用于演示的模拟用量数据
     pub fn seed_demo_data(&self, account_id: &str) -> AppResult<()> {
-        let today = Utc::now().date_naive();
+        let today = Local::now().date_naive();
         for i in 0..30 {
             let date = today - Duration::days(i);
             let date_str = date.format("%Y-%m-%d").to_string();
@@ -382,19 +472,93 @@ impl<'a> UsageRepository<'a> {
     }
 }
 
-fn get_period_range(period: &str) -> (String, String) {
-    let today = Utc::now().date_naive();
-    let start = match period {
-        "day" => today,
-        "week" => today - Duration::days(6),
-        "month" => today - Duration::days(29),
-        "year" => today - Duration::days(364),
-        _ => today - Duration::days(29),
-    };
-    (
-        start.format("%Y-%m-%d").to_string(),
-        today.format("%Y-%m-%d").to_string(),
-    )
+impl UsageDateScope {
+    fn from_query(query: &UsageQuery) -> AppResult<Self> {
+        let offset = resolve_timezone_offset(query.timezone_offset_minutes)?;
+        let end_date = Utc::now().with_timezone(&offset).date_naive();
+        let start_date = resolve_period_start_date(&query.period, end_date)?;
+
+        Ok(Self {
+            period: query.period.clone(),
+            offset,
+            start_date,
+            end_date,
+        })
+    }
+
+    fn start_date_key(&self) -> String {
+        format_date_key(self.start_date)
+    }
+
+    fn end_date_key(&self) -> String {
+        format_date_key(self.end_date)
+    }
+
+    fn start_utc_key(&self) -> AppResult<String> {
+        let start_time = self
+            .start_date
+            .and_hms_opt(0, 0, 0)
+            .ok_or_else(|| AppError::Other("构造用量统计开始时间失败".to_string()))?;
+        let local_start = self
+            .offset
+            .from_local_datetime(&start_time)
+            .single()
+            .ok_or_else(|| AppError::Other("转换用量统计开始时间失败".to_string()))?;
+        Ok(local_start.with_timezone(&Utc).to_rfc3339())
+    }
+
+    fn completed_at_date(&self, completed_at: &str) -> AppResult<NaiveDate> {
+        completed_at_to_date(completed_at, self.offset)
+    }
+
+    fn contains_date(&self, date: NaiveDate) -> bool {
+        date >= self.start_date && date <= self.end_date
+    }
+}
+
+fn resolve_period_start_date(period: &str, end_date: NaiveDate) -> AppResult<NaiveDate> {
+    match period {
+        "day" => Ok(end_date),
+        "week" => Ok(end_date - Duration::days(6)),
+        "month" => Ok(end_date - Duration::days(29)),
+        "year" => Ok(end_date - Duration::days(364)),
+        "current_month" => NaiveDate::from_ymd_opt(end_date.year(), end_date.month(), 1)
+            .ok_or_else(|| AppError::Other("构造本月用量统计开始日期失败".to_string())),
+        "current_year" => NaiveDate::from_ymd_opt(end_date.year(), 1, 1)
+            .ok_or_else(|| AppError::Other("构造今年用量统计开始日期失败".to_string())),
+        other => Err(AppError::InvalidInput(format!(
+            "不支持的用量统计周期: {other}"
+        ))),
+    }
+}
+
+fn resolve_timezone_offset(timezone_offset_minutes: Option<i32>) -> AppResult<FixedOffset> {
+    let offset_minutes = timezone_offset_minutes.unwrap_or_else(default_timezone_offset_minutes);
+    if !(MIN_TIMEZONE_OFFSET_MINUTES..=MAX_TIMEZONE_OFFSET_MINUTES).contains(&offset_minutes) {
+        return Err(AppError::InvalidInput(format!(
+            "时区偏移超出支持范围: {offset_minutes} 分钟"
+        )));
+    }
+
+    let offset_seconds = offset_minutes
+        .checked_mul(60)
+        .ok_or_else(|| AppError::InvalidInput("时区偏移换算失败".to_string()))?;
+    FixedOffset::east_opt(offset_seconds)
+        .ok_or_else(|| AppError::InvalidInput("时区偏移不合法".to_string()))
+}
+
+fn default_timezone_offset_minutes() -> i32 {
+    Local::now().offset().fix().local_minus_utc() / 60
+}
+
+fn completed_at_to_date(completed_at: &str, offset: FixedOffset) -> AppResult<NaiveDate> {
+    let completed_at = DateTime::parse_from_rfc3339(completed_at)
+        .map_err(|error| AppError::Other(format!("解析用量完成时间失败: {error}")))?;
+    Ok(completed_at.with_timezone(&offset).date_naive())
+}
+
+fn format_date_key(date: NaiveDate) -> String {
+    date.format("%Y-%m-%d").to_string()
 }
 
 fn normalize_existing_working_directory(value: &str) -> Option<String> {
@@ -414,11 +578,11 @@ fn normalize_existing_working_directory(value: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::{
-        get_period_range, normalize_existing_working_directory, CodexLaunchSessionRecord,
-        UsageRepository,
+        format_date_key, normalize_existing_working_directory, ApiUsageEventRecord,
+        CodexLaunchSessionRecord, UsageDateScope, UsageQuery, UsageRepository,
     };
     use crate::storage::Database;
-    use chrono::{Duration, Utc};
+    use chrono::{Datelike, Duration, FixedOffset, TimeZone, Utc};
     use rusqlite::params;
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -561,15 +725,116 @@ mod tests {
     }
 
     #[test]
-    fn year_period_covers_recent_365_days() {
-        let today = Utc::now().date_naive();
-        let (start, end) = get_period_range("year");
+    fn year_period_covers_recent_365_days_for_query_timezone() {
+        let offset_minutes = 8 * 60;
+        let offset = FixedOffset::east_opt(offset_minutes * 60).unwrap();
+        let today = Utc::now().with_timezone(&offset).date_naive();
+        let query = UsageQuery {
+            account_id: "account-a".to_string(),
+            period: "year".to_string(),
+            timezone_offset_minutes: Some(offset_minutes),
+        };
+        let scope = UsageDateScope::from_query(&query).unwrap();
 
-        assert_eq!(end, today.format("%Y-%m-%d").to_string());
+        assert_eq!(scope.end_date, today);
+        assert_eq!(scope.start_date, today - Duration::days(364));
+    }
+
+    #[test]
+    fn current_periods_start_at_calendar_boundaries() {
+        let offset_minutes = 8 * 60;
+        let offset = FixedOffset::east_opt(offset_minutes * 60).unwrap();
+        let today = Utc::now().with_timezone(&offset).date_naive();
+
+        let current_month_scope = UsageDateScope::from_query(&UsageQuery {
+            account_id: "account-a".to_string(),
+            period: "current_month".to_string(),
+            timezone_offset_minutes: Some(offset_minutes),
+        })
+        .unwrap();
+        let current_year_scope = UsageDateScope::from_query(&UsageQuery {
+            account_id: "account-a".to_string(),
+            period: "current_year".to_string(),
+            timezone_offset_minutes: Some(offset_minutes),
+        })
+        .unwrap();
+
         assert_eq!(
-            start,
-            (today - Duration::days(364)).format("%Y-%m-%d").to_string()
+            current_month_scope.start_date,
+            chrono::NaiveDate::from_ymd_opt(today.year(), today.month(), 1).unwrap()
         );
+        assert_eq!(
+            current_year_scope.start_date,
+            chrono::NaiveDate::from_ymd_opt(today.year(), 1, 1).unwrap()
+        );
+    }
+
+    #[test]
+    fn chart_data_groups_api_events_by_query_timezone_date() {
+        let isolated_data_dir = unique_temp_dir();
+        std::fs::create_dir_all(&isolated_data_dir).unwrap();
+
+        let db = Database::new(isolated_data_dir.join("codex.db")).unwrap();
+        seed_account(&db, "account-a");
+        let repo = UsageRepository::new(&db);
+        let offset_minutes = 8 * 60;
+        let offset = FixedOffset::east_opt(offset_minutes * 60).unwrap();
+        let local_today = Utc::now().with_timezone(&offset).date_naive();
+        let local_event_time = offset
+            .with_ymd_and_hms(
+                local_today.year(),
+                local_today.month(),
+                local_today.day(),
+                0,
+                30,
+                0,
+            )
+            .single()
+            .unwrap();
+        let completed_at = local_event_time.with_timezone(&Utc).to_rfc3339();
+
+        repo.insert_api_usage_event(&ApiUsageEventRecord {
+            id: "event-local-today".to_string(),
+            account_id: "account-a".to_string(),
+            session_id: None,
+            source: "usage_regression".to_string(),
+            endpoint: None,
+            model: None,
+            response_id: None,
+            request_id: None,
+            status_code: None,
+            input_tokens: 12,
+            output_tokens: 5,
+            total_tokens: 17,
+            cached_input_tokens: None,
+            reasoning_tokens: None,
+            estimated_cost: 0.0,
+            raw_usage_json: None,
+            is_complete: true,
+            error_message: None,
+            started_at: completed_at.clone(),
+            completed_at,
+            created_at: Utc::now().to_rfc3339(),
+        })
+        .unwrap();
+
+        let query = UsageQuery {
+            account_id: "account-a".to_string(),
+            period: "day".to_string(),
+            timezone_offset_minutes: Some(offset_minutes),
+        };
+        let points = repo.get_chart_data(&query).unwrap();
+        let summary = repo.get_summary(&query).unwrap();
+
+        assert_eq!(points.len(), 1);
+        assert_eq!(points[0].date, format_date_key(local_today));
+        assert_eq!(points[0].input_tokens, 12);
+        assert_eq!(points[0].output_tokens, 5);
+        assert_eq!(points[0].request_count, 1);
+        assert_eq!(summary.total_input_tokens, 12);
+        assert_eq!(summary.total_output_tokens, 5);
+        assert_eq!(summary.total_requests, 1);
+        let _ = std::fs::remove_dir_all(isolated_data_dir);
     }
 
     fn seed_account(db: &Database, account_id: &str) {

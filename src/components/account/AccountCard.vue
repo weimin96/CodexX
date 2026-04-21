@@ -13,7 +13,10 @@
               :label="statusDisplay.label"
               :title="statusDisplay.title"
             />
-            <span v-if="account.is_default" class="label-pill label-pill-contrast">正在使用</span>
+          </div>
+          <div v-if="displayEmail" class="card-subtitle">{{ displayEmail }}</div>
+          <div v-else class="card-subtitle">{{ AUTH_TYPE_LABELS[account.auth_type] }}</div>
+          <div class="card-meta-row">
             <span
               v-if="account.codex_plan_type"
               class="label-pill"
@@ -21,9 +24,8 @@
             >
               {{ planLabel }}
             </span>
+            <span v-if="account.is_default" class="label-pill label-pill-contrast">正在使用</span>
           </div>
-          <div v-if="displayEmail" class="card-subtitle">{{ displayEmail }}</div>
-          <div v-else class="card-subtitle">{{ AUTH_TYPE_LABELS[account.auth_type] }}</div>
         </div>
       </div>
       <div class="card-side">
@@ -441,6 +443,14 @@ function formatUsageError(error?: string): string {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.card-meta-row {
+  margin-top: 6px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
 }
 
 .account-card.default .card-subtitle {

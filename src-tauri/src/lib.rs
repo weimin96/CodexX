@@ -40,6 +40,8 @@ const TRAY_MENU_QUIT_ID: &str = "quit";
 const TRAY_MENU_SWITCH_ACCOUNT_PREFIX: &str = "switch-account::";
 #[cfg(all(desktop))]
 const TRAY_DEFAULT_ACCOUNT_UPDATED_EVENT: &str = "default-account-updated";
+#[cfg(all(desktop))]
+const TRAY_REMAINING_QUOTA_EPSILON: f64 = 0.000_001;
 pub const APP_USER_AGENT: &str = concat!("codexx/", env!("CARGO_PKG_VERSION"));
 
 pub struct OAuthCallbackListenerHandle {
@@ -299,17 +301,22 @@ fn build_tray_menu<R: tauri::Runtime, M: tauri::Manager<R>>(
     let first_separator = PredefinedMenuItem::separator(manager)?;
     let second_separator = PredefinedMenuItem::separator(manager)?;
 
-    let switch_account_submenu = if accounts.is_empty() {
+    let tray_accounts = accounts
+        .iter()
+        .filter(|account| is_tray_switchable_account(account))
+        .collect::<Vec<_>>();
+
+    let switch_account_submenu = if tray_accounts.is_empty() {
         let empty = MenuItem::with_id(
             manager,
             "switch-account-empty",
-            "暂无账号",
+            "暂无可用账号",
             false,
             None::<&str>,
         )?;
         Submenu::with_items(manager, "切换账号", false, &[&empty])?
     } else {
-        let switch_items = accounts
+        let switch_items = tray_accounts
             .iter()
             .map(|account| {
                 CheckMenuItem::with_id(
@@ -344,13 +351,76 @@ fn build_tray_menu<R: tauri::Runtime, M: tauri::Manager<R>>(
 
 #[cfg(all(desktop))]
 fn tray_account_menu_label(account: &Account) -> String {
-    account
+    let display_name = account
         .email
         .as_deref()
         .map(str::trim)
         .filter(|email| !email.is_empty())
-        .unwrap_or(&account.name)
-        .to_string()
+        .unwrap_or(&account.name);
+
+    let plan_label = resolve_tray_plan_label(account);
+    let remaining_five_hour = resolve_remaining_percent(account.codex_usage_5h.as_ref());
+    let remaining_one_week = resolve_remaining_percent(account.codex_usage_week.as_ref());
+
+    format!(
+        "{display_name} ({plan_label}) · 5h {remaining_five_hour}% · 7d {remaining_one_week}%"
+    )
+}
+
+#[cfg(all(desktop))]
+fn is_tray_switchable_account(account: &Account) -> bool {
+    let Some(five_hour) = account.codex_usage_5h.as_ref() else {
+        return false;
+    };
+    let Some(one_week) = account.codex_usage_week.as_ref() else {
+        return false;
+    };
+
+    // 需求口径：仅展示“剩余额度都大于 0”的账号。
+    // 当前仅持有已用百分比 used_percent，因此用剩余百分比（100 - used_percent）判断。
+    let remaining_five_hour = 100.0 - normalize_percent(five_hour.used_percent);
+    let remaining_one_week = 100.0 - normalize_percent(one_week.used_percent);
+
+    remaining_five_hour > TRAY_REMAINING_QUOTA_EPSILON
+        && remaining_one_week > TRAY_REMAINING_QUOTA_EPSILON
+}
+
+#[cfg(all(desktop))]
+fn resolve_tray_plan_label(account: &Account) -> &'static str {
+    let normalized = account
+        .codex_plan_type
+        .as_deref()
+        .unwrap_or("free")
+        .trim()
+        .to_ascii_lowercase();
+
+    // 托盘展示需要稳定枚举值，避免因为上游新增文本导致菜单文案不可控。
+    if normalized.contains("pro") {
+        "pro"
+    } else if normalized.contains("plus") {
+        "plus"
+    } else {
+        "free"
+    }
+}
+
+#[cfg(all(desktop))]
+fn resolve_remaining_percent(window: Option<&crate::account::CodexUsageWindow>) -> i64 {
+    let Some(window) = window else {
+        return 0;
+    };
+
+    let used_percent = normalize_percent(window.used_percent);
+    let remaining = (100.0 - used_percent).max(0.0).min(100.0);
+    remaining.round() as i64
+}
+
+#[cfg(all(desktop))]
+fn normalize_percent(value: f64) -> f64 {
+    if !value.is_finite() {
+        return 0.0;
+    }
+    value.max(0.0).min(100.0)
 }
 
 #[cfg(all(desktop))]

@@ -24,7 +24,7 @@ pub async fn get_usage_stats(
 ) -> Result<Value, AppError> {
     let db = state.db.lock().await;
     let repo = UsageRepository::new(&db);
-    let summary = repo.get_summary(&query.account_id, &query.period)?;
+    let summary = repo.get_summary(&query)?;
     Ok(serde_json::to_value(summary)?)
 }
 
@@ -35,7 +35,7 @@ pub async fn get_usage_chart_data(
 ) -> Result<Value, AppError> {
     let db = state.db.lock().await;
     let repo = UsageRepository::new(&db);
-    let data = repo.get_chart_data(&query.account_id, &query.period)?;
+    let data = repo.get_chart_data(&query)?;
     Ok(serde_json::to_value(data)?)
 }
 

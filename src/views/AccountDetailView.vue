@@ -14,7 +14,9 @@
         </div>
         <div class="page-hero-copy">
           <div class="hero-title-row">
-            <h1 class="page-title">{{ displayName }}</h1>
+            <h1 class="page-title" :class="{ 'page-title-email': isDisplayNameEmail }">
+              {{ displayName }}
+            </h1>
             <StatusDot
               :status="statusDisplay.tone"
               :label="statusDisplay.label"
@@ -24,7 +26,9 @@
           </div>
           <p class="page-subtitle">
             {{ AUTH_TYPE_LABELS[account.auth_type] }}
-            <template v-if="displaySubtitleEmail"> · {{ displaySubtitleEmail }}</template>
+            <template v-if="displaySubtitleEmail">
+              · <span class="page-subtitle-email">{{ displaySubtitleEmail }}</span>
+            </template>
             <template v-if="displayOrganization"> · {{ displayOrganization }}</template>
           </p>
           <div class="hero-pill-list">
@@ -73,29 +77,38 @@
       <div class="surface-panel usage-panel">
         <div class="detail-panel-head">
           <div>
-            <h2 class="panel-heading">本月用量</h2>
+            <h2 class="panel-heading">Token用量</h2>
           </div>
           <button class="detail-link" type="button" @click="goToUsage">查看统计</button>
         </div>
         <div v-if="usageLoading" class="panel-loading">
           <n-spin size="small" />
         </div>
-        <div v-else-if="summary" class="detail-metric-grid">
-          <div class="metric-card metric-card-input">
-            <span class="metric-label">输入 Token</span>
-            <strong class="metric-value">{{ formatTokens(summary.total_input_tokens) }}</strong>
-          </div>
-          <div class="metric-card metric-card-output">
-            <span class="metric-label">输出 Token</span>
-            <strong class="metric-value">{{ formatTokens(summary.total_output_tokens) }}</strong>
-          </div>
-          <div class="metric-card metric-card-request">
-            <span class="metric-label">请求次数</span>
-            <strong class="metric-value">{{ summary.total_requests }}</strong>
-          </div>
+        <div v-else-if="usageError" class="usage-empty usage-error">
+          <p>{{ usageError }}</p>
         </div>
-        <div v-else class="usage-empty">
-          <p>当前还没有可展示的用量统计。</p>
+        <div v-else class="detail-usage-period-grid">
+          <article
+            v-for="usageCard in usagePeriodCards"
+            :key="usageCard.key"
+            class="detail-usage-period-card"
+          >
+            <div class="detail-usage-period-head">
+              <span>{{ usageCard.label }}</span>
+              <strong>{{ formatTokens(usageCard.total_tokens) }}</strong>
+              <small>总 Token</small>
+            </div>
+            <div class="detail-usage-breakdown">
+              <div>
+                <span>输入</span>
+                <strong>{{ formatTokens(usageCard.input_tokens) }}</strong>
+              </div>
+              <div>
+                <span>输出</span>
+                <strong>{{ formatTokens(usageCard.output_tokens) }}</strong>
+              </div>
+            </div>
+          </article>
         </div>
       </div>
 
@@ -154,7 +167,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useAccountStore } from '@/stores/account'
 import { useUsageStore } from '@/stores/usage'
 import { AUTH_TYPE_LABELS } from '@/types'
-import type { CodexUsageWindow } from '@/types'
+import type { CodexUsageWindow, UsagePeriod } from '@/types'
 import StatusDot from '@/components/common/StatusDot.vue'
 import { format, parseISO } from 'date-fns'
 import {
@@ -178,9 +191,25 @@ const router = useRouter()
 const accountStore = useAccountStore()
 const usageStore = useUsageStore()
 
+interface UsagePeriodDefinition {
+  key: string
+  label: string
+  period: UsagePeriod
+}
+
+const usagePeriodDefinitions: UsagePeriodDefinition[] = [
+  { key: 'today', label: '今日', period: 'day' },
+  { key: 'current-month', label: '本月', period: 'current_month' },
+  { key: 'current-year', label: '今年', period: 'current_year' },
+]
+
 const accountId = computed(() => route.params.id as string)
 const account = computed(() => accountStore.accounts.find((item) => item.id === accountId.value))
 const displayName = computed(() => (account.value ? resolveAccountDisplayName(account.value) : ''))
+const isDisplayNameEmail = computed(() => {
+  const email = account.value?.email?.trim().toLowerCase() ?? ''
+  return Boolean(email && displayName.value.trim().toLowerCase() === email)
+})
 const displaySubtitleEmail = computed(() => {
   const email = account.value?.email?.trim() ?? ''
   return email && email !== displayName.value ? email : ''
@@ -199,7 +228,22 @@ const planTone = computed(() => resolveAccountPlanTone(account.value?.codex_plan
 const showFiveHourQuota = computed(() => supportsFiveHourQuota(account.value?.codex_plan_type))
 
 const usageLoading = ref(false)
-const summary = computed(() => usageStore.getSummary(accountId.value, 'month'))
+const usageError = ref('')
+const usagePeriodCards = computed(() =>
+  usagePeriodDefinitions.map((definition) => {
+    const summary = usageStore.getSummary(accountId.value, definition.period)
+    const inputTokens = summary?.total_input_tokens ?? 0
+    const outputTokens = summary?.total_output_tokens ?? 0
+
+    return {
+      key: definition.key,
+      label: definition.label,
+      input_tokens: inputTokens,
+      output_tokens: outputTokens,
+      total_tokens: inputTokens + outputTokens,
+    }
+  }),
+)
 const hasCodexUsage = computed(() =>
   Boolean(account.value?.codex_usage_5h || account.value?.codex_usage_week),
 )
@@ -209,8 +253,19 @@ const nextUsageResetAt = computed(() =>
 
 onMounted(async () => {
   usageLoading.value = true
+  usageError.value = ''
   try {
-    await usageStore.loadUsage(accountId.value, 'month')
+    await usageStore.refreshUsageForAccounts([accountId.value], 'day')
+    await Promise.all(
+      usagePeriodDefinitions
+        .filter((definition) => definition.period !== 'day')
+        .map((definition) =>
+          usageStore.loadCachedUsageForAccounts([accountId.value], definition.period),
+        ),
+    )
+  } catch (error) {
+    console.warn('加载 Token 用量失败', error)
+    usageError.value = 'Token 用量加载失败，请稍后重试。'
   } finally {
     usageLoading.value = false
   }
@@ -230,9 +285,19 @@ function formatUnixDate(seconds: number): string {
 }
 
 function formatTokens(value: number): string {
-  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`
-  if (value >= 1_000) return `${(value / 1_000).toFixed(1)}K`
-  return String(value)
+  const units = [
+    { threshold: 1_000_000_000_000, label: 'T' },
+    { threshold: 1_000_000_000, label: 'B' },
+    { threshold: 1_000_000, label: 'M' },
+    { threshold: 1_000, label: 'K' },
+  ]
+
+  const compactUnit = units.find((unit) => value >= unit.threshold)
+  if (!compactUnit) {
+    return Math.round(value).toLocaleString()
+  }
+
+  return `${(value / compactUnit.threshold).toFixed(1)}${compactUnit.label}`
 }
 
 function formatRemainingUsageWindow(window?: CodexUsageWindow): string {
@@ -267,12 +332,12 @@ function goToUsage() {
 }
 
 .account-detail-hero {
-  align-items: stretch;
+  align-items: center;
 }
 
 .account-hero-identity {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 16px;
   min-width: 0;
   flex: 1;
@@ -297,6 +362,26 @@ function goToUsage() {
   align-items: center;
   gap: 10px;
   flex-wrap: wrap;
+}
+
+.page-hero-copy {
+  min-width: 0;
+}
+
+.page-title-email {
+  max-width: 100%;
+  font-size: clamp(18px, 2.1vw, 24px);
+  line-height: 1.24;
+  letter-spacing: -0.24px;
+  word-break: break-all;
+}
+
+.page-subtitle-email {
+  display: inline-block;
+  max-width: 100%;
+  font-size: 12px;
+  line-height: 1.45;
+  word-break: break-all;
 }
 
 .hero-pill-list {
@@ -346,8 +431,8 @@ function goToUsage() {
   width: min(320px, 100%);
   display: grid;
   align-content: start;
-  gap: 12px;
-  padding: 14px;
+  gap: 10px;
+  padding: 12px;
   border-radius: 20px;
   background:
     linear-gradient(135deg, rgba(0, 113, 227, 0.08), rgba(0, 113, 227, 0.02) 58%),
@@ -379,11 +464,11 @@ function goToUsage() {
   width: 100%;
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
+  gap: 6px;
 }
 
 .detail-quota-item {
-  padding: 10px 12px;
+  padding: 8px 10px;
   border-radius: 16px;
   background: var(--app-surface-muted);
 }
@@ -398,7 +483,7 @@ function goToUsage() {
 
 .detail-quota-item strong {
   display: block;
-  margin-top: 4px;
+  margin-top: 3px;
   font-family: var(--font-display);
   font-size: 16px;
   line-height: 1.2;
@@ -444,48 +529,83 @@ function goToUsage() {
   gap: 14px;
 }
 
-.detail-metric-grid {
+.detail-usage-period-grid {
   margin-top: 16px;
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 12px;
 }
 
-.detail-metric-grid .metric-card {
+.detail-usage-period-card {
+  --period-accent: var(--app-blue);
   position: relative;
   overflow: hidden;
   min-height: 118px;
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
+  display: grid;
+  gap: 14px;
   border: 1px solid var(--app-border);
   background: var(--app-surface-muted);
+  border-radius: 18px;
+  padding: 18px 20px;
 }
 
-.detail-metric-grid .metric-card::before {
+.detail-usage-period-card::before {
   content: '';
   position: absolute;
   inset: 0 0 auto;
   height: 3px;
-  background: var(--metric-accent, var(--app-blue));
+  background: var(--period-accent);
 }
 
-.metric-card-input {
-  --metric-accent: #0071e3;
+.detail-usage-period-card:nth-child(2) {
+  --period-accent: #0f9fb0;
 }
 
-.metric-card-output {
-  --metric-accent: #0f9fb0;
+.detail-usage-period-card:nth-child(3) {
+  --period-accent: var(--app-ink);
 }
 
-.metric-card-request {
-  --metric-accent: var(--app-ink);
+.detail-usage-period-head {
+  display: grid;
+  gap: 4px;
 }
 
-.detail-metric-grid .metric-value {
-  margin-top: 12px;
-  font-size: clamp(24px, 4vw, 36px);
-  letter-spacing: -0.4px;
+.detail-usage-period-head span,
+.detail-usage-period-head small,
+.detail-usage-breakdown span {
+  color: var(--app-ink-tertiary);
+  font-size: 11px;
+  line-height: 1.33;
+}
+
+.detail-usage-period-head strong {
+  color: var(--app-ink);
+  font-family: var(--font-display);
+  font-size: clamp(20px, 2.6vw, 28px);
+  line-height: 1.12;
+  letter-spacing: -0.2px;
+}
+
+.detail-usage-breakdown {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.detail-usage-breakdown div {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+  padding: 8px 10px;
+  border-radius: 14px;
+  background: var(--app-surface);
+}
+
+.detail-usage-breakdown strong {
+  color: var(--app-ink);
+  font-family: var(--font-display);
+  font-size: 14px;
+  line-height: 1.24;
 }
 
 .panel-loading,
@@ -499,6 +619,10 @@ function goToUsage() {
 .usage-empty p {
   margin: 0;
   color: var(--app-ink-secondary);
+}
+
+.usage-error p {
+  color: #d03050;
 }
 
 .detail-link {
@@ -552,7 +676,7 @@ function goToUsage() {
 }
 
 @media (max-width: 768px) {
-  .detail-metric-grid,
+  .detail-usage-period-grid,
   .detail-quota-grid {
     grid-template-columns: 1fr;
   }

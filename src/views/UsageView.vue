@@ -39,51 +39,67 @@
 
     <TokenUsageHeatmap :loading="loading" :daily-data="chartData" />
 
-    <template v-if="!loading && summaryRows.length > 0">
-      <section class="surface-panel account-detail-panel">
-        <div class="account-detail-head">
-          <h2 class="panel-heading">近一年账号明细</h2>
+    <section v-if="!loading" class="surface-panel account-detail-panel">
+      <div class="account-detail-head">
+        <div class="account-detail-title-group">
+          <h2 class="panel-heading">账号用量明细</h2>
+          <span class="account-detail-period-label">{{ selectedDetailPeriodLabel }}</span>
+        </div>
+
+        <div class="account-detail-actions">
+          <div class="detail-period-tabs" role="group" aria-label="账号用量明细周期">
+            <button
+              v-for="option in detailPeriodOptions"
+              :key="option.value"
+              type="button"
+              class="detail-period-tab"
+              :class="{ active: detailPeriod === option.value }"
+              @click="setDetailPeriod(option.value)"
+            >
+              {{ option.label }}
+            </button>
+          </div>
           <span class="account-detail-count">{{ summaryRows.length }} 个账号</span>
         </div>
+      </div>
 
-        <div class="account-detail-grid">
-          <article
-            v-for="(row, index) in summaryRows"
-            :key="row.account_id"
-            class="account-detail-card"
-          >
-            <div class="account-detail-card-head">
-              <div class="account-detail-card-copy">
-                <span class="account-detail-rank">TOP {{ index + 1 }}</span>
-                <h3>{{ row.account_name }}</h3>
-              </div>
-              <div class="account-detail-card-total">
-                <span>总 Token</span>
-                <strong>{{ formatTokens(row.total_tokens) }}</strong>
-              </div>
+      <div v-if="summaryRows.length > 0" class="account-detail-grid">
+        <article
+          v-for="(row, index) in summaryRows"
+          :key="row.account_id"
+          class="account-detail-card"
+        >
+          <div class="account-detail-card-head">
+            <div class="account-detail-card-copy">
+              <span class="account-detail-rank">TOP {{ index + 1 }}</span>
+              <h3>{{ row.account_name }}</h3>
             </div>
-
-            <div class="account-detail-metric-grid">
-              <div class="account-detail-metric">
-                <span>输入 Token</span>
-                <strong>{{ formatTokens(row.input_tokens) }}</strong>
-              </div>
-              <div class="account-detail-metric">
-                <span>输出 Token</span>
-                <strong>{{ formatTokens(row.output_tokens) }}</strong>
-              </div>
-              <div class="account-detail-metric">
-                <span>请求次数</span>
-                <strong>{{ row.request_count.toLocaleString() }}</strong>
-              </div>
+            <div class="account-detail-card-total">
+              <span>总 Token</span>
+              <strong>{{ formatTokens(row.total_tokens) }}</strong>
             </div>
-          </article>
-        </div>
-      </section>
-    </template>
+          </div>
 
-    <section v-else-if="!loading" class="surface-panel empty-panel">
-      <p>最近一年还没有可展示的账号用量数据。</p>
+          <div class="account-detail-metric-grid">
+            <div class="account-detail-metric">
+              <span>输入 Token</span>
+              <strong>{{ formatTokens(row.input_tokens) }}</strong>
+            </div>
+            <div class="account-detail-metric">
+              <span>输出 Token</span>
+              <strong>{{ formatTokens(row.output_tokens) }}</strong>
+            </div>
+            <div class="account-detail-metric">
+              <span>请求次数</span>
+              <strong>{{ row.request_count.toLocaleString() }}</strong>
+            </div>
+          </div>
+        </article>
+      </div>
+
+      <div v-else class="account-detail-empty">
+        <p>{{ detailEmptyText }}</p>
+      </div>
     </section>
   </div>
 </template>
@@ -106,12 +122,36 @@ interface UsageSummaryRow {
   request_count: number
 }
 
+interface DetailPeriodOption {
+  label: string
+  value: UsagePeriod
+  emptyText: string
+}
+
 const accountStore = useAccountStore()
 const usageStore = useUsageStore()
 const message = useMessage()
 const annualPeriod: UsagePeriod = 'year'
+const detailPeriod = ref<UsagePeriod>('day')
 const loading = ref(false)
 const initialized = ref(false)
+const detailPeriodOptions: DetailPeriodOption[] = [
+  {
+    label: '今年',
+    value: 'current_year',
+    emptyText: '今年还没有可展示的账号用量数据。',
+  },
+  {
+    label: '本月',
+    value: 'current_month',
+    emptyText: '本月还没有可展示的账号用量数据。',
+  },
+  {
+    label: '今天',
+    value: 'day',
+    emptyText: '今天还没有可展示的账号用量数据。',
+  },
+]
 
 const accountIds = computed(() => accountStore.accounts.map((account) => account.id))
 const totalAccountCount = computed(() => accountStore.accounts.length)
@@ -135,10 +175,18 @@ const todayTotalTokens = computed(() => {
   return (todayPoint?.input_tokens ?? 0) + (todayPoint?.output_tokens ?? 0)
 })
 
+const selectedDetailPeriodOption = computed(
+  () =>
+    detailPeriodOptions.find((option) => option.value === detailPeriod.value) ??
+    detailPeriodOptions[0],
+)
+const selectedDetailPeriodLabel = computed(() => selectedDetailPeriodOption.value.label)
+const detailEmptyText = computed(() => selectedDetailPeriodOption.value.emptyText)
+
 const summaryRows = computed<UsageSummaryRow[]>(() =>
   accountStore.accounts
     .map((account) => {
-      const accountSummary = usageStore.getSummary(account.id, annualPeriod)
+      const accountSummary = usageStore.getSummary(account.id, detailPeriod.value)
       if (!accountSummary) {
         return null
       }
@@ -190,24 +238,44 @@ async function loadData() {
     return
   }
 
-  const hasMemoryCache = usageStore.hasCachedUsageForAccounts(currentAccountIds, annualPeriod)
-  loading.value = !hasMemoryCache
+  const selectedPeriod = detailPeriod.value
+  const hasAnnualCache = usageStore.hasCachedUsageForAccounts(currentAccountIds, annualPeriod)
+  const hasDetailCache = usageStore.hasCachedUsageForAccounts(currentAccountIds, selectedPeriod)
+  loading.value = !(hasAnnualCache && hasDetailCache)
   try {
-    if (!hasMemoryCache) {
+    if (!hasAnnualCache) {
       await usageStore.loadCachedUsageForAccounts(currentAccountIds, annualPeriod)
     }
 
-    if (usageStore.hasCachedUsageForAccounts(currentAccountIds, annualPeriod)) {
+    if (!hasDetailCache && selectedPeriod !== annualPeriod) {
+      await usageStore.loadCachedUsageForAccounts(currentAccountIds, selectedPeriod)
+    }
+
+    if (
+      usageStore.hasCachedUsageForAccounts(currentAccountIds, annualPeriod) &&
+      usageStore.hasCachedUsageForAccounts(currentAccountIds, selectedPeriod)
+    ) {
       loading.value = false
     }
 
     await usageStore.refreshUsageForAccounts(currentAccountIds, annualPeriod)
+    if (selectedPeriod !== annualPeriod) {
+      await usageStore.loadCachedUsageForAccounts(currentAccountIds, selectedPeriod)
+    }
   } catch (error) {
     console.warn('刷新 Token 用量失败', error)
     message.error('刷新 Token 用量失败')
   } finally {
     loading.value = false
   }
+}
+
+function setDetailPeriod(period: UsagePeriod) {
+  if (detailPeriod.value === period) {
+    return
+  }
+
+  detailPeriod.value = period
 }
 
 function formatDateKey(date: Date): string {
@@ -227,6 +295,14 @@ watch(
     void loadData()
   },
 )
+
+watch(detailPeriod, () => {
+  if (!initialized.value || accountIds.value.length === 0) {
+    return
+  }
+
+  void loadData()
+})
 
 onMounted(async () => {
   if (accountStore.accounts.length === 0) {
@@ -320,6 +396,64 @@ onMounted(async () => {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+}
+
+.account-detail-title-group {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.account-detail-period-label {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 0 10px;
+  border-radius: var(--app-radius-control);
+  background: rgba(0, 113, 227, 0.1);
+  color: var(--app-blue);
+  font-size: 11px;
+  line-height: 1.33;
+}
+
+.account-detail-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.detail-period-tabs {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px;
+  border-radius: var(--app-radius-control);
+  background: var(--app-surface-muted);
+}
+
+.detail-period-tab {
+  border: none;
+  border-radius: calc(var(--app-radius-control) - 4px);
+  background: transparent;
+  color: var(--app-ink-secondary);
+  min-height: 28px;
+  padding: 0 11px;
+  font-size: 12px;
+  line-height: 1.33;
+  cursor: pointer;
+  transition:
+    background-color 0.18s ease,
+    color 0.18s ease;
+}
+
+.detail-period-tab.active {
+  background: var(--app-surface);
+  color: var(--app-ink);
+  box-shadow: 0 1px 4px rgba(29, 29, 31, 0.08);
 }
 
 .account-detail-count {
@@ -421,6 +555,18 @@ onMounted(async () => {
   color: var(--app-ink);
 }
 
+.account-detail-empty {
+  min-height: 120px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--app-ink-secondary);
+}
+
+.account-detail-empty p {
+  margin: 0;
+}
+
 @media (max-width: 960px) {
   .dashboard-summary-row {
     grid-template-columns: 1fr;
@@ -430,6 +576,10 @@ onMounted(async () => {
   .account-detail-card-head {
     flex-direction: column;
     align-items: stretch;
+  }
+
+  .account-detail-actions {
+    justify-content: flex-start;
   }
 
   .account-detail-metric-grid {

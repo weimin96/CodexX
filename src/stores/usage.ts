@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { usageService } from '@/services'
-import type { UsageSummary, ChartDataPoint, UsagePeriod } from '@/types'
+import type { UsageSummary, ChartDataPoint, UsagePeriod, UsageQuery } from '@/types'
 
 export const useUsageStore = defineStore('usage', () => {
   const summaries = ref<Map<string, UsageSummary>>(new Map())
@@ -18,7 +18,7 @@ export const useUsageStore = defineStore('usage', () => {
   }
 
   async function readUsageData(accountId: string, p: UsagePeriod) {
-    const query = { account_id: accountId, period: p }
+    const query = buildUsageQuery(accountId, p)
     const [summary, chart] = await Promise.all([
       usageService.getUsageStats(query),
       usageService.getUsageChartData(query),
@@ -154,6 +154,18 @@ export const useUsageStore = defineStore('usage', () => {
 
   function setPeriod(p: UsagePeriod) {
     period.value = p
+  }
+
+  function buildUsageQuery(accountId: string, p: UsagePeriod): UsageQuery {
+    return {
+      account_id: accountId,
+      period: p,
+      timezone_offset_minutes: resolveLocalTimezoneOffsetMinutes(),
+    }
+  }
+
+  function resolveLocalTimezoneOffsetMinutes(): number {
+    return -new Date().getTimezoneOffset()
   }
 
   return {

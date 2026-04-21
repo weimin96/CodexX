@@ -253,6 +253,7 @@ import { accountService, authService, usageService } from '@/services'
 import { AUTH_TYPE_LABELS } from '@/types'
 import type {
   Account,
+  CodexShortConversationResult,
   OAuthCallbackFinishedEvent,
   OAuthLoginResult,
   PreparedOAuthLogin,
@@ -514,6 +515,18 @@ function resolveWarmupStateLabel(state: WarmupProgressState): string {
   }
 }
 
+function resolveWarmupWorkspaceDescription(result: CodexShortConversationResult): string {
+  if (result.working_directory?.trim()) {
+    return result.working_directory.trim()
+  }
+
+  if (result.working_directory_source === 'process_cwd') {
+    return '应用安装目录'
+  }
+
+  return '未显式指定目录'
+}
+
 async function handleCheckStatus(id: string) {
   try {
     await accountStore.checkAccountStatus(id)
@@ -627,7 +640,11 @@ async function handleTriggerConversation(accountId?: string) {
 
       try {
         const result = await usageService.triggerCodexShortConversation(account.id)
-        updateWarmupProgressEntry(account.id, 'success', `${result.model} 预热完成`)
+        updateWarmupProgressEntry(
+          account.id,
+          'success',
+          `${result.model} 预热完成 · 工作区：${resolveWarmupWorkspaceDescription(result)}`,
+        )
 
         if (accountId) {
           message.success(`已通过「${result.account_name}」完成 ${result.model} 一键预热`)

@@ -196,6 +196,8 @@ export interface CodexShortConversationResult extends CodexLaunchResult {
   account_id: string
   account_name: string
   model: string
+  working_directory?: string
+  working_directory_source: 'recent_session' | 'trusted_project' | 'process_cwd'
 }
 
 // ============================================================

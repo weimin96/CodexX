@@ -7,9 +7,9 @@ use uuid::Uuid;
 use crate::account::{Account, AccountRepository};
 use crate::codex_runtime::{
     close_codex_desktop_app, open_codex_cli_terminal, open_codex_desktop_app,
-    open_interactive_codex, prompt_preview, read_codex_launcher_config, run_codex_exec,
-    CodexAppLaunchInput, CodexCliLaunchInput, CodexCommandTarget, CodexExecInput,
-    CodexInteractiveInput, CodexLaunchResult,
+    open_interactive_codex, prompt_preview, read_codex_launcher_config,
+    read_existing_trusted_project_paths, run_codex_exec, CodexAppLaunchInput, CodexCliLaunchInput,
+    CodexCommandTarget, CodexExecInput, CodexInteractiveInput, CodexLaunchResult,
 };
 use crate::error::AppError;
 use crate::local_sync::LocalAuthSyncService;
@@ -18,8 +18,8 @@ use crate::usage::{CodexLaunchSessionRecord, UsageRepository};
 use crate::AppState;
 
 const SHORT_CONVERSATION_PROMPT: &str = "hi";
-const SHORT_CONVERSATION_MODEL: &str = "gpt-5.3-codex";
-const SHORT_CONVERSATION_MODEL_LABEL: &str = "GPT-5.3-Codex";
+const SHORT_CONVERSATION_MODEL: &str = "gpt-5.2";
+const SHORT_CONVERSATION_MODEL_LABEL: &str = "GPT-5.2";
 const LOW_REASONING_OVERRIDE: &str = "model_reasoning_effort=\"low\"";
 const CODEX_QUOTA_EXHAUSTED_EVENT: &str = "codex-quota-exhausted";
 const QUOTA_EXHAUSTED_THRESHOLD: f64 = 99.9;
@@ -32,6 +32,20 @@ struct CodexQuotaExhaustedEvent {
     five_hour_used_percent: Option<f64>,
     weekly_used_percent: Option<f64>,
     task_label: String,
+}
+
+#[derive(Debug, Clone, Copy, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum WarmupWorkingDirectorySource {
+    RecentSession,
+    TrustedProject,
+    ProcessCwd,
+}
+
+#[derive(Debug, Clone)]
+struct WarmupWorkspaceSelection {
+    working_directory: Option<String>,
+    source: WarmupWorkingDirectorySource,
 }
 
 #[tauri::command]
@@ -158,7 +172,7 @@ pub async fn trigger_codex_short_conversation(
     let session_id = Uuid::new_v4().to_string();
     let started_at = Utc::now().to_rfc3339();
     let executable_label = target.executable_label();
-    let selected_account = {
+    let (selected_account, warmup_workspace) = {
         let db = state.db.lock().await;
         let account_repo = AccountRepository::new(&db);
         let accounts = account_repo.list_all()?;
@@ -169,12 +183,13 @@ pub async fn trigger_codex_short_conversation(
         )?;
 
         let usage_repo = UsageRepository::new(&db);
+        let warmup_workspace = resolve_warmup_workspace(&usage_repo, selected_account.id.as_str())?;
         usage_repo.insert_launch_session(&CodexLaunchSessionRecord {
             id: session_id.clone(),
             account_id: selected_account.id.clone(),
             launch_mode: "short_conversation".to_string(),
             executable: Some(executable_label.clone()),
-            working_directory: None,
+            working_directory: warmup_workspace.working_directory.clone(),
             prompt_preview: prompt_preview(Some(SHORT_CONVERSATION_PROMPT)),
             status: "running".to_string(),
             started_at: started_at.clone(),
@@ -184,15 +199,17 @@ pub async fn trigger_codex_short_conversation(
             error_message: None,
         })?;
 
-        selected_account
+        (selected_account, warmup_workspace)
     };
     let input = CodexExecInput {
         account_id: selected_account.id.clone(),
         prompt: SHORT_CONVERSATION_PROMPT.to_string(),
-        working_directory: None,
+        working_directory: warmup_workspace.working_directory.clone(),
         model: Some(SHORT_CONVERSATION_MODEL.to_string()),
         profile: None,
         sandbox: Some("read-only".to_string()),
+        // 当前 Codex CLI 没有单独的“标准速度”快捷参数；这里不附加任何速度档位覆盖，
+        // 仅显式锁定模型和低思考，让预热继续走默认速度。
         config_overrides: Some(vec![LOW_REASONING_OVERRIDE.to_string()]),
         skip_git_repo_check: Some(true),
     };
@@ -218,7 +235,7 @@ pub async fn trigger_codex_short_conversation(
                     account_id: selected_account.id.clone(),
                     launch_mode: "short_conversation".to_string(),
                     executable: Some(executable_label),
-                    working_directory: None,
+                    working_directory: warmup_workspace.working_directory.clone(),
                     prompt_preview: prompt_preview(Some(SHORT_CONVERSATION_PROMPT)),
                     status: status.to_string(),
                     started_at,
@@ -248,6 +265,8 @@ pub async fn trigger_codex_short_conversation(
                 "status": status,
                 "exit_code": outcome.exit_code,
                 "usage_event_count": outcome.usage_events.len(),
+                "working_directory": warmup_workspace.working_directory,
+                "working_directory_source": warmup_workspace.source,
                 "message": outcome.message,
                 "stderr_preview": outcome.stderr_preview,
             }))?)
@@ -261,7 +280,7 @@ pub async fn trigger_codex_short_conversation(
                     account_id: selected_account.id.clone(),
                     launch_mode: "short_conversation".to_string(),
                     executable: Some(executable_label),
-                    working_directory: None,
+                    working_directory: warmup_workspace.working_directory.clone(),
                     prompt_preview: prompt_preview(Some(SHORT_CONVERSATION_PROMPT)),
                     status: "failed".to_string(),
                     started_at,
@@ -305,6 +324,35 @@ fn has_full_five_hour_quota(account: &Account) -> bool {
         .codex_usage_5h
         .as_ref()
         .is_some_and(|usage| usage.used_percent <= 0.000_001)
+}
+
+fn resolve_warmup_workspace(
+    usage_repo: &UsageRepository,
+    account_id: &str,
+) -> Result<WarmupWorkspaceSelection, AppError> {
+    if let Some(working_directory) = usage_repo.find_recent_working_directory(account_id)? {
+        return Ok(WarmupWorkspaceSelection {
+            working_directory: Some(working_directory),
+            source: WarmupWorkingDirectorySource::RecentSession,
+        });
+    }
+
+    // trusted project 只是兜底增强项；配置缺失或损坏时仍保留原有预热能力，
+    // 但会把目录来源标记为 process_cwd，避免误判成真实工作区预热。
+    if let Some(working_directory) = read_existing_trusted_project_paths()
+        .ok()
+        .and_then(|paths| paths.into_iter().next())
+    {
+        return Ok(WarmupWorkspaceSelection {
+            working_directory: Some(working_directory),
+            source: WarmupWorkingDirectorySource::TrustedProject,
+        });
+    }
+
+    Ok(WarmupWorkspaceSelection {
+        working_directory: None,
+        source: WarmupWorkingDirectorySource::ProcessCwd,
+    })
 }
 
 #[tauri::command]

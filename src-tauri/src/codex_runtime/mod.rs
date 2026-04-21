@@ -467,6 +467,16 @@ pub fn read_codex_launcher_config() -> AppResult<CodexLauncherConfig> {
     })
 }
 
+pub fn read_existing_trusted_project_paths() -> AppResult<Vec<String>> {
+    let codex_home = resolve_codex_home()?;
+    let config_path = codex_home.join("config.toml");
+
+    Ok(read_trusted_project_paths(&config_path)?
+        .into_iter()
+        .filter_map(|path| normalize_existing_directory_text(path.as_str()))
+        .collect())
+}
+
 pub fn prompt_preview(value: Option<&str>) -> Option<String> {
     value
         .map(str::trim)
@@ -924,6 +934,20 @@ fn normalize_existing_directory(value: Option<&str>) -> AppResult<Option<PathBuf
     Ok(Some(path.to_path_buf()))
 }
 
+fn normalize_existing_directory_text(value: &str) -> Option<String> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    let path = Path::new(trimmed);
+    if !path.is_dir() {
+        return None;
+    }
+
+    Some(path.to_string_lossy().to_string())
+}
+
 fn normalize_text(value: Option<&str>) -> Option<String> {
     value
         .map(str::trim)
@@ -1101,6 +1125,42 @@ trust_level = "trusted"
 
         assert_eq!(model_options[0].value, "gpt-5.4");
         assert_eq!(model_options[1].value, "gpt-5.4-mini");
+    }
+
+    #[test]
+    fn filters_missing_trusted_project_paths() {
+        let temp_dir = unique_temp_dir();
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        let trusted_a = temp_dir.join("trusted-a");
+        std::fs::create_dir_all(&trusted_a).unwrap();
+        let config_path = temp_dir.join("config.toml");
+        std::fs::write(
+            &config_path,
+            format!(
+                r#"
+[projects.'{}']
+trust_level = "trusted"
+
+[projects.'{}']
+trust_level = "trusted"
+"#,
+                trusted_a.to_string_lossy(),
+                temp_dir.join("missing-project").to_string_lossy()
+            ),
+        )
+        .unwrap();
+
+        let trusted_projects = read_trusted_project_paths(&config_path)
+            .unwrap()
+            .into_iter()
+            .filter_map(|path| normalize_existing_directory_text(path.as_str()))
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            trusted_projects,
+            vec![trusted_a.to_string_lossy().to_string()]
+        );
+        let _ = std::fs::remove_dir_all(temp_dir);
     }
 
     fn unique_temp_dir() -> PathBuf {

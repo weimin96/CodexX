@@ -3,6 +3,7 @@ use crate::storage::Database;
 use chrono::{Duration, Utc};
 use rusqlite::params;
 use serde::{Deserialize, Serialize};
+use std::path::Path;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UsageRecord {
@@ -239,6 +240,28 @@ impl<'a> UsageRepository<'a> {
         Ok(sessions)
     }
 
+    pub fn find_recent_working_directory(&self, account_id: &str) -> AppResult<Option<String>> {
+        let mut stmt = self.db.get_conn().prepare(
+            "SELECT working_directory
+             FROM codex_launch_sessions
+             WHERE account_id = ?1
+               AND working_directory IS NOT NULL
+               AND trim(working_directory) <> ''
+               AND launch_mode IN ('interactive_terminal', 'cli_terminal', 'exec_json')
+               AND status <> 'failed'
+             ORDER BY started_at DESC
+             LIMIT 20",
+        )?;
+
+        let directories = stmt
+            .query_map(params![account_id], |row| row.get::<_, String>(0))?
+            .collect::<Result<Vec<_>, _>>()?;
+
+        Ok(directories
+            .into_iter()
+            .find_map(|directory| normalize_existing_working_directory(&directory)))
+    }
+
     pub fn get_summary(&self, account_id: &str, period: &str) -> AppResult<UsageSummary> {
         let (start_date, _end_date) = get_period_range(period);
 
@@ -371,4 +394,183 @@ fn get_period_range(period: &str) -> (String, String) {
         start.format("%Y-%m-%d").to_string(),
         today.format("%Y-%m-%d").to_string(),
     )
+}
+
+fn normalize_existing_working_directory(value: &str) -> Option<String> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    let path = Path::new(trimmed);
+    if !path.is_dir() {
+        return None;
+    }
+
+    Some(path.to_string_lossy().to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{normalize_existing_working_directory, CodexLaunchSessionRecord, UsageRepository};
+    use crate::storage::Database;
+    use rusqlite::params;
+    use std::path::PathBuf;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[test]
+    fn prefers_latest_existing_working_directory() {
+        let temp_dir = unique_temp_dir();
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        let workspace_a = temp_dir.join("workspace-a");
+        let workspace_b = temp_dir.join("workspace-b");
+        std::fs::create_dir_all(&workspace_a).unwrap();
+        std::fs::create_dir_all(&workspace_b).unwrap();
+
+        let db = Database::new(temp_dir.join("codex.db")).unwrap();
+        seed_account(&db, "account-a");
+        let repo = UsageRepository::new(&db);
+
+        repo.insert_launch_session(&CodexLaunchSessionRecord {
+            id: "session-old".to_string(),
+            account_id: "account-a".to_string(),
+            launch_mode: "cli_terminal".to_string(),
+            executable: None,
+            working_directory: Some(workspace_a.to_string_lossy().to_string()),
+            prompt_preview: None,
+            status: "completed".to_string(),
+            started_at: "2026-04-20T01:00:00Z".to_string(),
+            completed_at: Some("2026-04-20T01:01:00Z".to_string()),
+            exit_code: Some(0),
+            usage_event_count: 0,
+            error_message: None,
+        })
+        .unwrap();
+        repo.insert_launch_session(&CodexLaunchSessionRecord {
+            id: "session-new".to_string(),
+            account_id: "account-a".to_string(),
+            launch_mode: "interactive_terminal".to_string(),
+            executable: None,
+            working_directory: Some(workspace_b.to_string_lossy().to_string()),
+            prompt_preview: None,
+            status: "completed".to_string(),
+            started_at: "2026-04-21T01:00:00Z".to_string(),
+            completed_at: Some("2026-04-21T01:01:00Z".to_string()),
+            exit_code: Some(0),
+            usage_event_count: 0,
+            error_message: None,
+        })
+        .unwrap();
+
+        let directory = repo.find_recent_working_directory("account-a").unwrap();
+
+        assert_eq!(directory, Some(workspace_b.to_string_lossy().to_string()));
+        let _ = std::fs::remove_dir_all(temp_dir);
+    }
+
+    #[test]
+    fn skips_missing_and_failed_working_directories() {
+        let temp_dir = unique_temp_dir();
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        let valid_workspace = temp_dir.join("valid-workspace");
+        std::fs::create_dir_all(&valid_workspace).unwrap();
+        let missing_workspace = temp_dir.join("missing-workspace");
+
+        let db = Database::new(temp_dir.join("codex.db")).unwrap();
+        seed_account(&db, "account-a");
+        let repo = UsageRepository::new(&db);
+
+        repo.insert_launch_session(&CodexLaunchSessionRecord {
+            id: "session-failed".to_string(),
+            account_id: "account-a".to_string(),
+            launch_mode: "cli_terminal".to_string(),
+            executable: None,
+            working_directory: Some(valid_workspace.to_string_lossy().to_string()),
+            prompt_preview: None,
+            status: "failed".to_string(),
+            started_at: "2026-04-22T01:00:00Z".to_string(),
+            completed_at: Some("2026-04-22T01:01:00Z".to_string()),
+            exit_code: Some(1),
+            usage_event_count: 0,
+            error_message: Some("failed".to_string()),
+        })
+        .unwrap();
+        repo.insert_launch_session(&CodexLaunchSessionRecord {
+            id: "session-missing".to_string(),
+            account_id: "account-a".to_string(),
+            launch_mode: "exec_json".to_string(),
+            executable: None,
+            working_directory: Some(missing_workspace.to_string_lossy().to_string()),
+            prompt_preview: None,
+            status: "completed".to_string(),
+            started_at: "2026-04-21T01:00:00Z".to_string(),
+            completed_at: Some("2026-04-21T01:01:00Z".to_string()),
+            exit_code: Some(0),
+            usage_event_count: 1,
+            error_message: None,
+        })
+        .unwrap();
+        repo.insert_launch_session(&CodexLaunchSessionRecord {
+            id: "session-valid".to_string(),
+            account_id: "account-a".to_string(),
+            launch_mode: "interactive_terminal".to_string(),
+            executable: None,
+            working_directory: Some(valid_workspace.to_string_lossy().to_string()),
+            prompt_preview: None,
+            status: "completed".to_string(),
+            started_at: "2026-04-20T01:00:00Z".to_string(),
+            completed_at: Some("2026-04-20T01:01:00Z".to_string()),
+            exit_code: Some(0),
+            usage_event_count: 0,
+            error_message: None,
+        })
+        .unwrap();
+
+        let directory = repo.find_recent_working_directory("account-a").unwrap();
+
+        assert_eq!(
+            directory,
+            Some(valid_workspace.to_string_lossy().to_string())
+        );
+        let _ = std::fs::remove_dir_all(temp_dir);
+    }
+
+    #[test]
+    fn normalizes_existing_directory_only() {
+        let temp_dir = unique_temp_dir();
+        std::fs::create_dir_all(&temp_dir).unwrap();
+
+        assert_eq!(
+            normalize_existing_working_directory(temp_dir.to_string_lossy().as_ref()),
+            Some(temp_dir.to_string_lossy().to_string())
+        );
+        assert_eq!(normalize_existing_working_directory(" "), None);
+        assert_eq!(
+            normalize_existing_working_directory(
+                temp_dir.join("missing").to_string_lossy().as_ref()
+            ),
+            None
+        );
+
+        let _ = std::fs::remove_dir_all(temp_dir);
+    }
+
+    fn seed_account(db: &Database, account_id: &str) {
+        db.get_conn()
+            .execute(
+                "INSERT INTO accounts (
+                    id, name, auth_type, is_default, is_active, created_at, updated_at, status, color
+                 ) VALUES (?1, ?2, 'oauth_token', 0, 1, ?3, ?3, 'unknown', '#18a058')",
+                params![account_id, "测试账号", "2026-04-21T00:00:00Z"],
+            )
+            .unwrap();
+    }
+
+    fn unique_temp_dir() -> PathBuf {
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        std::env::temp_dir().join(format!("codexx-usage-tests-{suffix}"))
+    }
 }

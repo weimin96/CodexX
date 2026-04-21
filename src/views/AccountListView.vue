@@ -114,7 +114,7 @@
           @refresh-token="handleRefreshToken(account.id)"
           @switch-account="handleSwitchAccount(account.id)"
           @export-auth="handleExportAccount(account)"
-          @trigger-conversation="handleTriggerConversation(account.id)"
+          @trigger-warmup="(window) => handleTriggerWarmup(window, account.id)"
           @delete="handleDelete(account)"
         />
       </div>
@@ -278,7 +278,9 @@ interface WarmupProgressEntry {
   detail: string
 }
 
-const FULL_FIVE_HOUR_UNUSED_THRESHOLD = 0.000_001
+type WarmupQuotaWindow = 'five_hour' | 'one_week'
+
+const WARMUP_QUOTA_EPSILON = 0.000_001
 
 const searchQuery = ref('')
 const showCreateModal = ref(false)
@@ -290,6 +292,7 @@ const syncingLocalAuth = ref(false)
 const triggeringConversation = ref(false)
 const refreshingTokenAccounts = ref<Set<string>>(new Set())
 const triggeringConversationAccounts = ref<Set<string>>(new Set())
+const warmupQuotaWindow = ref<WarmupQuotaWindow>('five_hour')
 const warmupProgressMode = ref<WarmupProgressMode>('batch')
 const warmupProgressEntries = ref<WarmupProgressEntry[]>([])
 const oauthPreparing = ref(false)
@@ -327,9 +330,12 @@ const warmupProgressPercentage = computed(() => {
 
   return Math.round((warmupCompletedCount.value / warmupExecutableCount.value) * 100)
 })
-const warmupProgressTitle = computed(() =>
-  warmupProgressMode.value === 'single' ? '预热执行进度' : '批量预热进度'
-)
+const warmupProgressTitle = computed(() => {
+  const windowLabel = warmupQuotaWindow.value === 'five_hour' ? '5 小时' : '7 天'
+  return warmupProgressMode.value === 'single'
+    ? `${windowLabel}预热执行进度`
+    : `批量${windowLabel}预热进度`
+})
 const warmupProgressSummary = computed(() => {
   if (!warmupProgressEntries.value.length) {
     return ''
@@ -341,7 +347,8 @@ const warmupProgressSummary = computed(() => {
 type AccountActionKey =
   | 'sync-local'
   | 'oauth-login'
-  | 'trigger-conversation'
+  | 'warmup-five-hour'
+  | 'warmup-one-week'
   | 'check-all'
   | 'import'
   | 'export'
@@ -364,11 +371,20 @@ const accountActionOptions = computed<DropdownOption[]>(() => [
       ),
   },
   {
-    label: triggeringConversation.value ? '预热中' : '一键预热',
-    key: 'trigger-conversation',
+    label: triggeringConversation.value ? '预热中' : '5 小时预热',
+    key: 'warmup-five-hour',
     disabled: triggeringConversation.value || !hasAccounts.value,
     props: {
       title: '触发5小时倒计时',
+    },
+    icon: () => renderDropdownIcon('M21 15a4 4 0 0 1-4 4H7l-4 4V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4v8z'),
+  },
+  {
+    label: triggeringConversation.value ? '预热中' : '7 天预热',
+    key: 'warmup-one-week',
+    disabled: triggeringConversation.value || !hasAccounts.value,
+    props: {
+      title: '触发7天倒计时',
     },
     icon: () => renderDropdownIcon('M21 15a4 4 0 0 1-4 4H7l-4 4V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4v8z'),
   },
@@ -469,8 +485,23 @@ function navigateToDetail(id: string) {
   router.push({ name: 'AccountDetail', params: { id } })
 }
 
-function hasFullFiveHourQuota(account: Account): boolean {
-  return Boolean(account.codex_usage_5h && account.codex_usage_5h.used_percent <= FULL_FIVE_HOUR_UNUSED_THRESHOLD)
+function isWarmupExecutable(account: Account, warmupWindow: WarmupQuotaWindow): boolean {
+  const usageWindow = warmupWindow === 'five_hour' ? account.codex_usage_5h : account.codex_usage_week
+  if (!usageWindow) {
+    return false
+  }
+
+  if (usageWindow.used_percent > WARMUP_QUOTA_EPSILON) {
+    return false
+  }
+
+  if (!Number.isFinite(usageWindow.reset_at) || !usageWindow.reset_at) {
+    return false
+  }
+
+  const nowSeconds = Math.floor(Date.now() / 1000)
+  const secondsUntilReset = usageWindow.reset_at - nowSeconds
+  return secondsUntilReset >= usageWindow.window_seconds
 }
 
 // 批量预热会跨多次后端调用，前端需要保留每个账号的状态，用户才能知道具体卡在哪个账号。
@@ -575,8 +606,11 @@ function handleAccountActionSelect(key: string | number) {
     case 'oauth-login':
       void handlePrepareOAuthLogin()
       break
-    case 'trigger-conversation':
-      void handleTriggerConversation()
+    case 'warmup-five-hour':
+      void handleTriggerWarmup('five_hour')
+      break
+    case 'warmup-one-week':
+      void handleTriggerWarmup('one_week')
       break
     case 'check-all':
       void handleCheckAll()
@@ -602,7 +636,7 @@ async function handleSwitchAccount(id: string) {
   }
 }
 
-async function handleTriggerConversation(accountId?: string) {
+async function handleTriggerWarmup(warmupWindow: WarmupQuotaWindow, accountId?: string) {
   if (triggeringConversation.value) return
   const isBatchWarmup = !accountId
   const previousActiveAccountId = isBatchWarmup ? activeAccount.value?.id ?? null : null
@@ -612,19 +646,21 @@ async function handleTriggerConversation(accountId?: string) {
     : [...accounts.value]
 
   if (targetAccounts.length === 0) {
-    message.warning('没有可执行一键预热的账号')
+    message.warning('没有可执行预热的账号')
     return
   }
 
-  const executableAccounts = targetAccounts.filter((account) => hasFullFiveHourQuota(account))
+  const executableAccounts = targetAccounts.filter((account) => isWarmupExecutable(account, warmupWindow))
 
   resetWarmupProgress(executableAccounts, accountId ? 'single' : 'batch')
+  warmupQuotaWindow.value = warmupWindow
 
   if (executableAccounts.length === 0) {
+    const windowLabel = warmupWindow === 'five_hour' ? '5 小时' : '7 天'
     message.warning(
       accountId
-        ? '该账号当前没有可执行的一键预热额度'
-        : '当前没有 5 小时剩余额度为 100% 的账号可执行一键预热',
+        ? `该账号当前没有可执行的${windowLabel}预热额度`
+        : `当前没有可执行${windowLabel}预热的账号`,
     )
     return
   }
@@ -639,7 +675,7 @@ async function handleTriggerConversation(accountId?: string) {
       ])
 
       try {
-        const result = await usageService.triggerCodexShortConversation(account.id)
+        const result = await usageService.triggerCodexWarmupConversation(warmupWindow, account.id)
         updateWarmupProgressEntry(
           account.id,
           'success',
@@ -647,10 +683,10 @@ async function handleTriggerConversation(accountId?: string) {
         )
 
         if (accountId) {
-          message.success(`已通过「${result.account_name}」完成 ${result.model} 一键预热`)
+          message.success(`已通过「${result.account_name}」完成 ${result.model} 预热`)
         }
       } catch (error) {
-        const errorMessage = getErrorMessage(error, '一键预热失败')
+        const errorMessage = getErrorMessage(error, '预热失败')
         updateWarmupProgressEntry(account.id, 'failed', errorMessage)
 
         if (accountId) {

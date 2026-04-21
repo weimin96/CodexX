@@ -228,6 +228,20 @@ export const usageService = {
     }
     return invoke<CodexShortConversationResult>('trigger_codex_short_conversation', {
       accountId: accountId ?? null,
+      warmupWindow: 'five_hour',
+    })
+  },
+
+  async triggerCodexWarmupConversation(
+    warmupWindow: 'five_hour' | 'one_week',
+    accountId?: string,
+  ): Promise<CodexShortConversationResult> {
+    if (!isTauri) {
+      throw new Error('触发 Codex 对话仅在 Tauri 环境中可用')
+    }
+    return invoke<CodexShortConversationResult>('trigger_codex_short_conversation', {
+      accountId: accountId ?? null,
+      warmupWindow,
     })
   },
 

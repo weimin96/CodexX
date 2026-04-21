@@ -81,7 +81,7 @@
 
 <script setup lang="ts">
 import { AUTH_TYPE_LABELS } from '@/types'
-import type { Account } from '@/types'
+import type { Account, CodexUsageWindow } from '@/types'
 import StatusDot from '@/components/common/StatusDot.vue'
 import AccountQuotaChart from '@/components/account/AccountQuotaChart.vue'
 import { computed, h } from 'vue'
@@ -114,7 +114,7 @@ const emit = defineEmits<{
   'refresh-token': []
   'switch-account': []
   'export-auth': []
-  'trigger-conversation': []
+  'trigger-warmup': [window: 'five_hour' | 'one_week']
   delete: []
 }>()
 
@@ -122,7 +122,8 @@ type CardActionKey =
   | 'detail'
   | 'check'
   | 'refresh-token'
-  | 'trigger-conversation'
+  | 'warmup-five-hour'
+  | 'warmup-one-week'
   | 'switch-account'
   | 'export-auth'
   | 'delete'
@@ -137,7 +138,8 @@ const displayUsageError = computed(() => formatUsageError(props.account.codex_us
 const statusDisplay = computed(() => resolveAccountStatusDisplay(props.account))
 const displayStatusMessage = computed(() => resolveAccountStatusMessage(props.account))
 const statusDiagnostic = computed(() => resolveAccountStatusDiagnostic(props.account))
-const canTriggerConversation = computed(() => hasFullFiveHourQuota(props.account))
+const canWarmupFiveHour = computed(() => isWarmupExecutableWindow(props.account.codex_usage_5h))
+const canWarmupOneWeek = computed(() => isWarmupExecutableWindow(props.account.codex_usage_week))
 const planLabel = computed(() => formatAccountPlanType(props.account.codex_plan_type))
 const planTone = computed(() => resolveAccountPlanTone(props.account.codex_plan_type))
 const cardActionOptions = computed<DropdownOption[]>(() => {
@@ -188,12 +190,25 @@ const cardActionOptions = computed<DropdownOption[]>(() => {
       icon: () => renderActionIcon('M21 12a9 9 0 1 1-2.64-6.36M21 3v6h-6'),
     },
     {
-      label: props.triggeringConversation ? '预热中' : '一键预热',
-      key: 'trigger-conversation',
+      label: '5 小时预热',
+      key: 'warmup-five-hour',
       disabled:
-        props.triggeringConversation || props.warmupDisabled || !canTriggerConversation.value,
+        props.triggeringConversation || props.warmupDisabled || !canWarmupFiveHour.value,
       props: {
         title: '触发5小时倒计时',
+      },
+      icon: () =>
+        renderActionIcon(
+          'M21 15a4 4 0 0 1-4 4H7l-4 4V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4v8z',
+        ),
+    },
+    {
+      label: '7 天预热',
+      key: 'warmup-one-week',
+      disabled:
+        props.triggeringConversation || props.warmupDisabled || !canWarmupOneWeek.value,
+      props: {
+        title: '触发7天倒计时',
       },
       icon: () =>
         renderActionIcon(
@@ -243,8 +258,22 @@ function hasCodexUsage(account: Account): boolean {
   return Boolean(account.codex_usage_5h || account.codex_usage_week)
 }
 
-function hasFullFiveHourQuota(account: Account): boolean {
-  return Boolean(account.codex_usage_5h && account.codex_usage_5h.used_percent <= 0.000_001)
+function isWarmupExecutableWindow(window: CodexUsageWindow | undefined): boolean {
+  if (!window) {
+    return false
+  }
+
+  if (window.used_percent > 0.000_001) {
+    return false
+  }
+
+  if (!Number.isFinite(window.reset_at) || !window.reset_at) {
+    return false
+  }
+
+  const nowSeconds = Math.floor(Date.now() / 1000)
+  const secondsUntilReset = window.reset_at - nowSeconds
+  return secondsUntilReset >= window.window_seconds
 }
 
 function renderActionIcon(path: string) {
@@ -277,8 +306,11 @@ function handleCardActionSelect(key: string | number) {
     case 'refresh-token':
       emit('refresh-token')
       break
-    case 'trigger-conversation':
-      emit('trigger-conversation')
+    case 'warmup-five-hour':
+      emit('trigger-warmup', 'five_hour')
+      break
+    case 'warmup-one-week':
+      emit('trigger-warmup', 'one_week')
       break
     case 'switch-account':
       emit('switch-account')

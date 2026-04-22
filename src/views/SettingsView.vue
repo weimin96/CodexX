@@ -36,6 +36,21 @@
             @update:value="handleAutostartChange"
           />
         </div>
+
+        <div class="setting-item">
+          <div class="setting-copy">
+            <div class="setting-title">关闭窗口时</div>
+            <div class="setting-description">右上角关闭按钮和系统关闭窗口时，选择最小化到托盘或直接退出应用。</div>
+          </div>
+          <n-radio-group
+            :value="settingsStore.settings.window_close_action"
+            size="small"
+            @update:value="handleWindowCloseActionChange"
+          >
+            <n-radio-button value="tray">最小化到托盘</n-radio-button>
+            <n-radio-button value="quit">直接退出</n-radio-button>
+          </n-radio-group>
+        </div>
       </div>
     </section>
 
@@ -268,6 +283,21 @@ async function handleAutostartChange(enabled: boolean) {
     autosaveState.value = 'error'
     message.error(enabled ? '开启开机自启失败' : '关闭开机自启失败')
   }
+}
+
+async function handleWindowCloseActionChange(value: string | number | boolean | null) {
+  if (value !== 'tray' && value !== 'quit') {
+    return
+  }
+
+  if (value === settingsStore.settings.window_close_action) {
+    return
+  }
+
+  await persistSettingsChange(
+    { window_close_action: value },
+    '关闭窗口行为保存失败',
+  )
 }
 
 async function handleTokenKeepaliveChange(enabled: boolean) {

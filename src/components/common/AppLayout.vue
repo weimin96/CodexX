@@ -332,7 +332,16 @@ const restartingCodexApp = ref(false)
 
 const minimizeWindow = () => appWindow?.minimize()
 const toggleMaximize = () => appWindow?.toggleMaximize()
-const closeWindow = () => appWindow?.hide()
+
+function closeWindow() {
+  if (!appWindow) {
+    return
+  }
+
+  void appWindow.close().catch((error) => {
+    console.warn('关闭主窗口失败', error)
+  })
+}
 
 function handleTitlebarMouseDown(event: MouseEvent) {
   if (!isTauri.value || event.button !== 0 || !appWindow) return

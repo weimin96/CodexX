@@ -23,13 +23,19 @@ function cacheTheme(theme: AppSettings['theme']) {
 }
 
 function normalizeSettings(updates: Partial<AppSettings>): Partial<AppSettings> {
-  if (!updates.theme) {
-    return updates
-  }
-
   return {
     ...updates,
-    theme: updates.theme === 'dark' ? 'dark' : 'light',
+    ...(updates.theme
+      ? {
+          theme: updates.theme === 'dark' ? 'dark' : 'light',
+        }
+      : {}),
+    ...(updates.window_close_action
+      ? {
+          window_close_action:
+            updates.window_close_action === 'quit' ? 'quit' : 'tray',
+        }
+      : {}),
   }
 }
 
@@ -41,6 +47,7 @@ export const useSettingsStore = defineStore('settings', () => {
     autostart: 'false',
     token_keepalive_enabled: 'false',
     auto_update_enabled: 'false',
+    window_close_action: 'tray',
   })
   const loading = ref(false)
   const loaded = ref(false)

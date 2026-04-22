@@ -1,4 +1,8 @@
 use crate::codex_runtime::resolve_codex_home;
+use crate::codex_token_usage::{
+    is_codex_token_count_event, parse_codex_token_count_usage, CodexTokenCountState,
+    CodexTokenUsageMetrics,
+};
 use crate::error::{AppError, AppResult};
 use crate::usage::{ApiUsageEventRecord, UsageImportSession, UsageRepository};
 use chrono::{DateTime, Duration, Utc};
@@ -10,6 +14,8 @@ use std::hash::Hasher;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
+
+const LEGACY_TOKEN_COUNT_ITEM_SCAN_LIMIT: usize = 4;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct CodexSessionUsageImportResult {
@@ -99,6 +105,7 @@ fn import_session_file(
     let reader = BufReader::new(file);
     let mut imported_count = 0;
     let mut ignored_line_count = 0;
+    let mut token_count_state = CodexTokenCountState::default();
 
     for (line_index, line) in reader.lines().enumerate() {
         let line = line?;
@@ -112,7 +119,17 @@ fn import_session_file(
             continue;
         };
         let event_timestamp = read_event_timestamp(&value).unwrap_or(fallback_timestamp);
-        let parsed_items = parse_usage_items(&value);
+        let parsed_items = parse_usage_items(&value, &mut token_count_state);
+        if is_codex_token_count_event(&value) {
+            delete_legacy_token_count_items(
+                usage_repo,
+                &session.id,
+                file_path,
+                line_index,
+                parsed_items.len(),
+            )?;
+        }
+
         for (item_index, parsed_item) in parsed_items.into_iter().enumerate() {
             let event_id =
                 build_session_usage_event_id(&session.id, file_path, line_index, item_index);
@@ -149,6 +166,22 @@ fn import_session_file(
         imported_count,
         ignored_line_count,
     })
+}
+
+fn delete_legacy_token_count_items(
+    usage_repo: &UsageRepository<'_>,
+    session_id: &str,
+    file_path: &Path,
+    line_index: usize,
+    retained_item_count: usize,
+) -> AppResult<()> {
+    // 旧算法会把 last_token_usage 与 total_token_usage 作为同一行里的多个候选写入。
+    // 新算法只保留增量候选，刷新时删除同源多余候选，避免历史统计继续膨胀。
+    for item_index in retained_item_count..LEGACY_TOKEN_COUNT_ITEM_SCAN_LIMIT {
+        let event_id = build_session_usage_event_id(session_id, file_path, line_index, item_index);
+        usage_repo.delete_api_usage_event(&event_id)?;
+    }
+    Ok(())
 }
 
 fn collect_candidate_session_files(
@@ -201,7 +234,18 @@ fn read_event_timestamp(value: &Value) -> Option<DateTime<Utc>> {
         .map(|value| value.with_timezone(&Utc))
 }
 
-fn parse_usage_items(root: &Value) -> Vec<ParsedSessionUsage> {
+fn parse_usage_items(
+    root: &Value,
+    token_count_state: &mut CodexTokenCountState,
+) -> Vec<ParsedSessionUsage> {
+    if let Some(metrics) = parse_codex_token_count_usage(root, token_count_state) {
+        return vec![ParsedSessionUsage::from_codex_token_count(root, metrics)];
+    }
+
+    if is_codex_token_count_event(root) {
+        return Vec::new();
+    }
+
     let mut items = Vec::new();
     collect_usage_candidates(root, root, &mut items);
 
@@ -210,6 +254,22 @@ fn parse_usage_items(root: &Value) -> Vec<ParsedSessionUsage> {
         .into_iter()
         .filter(|item| seen.insert(item.raw_usage_json.clone()))
         .collect()
+}
+
+impl ParsedSessionUsage {
+    fn from_codex_token_count(root: &Value, metrics: CodexTokenUsageMetrics) -> Self {
+        Self {
+            model: find_string(root, &["model", "model_name"]),
+            response_id: find_string(root, &["response_id", "responseId", "id"]),
+            request_id: find_string(root, &["request_id", "requestId", "x_request_id"]),
+            input_tokens: metrics.input_tokens,
+            output_tokens: metrics.output_tokens,
+            total_tokens: metrics.total_tokens,
+            cached_input_tokens: metrics.cached_input_tokens,
+            reasoning_tokens: metrics.reasoning_tokens,
+            raw_usage_json: metrics.raw_usage_json,
+        }
+    }
 }
 
 fn collect_usage_candidates(root: &Value, value: &Value, items: &mut Vec<ParsedSessionUsage>) {
@@ -401,7 +461,8 @@ mod tests {
             }
         });
 
-        let items = parse_usage_items(&value);
+        let mut token_count_state = CodexTokenCountState::default();
+        let items = parse_usage_items(&value, &mut token_count_state);
 
         assert_eq!(items.len(), 1);
         assert_eq!(items[0].model.as_deref(), Some("gpt-5.4"));
@@ -439,9 +500,74 @@ mod tests {
             }
         });
 
-        let items = parse_usage_items(&value);
+        let mut token_count_state = CodexTokenCountState::default();
+        let items = parse_usage_items(&value, &mut token_count_state);
 
         assert_eq!(items.len(), 1);
         assert_eq!(items[0].total_tokens, 17);
+    }
+
+    #[test]
+    fn parses_codex_token_count_from_last_usage_only() {
+        let value = json!({
+            "timestamp": "2026-04-19T00:00:00Z",
+            "type": "event_msg",
+            "payload": {
+                "type": "token_count",
+                "info": {
+                    "model": "gpt-5.4",
+                    "total_token_usage": {
+                        "input_tokens": 100,
+                        "cached_input_tokens": 20,
+                        "output_tokens": 30,
+                        "reasoning_output_tokens": 5
+                    },
+                    "last_token_usage": {
+                        "input_tokens": 12,
+                        "cached_input_tokens": 3,
+                        "output_tokens": 4,
+                        "reasoning_output_tokens": 1
+                    }
+                }
+            }
+        });
+        let mut token_count_state = CodexTokenCountState::default();
+
+        let items = parse_usage_items(&value, &mut token_count_state);
+
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].model.as_deref(), Some("gpt-5.4"));
+        assert_eq!(items[0].input_tokens, 12);
+        assert_eq!(items[0].output_tokens, 4);
+        assert_eq!(items[0].total_tokens, 16);
+        assert_eq!(items[0].cached_input_tokens, Some(3));
+        assert_eq!(items[0].reasoning_tokens, Some(1));
+    }
+
+    #[test]
+    fn skips_repeated_codex_token_count_snapshot() {
+        let value = json!({
+            "timestamp": "2026-04-19T00:00:00Z",
+            "type": "event_msg",
+            "payload": {
+                "type": "token_count",
+                "info": {
+                    "total_token_usage": {
+                        "input_tokens": 100,
+                        "cached_input_tokens": 20,
+                        "output_tokens": 30
+                    },
+                    "last_token_usage": {
+                        "input_tokens": 100,
+                        "cached_input_tokens": 20,
+                        "output_tokens": 30
+                    }
+                }
+            }
+        });
+        let mut token_count_state = CodexTokenCountState::default();
+
+        assert_eq!(parse_usage_items(&value, &mut token_count_state).len(), 1);
+        assert!(parse_usage_items(&value, &mut token_count_state).is_empty());
     }
 }

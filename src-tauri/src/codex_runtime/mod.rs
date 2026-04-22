@@ -1,3 +1,7 @@
+use crate::codex_token_usage::{
+    is_codex_token_count_event, parse_codex_token_count_usage, CodexTokenCountState,
+    CodexTokenUsageMetrics,
+};
 use crate::error::{AppError, AppResult};
 use crate::usage::ApiUsageEventRecord;
 use chrono::Utc;
@@ -114,6 +118,7 @@ struct ParsedUsageEvent {
     cached_input_tokens: Option<i64>,
     reasoning_tokens: Option<i64>,
     raw_usage_json: String,
+    incremental_codex_usage: bool,
 }
 
 impl CodexCommandTarget {
@@ -565,6 +570,8 @@ where
 {
     let mut lines = BufReader::new(reader).lines();
     let mut deduped = BTreeMap::<String, ParsedUsageEvent>::new();
+    let mut incremental_events = Vec::new();
+    let mut token_count_state = CodexTokenCountState::default();
     let mut json_line_count = 0;
     let mut ignored_line_count = 0;
 
@@ -580,9 +587,13 @@ where
         };
         json_line_count += 1;
 
-        let mut candidates = Vec::new();
-        collect_usage_candidates(&value, &value, &mut candidates);
+        let candidates = parse_usage_events(&value, &mut token_count_state);
         for candidate in candidates {
+            if candidate.incremental_codex_usage {
+                incremental_events.push(candidate);
+                continue;
+            }
+
             let key = candidate
                 .response_id
                 .clone()
@@ -592,8 +603,16 @@ where
         }
     }
 
+    if !incremental_events.is_empty() {
+        // token_count 已经通过累计基线拆成增量；保留无请求 ID 的最终快照会再次计入同一轮用量。
+        deduped.remove("session-final-usage");
+    }
+
+    let mut events = deduped.into_values().collect::<Vec<_>>();
+    events.extend(incremental_events);
+
     Ok(JsonlUsageReadResult {
-        events: deduped.into_values().collect(),
+        events,
         json_line_count,
         ignored_line_count,
     })
@@ -646,6 +665,23 @@ fn collect_usage_candidates(root: &Value, value: &Value, candidates: &mut Vec<Pa
     }
 }
 
+fn parse_usage_events(
+    root: &Value,
+    token_count_state: &mut CodexTokenCountState,
+) -> Vec<ParsedUsageEvent> {
+    if let Some(metrics) = parse_codex_token_count_usage(root, token_count_state) {
+        return vec![ParsedUsageEvent::from_codex_token_count(root, metrics)];
+    }
+
+    if is_codex_token_count_event(root) {
+        return Vec::new();
+    }
+
+    let mut candidates = Vec::new();
+    collect_usage_candidates(root, root, &mut candidates);
+    candidates
+}
+
 fn parse_usage_candidate(root: &Value, usage: &Value) -> Option<ParsedUsageEvent> {
     let object = usage.as_object()?;
     let input_tokens = read_i64(object, &["input_tokens", "prompt_tokens"]).unwrap_or(0);
@@ -685,7 +721,25 @@ fn parse_usage_candidate(root: &Value, usage: &Value) -> Option<ParsedUsageEvent
         cached_input_tokens,
         reasoning_tokens,
         raw_usage_json: serde_json::to_string(usage).unwrap_or_else(|_| "{}".to_string()),
+        incremental_codex_usage: false,
     })
+}
+
+impl ParsedUsageEvent {
+    fn from_codex_token_count(root: &Value, metrics: CodexTokenUsageMetrics) -> Self {
+        Self {
+            model: find_string(root, &["model", "model_name"]),
+            response_id: find_string(root, &["response_id", "responseId"]),
+            request_id: find_string(root, &["request_id", "requestId", "x_request_id"]),
+            input_tokens: metrics.input_tokens,
+            output_tokens: metrics.output_tokens,
+            total_tokens: metrics.total_tokens,
+            cached_input_tokens: metrics.cached_input_tokens,
+            reasoning_tokens: metrics.reasoning_tokens,
+            raw_usage_json: metrics.raw_usage_json,
+            incremental_codex_usage: true,
+        }
+    }
 }
 
 fn build_usage_records(
@@ -1029,6 +1083,24 @@ mod tests {
         assert_eq!(candidates[0].total_tokens, 28);
         assert_eq!(candidates[0].cached_input_tokens, Some(4));
         assert_eq!(candidates[0].reasoning_tokens, Some(3));
+    }
+
+    #[tokio::test]
+    async fn reads_codex_token_count_as_incremental_events() {
+        let first_line = r#"{"timestamp":"2026-04-19T00:00:00Z","type":"event_msg","payload":{"type":"token_count","info":{"model":"gpt-5.4","total_token_usage":{"input_tokens":100,"cached_input_tokens":20,"output_tokens":30},"last_token_usage":{"input_tokens":12,"cached_input_tokens":3,"output_tokens":4}}}}"#;
+        let second_line = r#"{"timestamp":"2026-04-19T00:00:01Z","type":"event_msg","payload":{"type":"token_count","info":{"model":"gpt-5.4","total_token_usage":{"input_tokens":115,"cached_input_tokens":24,"output_tokens":35},"last_token_usage":{"input_tokens":15,"cached_input_tokens":4,"output_tokens":5}}}}"#;
+        let final_snapshot = r#"{"type":"turn.completed","model":"gpt-5.4","usage":{"input_tokens":115,"cached_input_tokens":24,"output_tokens":35}}"#;
+        let content = format!("{first_line}\n{second_line}\n{final_snapshot}\n");
+
+        let result = read_jsonl_usage(content.as_bytes()).await.unwrap();
+
+        assert_eq!(result.events.len(), 2);
+        assert_eq!(result.events[0].input_tokens, 12);
+        assert_eq!(result.events[0].output_tokens, 4);
+        assert_eq!(result.events[0].cached_input_tokens, Some(3));
+        assert_eq!(result.events[1].input_tokens, 15);
+        assert_eq!(result.events[1].output_tokens, 5);
+        assert_eq!(result.events[1].cached_input_tokens, Some(4));
     }
 
     #[test]

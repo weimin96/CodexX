@@ -3,6 +3,7 @@ pub mod auth;
 pub mod codex_config;
 pub mod codex_runtime;
 pub mod codex_session_import;
+pub mod codex_token_usage;
 pub mod codex_usage;
 pub mod commands;
 pub mod error;

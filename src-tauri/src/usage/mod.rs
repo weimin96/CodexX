@@ -596,7 +596,7 @@ mod tests {
         std::fs::create_dir_all(&workspace_a).unwrap();
         std::fs::create_dir_all(&workspace_b).unwrap();
 
-        let db = Database::new(temp_dir.join("codex.db")).unwrap();
+        let db = Database::new(temp_dir.join("codexX.db")).unwrap();
         seed_account(&db, "account-a");
         let repo = UsageRepository::new(&db);
 
@@ -645,7 +645,7 @@ mod tests {
         std::fs::create_dir_all(&valid_workspace).unwrap();
         let missing_workspace = temp_dir.join("missing-workspace");
 
-        let db = Database::new(temp_dir.join("codex.db")).unwrap();
+        let db = Database::new(temp_dir.join("codexX.db")).unwrap();
         seed_account(&db, "account-a");
         let repo = UsageRepository::new(&db);
 
@@ -774,7 +774,7 @@ mod tests {
         let isolated_data_dir = unique_temp_dir();
         std::fs::create_dir_all(&isolated_data_dir).unwrap();
 
-        let db = Database::new(isolated_data_dir.join("codex.db")).unwrap();
+        let db = Database::new(isolated_data_dir.join("codexX.db")).unwrap();
         seed_account(&db, "account-a");
         let repo = UsageRepository::new(&db);
         let offset_minutes = 8 * 60;

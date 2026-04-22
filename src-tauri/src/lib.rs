@@ -84,7 +84,7 @@ pub fn run() {
         .setup(|app| {
             // 数据库跟随 Codex 主目录，便于账号管理数据和 Codex 本地状态一起备份。
             let legacy_app_dir = app.path().app_data_dir().expect("无法获取旧应用数据目录");
-            let legacy_db_path = legacy_app_dir.join("codex.db");
+            let legacy_db_path = legacy_app_dir.join("codexX.db");
             let db_path = resolve_codex_manager_db_path().expect("无法解析数据库目录");
             migrate_legacy_database(&legacy_db_path, &db_path).expect("迁移旧数据库失败");
             let db = Database::new(&db_path).expect("初始化数据库失败");
@@ -172,10 +172,10 @@ pub fn run() {
 fn resolve_codex_manager_db_path() -> std::io::Result<PathBuf> {
     let user_home = resolve_user_home_dir()
         .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::NotFound, "无法获取用户目录"))?;
-    let app_dir = PathBuf::from(user_home).join(".codex").join("CodexManager");
+    let app_dir = PathBuf::from(user_home).join(".codex").join("CodexX");
     std::fs::create_dir_all(&app_dir)?;
 
-    Ok(app_dir.join("codex.db"))
+    Ok(app_dir.join("codexX.db"))
 }
 
 #[cfg(windows)]

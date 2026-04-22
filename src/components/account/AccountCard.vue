@@ -59,7 +59,7 @@
     </div>
 
     <div v-if="hasCodexUsage(account)" class="usage-panel">
-      <AccountQuotaChart
+      <LazyAccountQuotaChart
         :five-hour="account.codex_usage_5h"
         :one-week="account.codex_usage_week"
         :plan-type="account.codex_plan_type"
@@ -82,11 +82,10 @@
 </template>
 
 <script setup lang="ts">
+import { computed, defineAsyncComponent, h } from 'vue'
 import { AUTH_TYPE_LABELS } from '@/types'
 import type { Account, CodexUsageWindow } from '@/types'
 import StatusDot from '@/components/common/StatusDot.vue'
-import AccountQuotaChart from '@/components/account/AccountQuotaChart.vue'
-import { computed, h } from 'vue'
 import type { DropdownOption } from 'naive-ui'
 import {
   resolveAccountAvatarText,
@@ -101,6 +100,12 @@ import {
   resolveAccountStatusDisplay,
   resolveAccountStatusMessage,
 } from '@/utils/account-status'
+
+// 额度图表依赖 echarts，异步加载可以避免账号列表首屏把图表库打进同一路由 chunk。
+const LazyAccountQuotaChart = defineAsyncComponent({
+  loader: () => import('@/components/account/AccountQuotaChart.vue'),
+  suspensible: false,
+})
 
 const props = defineProps<{
   account: Account

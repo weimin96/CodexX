@@ -61,6 +61,10 @@ jobs:
             throw "缺少仓库 Secret TAURI_SIGNING_PRIVATE_KEY，无法生成在线更新签名。"
           }
 
+      - name: 读取当前版本发布说明
+        id: release_notes
+        run: node .github/scripts/resolve-release-notes.mjs "${{ github.ref_name }}"
+
       # GitHub Releases 同时承担安装包分发和 latest.json 更新入口。
       - name: 构建并上传到 GitHub Release
         uses: tauri-apps/tauri-action@v0.6.2
@@ -71,13 +75,7 @@ jobs:
         with:
           tagName: ${{ github.ref_name }}
           releaseName: CodexX ${{ github.ref_name }}
-          releaseBody: |
-            自动发布于 GitHub Actions。
-
-            稳定更新入口：
-            https://github.com/weimin96/CodexX/releases/latest/download/latest.json
-
-            请在下方 Assets 中下载对应平台的安装包。
+          releaseBody: ${{ steps.release_notes.outputs.release_body }}
           releaseDraft: false
           prerelease: ${{ contains(github.ref_name, '-') }}
           tauriScript: pnpm tauri

@@ -1,5 +1,11 @@
+import { computed, readonly, ref } from 'vue'
 import { isTauri as detectTauriRuntime } from '@tauri-apps/api/core'
 import { rememberInstalledUpdateChangelog } from '@/utils/update-changelog'
+
+export interface AvailableAppUpdate {
+  version: string
+  body?: string
+}
 
 export type AppUpdateOutcome =
   | { status: 'unsupported' }
@@ -7,26 +13,58 @@ export type AppUpdateOutcome =
   | { status: 'available'; version: string; body?: string }
   | { status: 'installed'; version: string; body?: string }
 
-export async function checkAppUpdate(): Promise<AppUpdateOutcome> {
+const availableAppUpdateState = ref<AvailableAppUpdate | null>(null)
+
+export function useAvailableAppUpdate() {
+  return {
+    availableAppUpdate: readonly(availableAppUpdateState),
+    hasAvailableAppUpdate: computed(() => availableAppUpdateState.value !== null),
+  }
+}
+
+export function clearAvailableAppUpdate() {
+  availableAppUpdateState.value = null
+}
+
+function rememberAvailableAppUpdate(update: AvailableAppUpdate) {
+  availableAppUpdateState.value = { ...update }
+}
+
+export async function checkAppUpdate(options: { rememberAvailable?: boolean } = {}): Promise<AppUpdateOutcome> {
   if (!detectTauriRuntime()) {
+    if (options.rememberAvailable) {
+      clearAvailableAppUpdate()
+    }
     return { status: 'unsupported' }
   }
 
   const { check } = await import('@tauri-apps/plugin-updater')
   const update = await check()
   if (!update) {
+    if (options.rememberAvailable) {
+      clearAvailableAppUpdate()
+    }
     return { status: 'not_available' }
+  }
+
+  const availableUpdate: AvailableAppUpdate = {
+    version: update.version,
+    body: update.body,
+  }
+
+  if (options.rememberAvailable) {
+    rememberAvailableAppUpdate(availableUpdate)
   }
 
   return {
     status: 'available',
-    version: update.version,
-    body: update.body,
+    ...availableUpdate,
   }
 }
 
 export async function installAppUpdate(): Promise<AppUpdateOutcome> {
   if (!detectTauriRuntime()) {
+    clearAvailableAppUpdate()
     return { status: 'unsupported' }
   }
 
@@ -36,10 +74,12 @@ export async function installAppUpdate(): Promise<AppUpdateOutcome> {
   ])
   const update = await check()
   if (!update) {
+    clearAvailableAppUpdate()
     return { status: 'not_available' }
   }
 
   await update.downloadAndInstall()
+  clearAvailableAppUpdate()
   rememberInstalledUpdateChangelog({
     version: update.version,
     body: update.body,

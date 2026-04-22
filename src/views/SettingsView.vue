@@ -103,7 +103,7 @@
         <div class="setting-item">
           <div class="setting-copy">
             <div class="setting-title">自动更新</div>
-            <div class="setting-description">启动时检测新版本，确认后在线下载、安装并重启。</div>
+            <div class="setting-description">启动时检测新版本，发现后在左上角显示升级入口，点击后可在线下载、安装并重启。</div>
           </div>
           <n-switch
             :value="settingsStore.settings.auto_update_enabled === 'true'"
@@ -166,18 +166,20 @@
 </template>
 
 <script setup lang="ts">
-import { computed, h, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useDialog, useMessage } from 'naive-ui'
 import packageJson from '../../package.json'
 import changelogMarkdown from '../../CHANGELOG.md?raw'
 import { usageService } from '@/services'
 import { useSettingsStore } from '@/stores/settings'
 import type { AppSettings } from '@/types'
-import { checkAppUpdate, installAppUpdate } from '@/utils/app-updater'
-import { renderMarkdownLite } from '@/utils/markdown-lite'
+import { checkAppUpdate } from '@/utils/app-updater'
+import {
+  renderUpdateChangelogDialogContent,
+  showAppUpdateInstallDialog,
+} from '@/utils/app-update-dialog'
 import {
   extractLatestChangelogSections,
-  normalizeUpdateChangelogBody,
 } from '@/utils/update-changelog'
 
 const message = useMessage()
@@ -368,13 +370,23 @@ async function openExternalLink(url: string, failureLog: string) {
 async function handleCheckUpdate() {
   checkingUpdate.value = true
   try {
-    const outcome = await checkAppUpdate()
+    const outcome = await checkAppUpdate({ rememberAvailable: true })
     if (outcome.status === 'unsupported') {
       message.warning('检查更新功能仅在 Tauri 应用中可用')
     } else if (outcome.status === 'not_available') {
       message.success('当前已是最新版本')
     } else if (outcome.status === 'available') {
-      showUpdateInstallDialog(outcome.version, outcome.body)
+      showAppUpdateInstallDialog(
+        {
+          dialog,
+          message,
+          setLoadingState: (loading) => {
+            checkingUpdate.value = loading
+          },
+          openExternalLink: (url) => openExternalLink(url, '打开外部链接失败'),
+        },
+        { version: outcome.version, body: outcome.body },
+      )
     }
   } catch (error) {
     console.warn('检查更新失败', error)
@@ -384,63 +396,19 @@ async function handleCheckUpdate() {
   }
 }
 
-function showUpdateInstallDialog(version: string, body?: string) {
-  dialog.info({
-    title: `发现新版本 ${version}`,
-    content: () => renderChangelogDialogContent(body),
-    positiveText: '下载并重启',
-    negativeText: '稍后处理',
-    onPositiveClick: async () => {
-      checkingUpdate.value = true
-      try {
-        const outcome = await installAppUpdate()
-        if (outcome.status === 'not_available') {
-          message.success('当前已是最新版本')
-        }
-      } catch (error) {
-        console.warn('安装更新失败', error)
-        message.error('安装更新失败，请稍后再试')
-      } finally {
-        checkingUpdate.value = false
-      }
-    },
-  })
-}
-
 function showRecentChangelogDialog(body?: string) {
   dialog.info({
     title: '更新日志（最近三个版本）',
-    content: () => renderChangelogDialogContent(body),
+    content: () =>
+      renderUpdateChangelogDialogContent(body, (url) =>
+        openExternalLink(url, '打开外部链接失败'),
+      ),
     positiveText: '知道了',
     negativeText: '查看更多日志',
     onNegativeClick: () => {
       void handleOpenGitHubReleases()
     },
   })
-}
-
-function renderChangelogDialogContent(body?: string) {
-  const markdownBody = normalizeUpdateChangelogBody(body)
-  return h(
-    'div',
-    {
-      class: 'changelog-dialog-content',
-      style: {
-        maxHeight: '300px',
-        overflow: 'auto',
-        margin: '0',
-        fontFamily: 'var(--font-sans)',
-        fontSize: '13px',
-        lineHeight: '1.6',
-        color: 'var(--app-ink)',
-      },
-    },
-    [
-      renderMarkdownLite(markdownBody, (url) => {
-        void openExternalLink(url, '打开外部链接失败')
-      }),
-    ],
-  )
 }
 </script>
 
@@ -559,87 +527,6 @@ function renderChangelogDialogContent(body?: string) {
 
 .github-address {
   word-break: break-all;
-}
-
-.changelog-dialog-content {
-  max-height: 300px;
-  overflow: auto;
-  margin: 0;
-  font-family: var(--font-sans);
-  font-size: 13px;
-  line-height: 1.6;
-  color: var(--app-ink);
-}
-
-.changelog-dialog-content :deep(.markdown-lite-h1) {
-  font-size: 15px;
-  margin: 0 0 10px 0;
-  font-weight: 700;
-}
-
-.changelog-dialog-content :deep(.markdown-lite-h2) {
-  font-size: 14px;
-  margin: 14px 0 8px 0;
-  font-weight: 700;
-}
-
-.changelog-dialog-content :deep(.markdown-lite-h3) {
-  font-size: 13px;
-  margin: 12px 0 6px 0;
-  font-weight: 700;
-  color: var(--app-ink-secondary);
-}
-
-.changelog-dialog-content :deep(.markdown-lite-p) {
-  margin: 8px 0;
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-
-.changelog-dialog-content :deep(.markdown-lite-ul) {
-  margin: 8px 0;
-  padding-left: 18px;
-}
-
-.changelog-dialog-content :deep(.markdown-lite-li) {
-  margin: 4px 0;
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-
-.changelog-dialog-content :deep(.markdown-lite-inline-code) {
-  padding: 1px 6px;
-  border-radius: 8px;
-  background: var(--app-surface-muted);
-  font-family: var(--font-mono);
-  font-size: 12px;
-}
-
-.changelog-dialog-content :deep(.markdown-lite-fence) {
-  margin: 10px 0;
-  padding: 10px 12px;
-  border-radius: 14px;
-  background: var(--app-surface-muted);
-}
-
-.changelog-dialog-content :deep(.markdown-lite-pre) {
-  margin: 0;
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-
-.changelog-dialog-content :deep(.markdown-lite-code) {
-  font-family: var(--font-mono);
-  font-size: 12px;
-}
-
-.changelog-dialog-content :deep(.markdown-lite-link) {
-  color: var(--app-blue);
-  text-decoration: none;
-}
-
-.changelog-dialog-content :deep(.markdown-lite-link:hover) {
-  text-decoration: underline;
 }
 
 @media (max-width: 640px) {

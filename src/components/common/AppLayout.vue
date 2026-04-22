@@ -49,6 +49,25 @@
         <div class="brand-copy">
           <span class="app-title">CodexX</span>
         </div>
+        <button
+          v-if="hasAvailableAppUpdate"
+          class="titlebar-update-button"
+          type="button"
+          :title="`发现新版本 ${availableAppUpdate?.version}，点击查看更新`"
+          :aria-label="`发现新版本 ${availableAppUpdate?.version}，点击查看更新`"
+          @click="openAvailableUpdateDialog"
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path
+              d="M12 16V7M8.5 10.5 12 7l3.5 3.5M5 18.5h14"
+              stroke="currentColor"
+              stroke-width="1.8"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
+          </svg>
+          <span class="titlebar-update-dot" aria-hidden="true" />
+        </button>
       </div>
 
       <div class="titlebar-center">
@@ -215,10 +234,13 @@ import StatusDot from '@/components/common/StatusDot.vue'
 import { usageService } from '@/services'
 import { resolveAccountAvatarText, resolveAccountDisplayName } from '@/utils/account-display'
 import { resolveAccountStatusDisplay } from '@/utils/account-status'
-import { checkAppUpdate, installAppUpdate } from '@/utils/app-updater'
+import { checkAppUpdate, useAvailableAppUpdate } from '@/utils/app-updater'
+import {
+  renderUpdateChangelogDialogContent,
+  showAppUpdateInstallDialog,
+} from '@/utils/app-update-dialog'
 import {
   consumeInstalledUpdateChangelog,
-  normalizeUpdateChangelogBody,
 } from '@/utils/update-changelog'
 
 const router = useRouter()
@@ -228,6 +250,7 @@ const message = useMessage()
 const accountStore = useAccountStore()
 const settingsStore = useSettingsStore()
 const { activeAccount } = storeToRefs(accountStore)
+const { availableAppUpdate, hasAvailableAppUpdate } = useAvailableAppUpdate()
 let startupAccountRefreshStarted = false
 
 const currentRoute = computed(() => route.name as string)
@@ -391,29 +414,9 @@ function showInstalledUpdateChangelog() {
 
   dialog.info({
     title: `更新日志 ${changelog.version}`,
-    content: () => renderChangelogDialogContent(changelog.body),
+    content: () => renderUpdateChangelogDialogContent(changelog.body),
     positiveText: '知道了',
   })
-}
-
-function renderChangelogDialogContent(body?: string) {
-  return h(
-    'pre',
-    {
-      style: {
-        maxHeight: '360px',
-        overflow: 'auto',
-        margin: '0',
-        whiteSpace: 'pre-wrap',
-        wordBreak: 'break-word',
-        fontFamily: 'var(--font-sans)',
-        fontSize: '13px',
-        lineHeight: '1.6',
-        color: 'var(--app-ink)',
-      },
-    },
-    normalizeUpdateChangelogBody(body),
-  )
 }
 
 async function runStartupAutoUpdateCheck() {
@@ -422,32 +425,14 @@ async function runStartupAutoUpdateCheck() {
   }
 
   try {
-    const outcome = await checkAppUpdate()
-    if (outcome.status !== 'available') {
-      return
-    }
-
-    dialog.info({
-      title: `发现新版本 ${outcome.version}`,
-      content: outcome.body?.trim() || '可以在线下载并安装，安装完成后应用会重启。',
-      positiveText: '下载并重启',
-      negativeText: '稍后处理',
-      onPositiveClick: async () => {
-        try {
-          await installAppUpdate()
-        } catch (error) {
-          console.warn('自动更新安装失败', error)
-          dialog.error({
-            title: '自动更新失败',
-            content: '更新下载或安装失败，请稍后在设置页手动检查。',
-            positiveText: '知道了',
-          })
-        }
-      },
-    })
+    await checkAppUpdate({ rememberAvailable: true })
   } catch (error) {
     console.warn('启动自动检查更新失败', error)
   }
+}
+
+function openAvailableUpdateDialog() {
+  showAppUpdateInstallDialog({ dialog, message }, availableAppUpdate.value)
 }
 
 async function refreshAccountsOnFirstStartup() {
@@ -594,6 +579,39 @@ async function refreshAccountsOnFirstStartup() {
   letter-spacing: -0.12px;
   font-weight: 600;
   color: var(--app-titlebar-ink-strong);
+}
+
+.titlebar-update-button {
+  position: relative;
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 113, 227, 0.12);
+  color: var(--app-blue);
+  cursor: pointer;
+  transition:
+    background-color 0.18s ease,
+    color 0.18s ease,
+    transform 0.18s ease;
+}
+
+.titlebar-update-button:hover {
+  background: rgba(0, 113, 227, 0.18);
+  transform: translateY(-1px);
+}
+
+.titlebar-update-dot {
+  position: absolute;
+  top: 7px;
+  right: 7px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
 }
 
 .titlebar-center {

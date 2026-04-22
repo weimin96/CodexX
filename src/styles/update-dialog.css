@@ -1,0 +1,80 @@
+.changelog-dialog-content {
+  max-height: 300px;
+  overflow: auto;
+  margin: 0;
+  font-family: var(--font-sans);
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--app-ink);
+}
+
+.changelog-dialog-content .markdown-lite-h1 {
+  font-size: 15px;
+  margin: 0 0 10px 0;
+  font-weight: 700;
+}
+
+.changelog-dialog-content .markdown-lite-h2 {
+  font-size: 14px;
+  margin: 14px 0 8px 0;
+  font-weight: 700;
+}
+
+.changelog-dialog-content .markdown-lite-h3 {
+  font-size: 13px;
+  margin: 12px 0 6px 0;
+  font-weight: 700;
+  color: var(--app-ink-secondary);
+}
+
+.changelog-dialog-content .markdown-lite-p {
+  margin: 8px 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.changelog-dialog-content .markdown-lite-ul {
+  margin: 8px 0;
+  padding-left: 18px;
+}
+
+.changelog-dialog-content .markdown-lite-li {
+  margin: 4px 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.changelog-dialog-content .markdown-lite-inline-code {
+  padding: 1px 6px;
+  border-radius: 8px;
+  background: var(--app-surface-muted);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.changelog-dialog-content .markdown-lite-fence {
+  margin: 10px 0;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: var(--app-surface-muted);
+}
+
+.changelog-dialog-content .markdown-lite-pre {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.changelog-dialog-content .markdown-lite-code {
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.changelog-dialog-content .markdown-lite-link {
+  color: var(--app-blue);
+  text-decoration: none;
+}
+
+.changelog-dialog-content .markdown-lite-link:hover {
+  text-decoration: underline;
+}

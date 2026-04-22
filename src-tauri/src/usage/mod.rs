@@ -221,6 +221,14 @@ impl<'a> UsageRepository<'a> {
         Ok(changed > 0)
     }
 
+    pub fn delete_api_usage_event(&self, event_id: &str) -> AppResult<bool> {
+        let changed = self.db.get_conn().execute(
+            "DELETE FROM api_usage_events WHERE id = ?1",
+            params![event_id],
+        )?;
+        Ok(changed > 0)
+    }
+
     pub fn add_launch_session_usage_count(
         &self,
         session_id: &str,

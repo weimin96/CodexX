@@ -46,7 +46,7 @@ cargo test --manifest-path src-tauri\Cargo.toml codex_session_import --no-defaul
 
 ## 项目边界
 
-- 数据库位于用户目录 `.codex\CodexManager\codex.db`。
+- 数据库位于用户目录 `.codex\CodexX\codexX.db`。
 - 正式运行默认使用系统凭据库保存主密钥；`CODEX_MANAGER_MASTER_KEY` 只作为显式覆盖入口。
 - 账号导出的 `auth.json` 和 zip 包包含明文凭证，必须按敏感文件处理。
 - Codex 配置页的单字段保存应尽量只替换目标字段，不重新序列化整份 TOML。

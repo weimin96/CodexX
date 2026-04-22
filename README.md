@@ -15,7 +15,7 @@ CodexX 是一个基于 Tauri 2、Vue 3 和 Rust 的桌面应用，用于管理 C
 ### 账号与凭证
 
 - 支持 API Key、OAuth Token、Cookie Session、CLI Profile 四类账号。
-- 数据库凭证加密存储，数据库默认位于用户目录 `.codex\CodexManager\codex.db`。该路径为历史兼容路径，重命名为 CodexX 后继续沿用，避免既有数据迁移风险。
+- 数据库凭证加密存储，数据库默认位于用户目录 `.codex\CodexX\codexX.db`。该路径为历史兼容路径，重命名为 CodexX 后继续沿用，避免既有数据迁移风险。
 - 切换账号会把对应凭证写回默认 `auth.json`，写入前生成 `auth.json.bak`。
 - 账号卡片可导出标准 `auth.json`。
 - 账号操作可批量导出 zip，包内每个账号一个独立 JSON 文件。

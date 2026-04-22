@@ -213,6 +213,7 @@ export interface AppSettings {
   autostart: string
   token_keepalive_enabled: string
   auto_update_enabled: string
+  window_close_action: 'tray' | 'quit'
 }
 
 // ============================================================

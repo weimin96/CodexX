@@ -17,6 +17,7 @@ use std::path::{Path, PathBuf};
 use std::sync::mpsc::Sender;
 use std::sync::Arc;
 use std::thread::JoinHandle;
+use rusqlite::OptionalExtension;
 use storage::Database;
 use tauri::{Emitter, Manager};
 use tokio::sync::Mutex;
@@ -30,6 +31,7 @@ use crate::local_sync::LocalAuthSyncService;
 const TRAY_ICON_BYTES: &[u8] = include_bytes!("../icons/64x64.png");
 #[cfg(all(desktop))]
 const MAIN_TRAY_ID: &str = "main";
+const MAIN_WINDOW_LABEL: &str = "main";
 #[cfg(all(desktop))]
 const TRAY_MENU_OPEN_ID: &str = "open";
 #[cfg(all(desktop))]
@@ -42,6 +44,9 @@ const TRAY_MENU_SWITCH_ACCOUNT_PREFIX: &str = "switch-account::";
 const TRAY_DEFAULT_ACCOUNT_UPDATED_EVENT: &str = "default-account-updated";
 #[cfg(all(desktop))]
 const TRAY_REMAINING_QUOTA_EPSILON: f64 = 0.000_001;
+const WINDOW_CLOSE_ACTION_SETTING_KEY: &str = "window_close_action";
+const WINDOW_CLOSE_ACTION_TRAY: &str = "tray";
+const WINDOW_CLOSE_ACTION_QUIT: &str = "quit";
 pub const APP_USER_AGENT: &str = concat!("codexx/", env!("CARGO_PKG_VERSION"));
 
 pub struct OAuthCallbackListenerHandle {
@@ -67,6 +72,15 @@ pub fn run() {
         .plugin(tauri_plugin_autostart::Builder::new().build())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
+        .on_window_event(|window, event| {
+            if window.label() != MAIN_WINDOW_LABEL {
+                return;
+            }
+
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                handle_main_window_close_requested(window, api);
+            }
+        })
         .setup(|app| {
             // 数据库跟随 Codex 主目录，便于账号管理数据和 Codex 本地状态一起备份。
             let legacy_app_dir = app.path().app_data_dir().expect("无法获取旧应用数据目录");
@@ -469,7 +483,7 @@ fn restart_codex_app_from_tray() {
 
 #[cfg(all(desktop))]
 fn open_main_window(app: &tauri::AppHandle) {
-    let Some(window) = app.get_webview_window("main") else {
+    let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) else {
         log::warn!("无法打开主窗口: main 窗口不存在");
         return;
     };
@@ -482,6 +496,61 @@ fn restore_main_window(window: &tauri::WebviewWindow) {
     log_window_operation("取消主窗口最小化", window.unminimize());
     log_window_operation("显示主窗口", window.show());
     log_window_operation("聚焦主窗口", window.set_focus());
+}
+
+fn handle_main_window_close_requested<R: tauri::Runtime>(
+    window: &tauri::Window<R>,
+    api: &tauri::CloseRequestApi,
+) {
+    match resolve_window_close_action(window.app_handle()) {
+        WindowCloseAction::Tray => {
+            api.prevent_close();
+
+            // 关闭到托盘时保留进程与托盘菜单，便于用户稍后从托盘重新打开主窗口。
+            if let Err(error) = window.hide() {
+                log::warn!("隐藏主窗口失败，回退为直接退出: {error}");
+                window.app_handle().exit(0);
+            }
+        }
+        WindowCloseAction::Quit => {
+            // 应用启用了托盘，仅关闭主窗口不会结束进程，因此这里显式退出整个应用。
+            api.prevent_close();
+            window.app_handle().exit(0);
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum WindowCloseAction {
+    Tray,
+    Quit,
+}
+
+fn resolve_window_close_action<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> WindowCloseAction {
+    let state = app.state::<AppState>();
+    let db = state.db.blocking_lock();
+    let conn = db.get_conn();
+
+    match conn
+        .query_row(
+            "SELECT value FROM settings WHERE key = ?1",
+            [WINDOW_CLOSE_ACTION_SETTING_KEY],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()
+    {
+        Ok(Some(value)) if value == WINDOW_CLOSE_ACTION_QUIT => WindowCloseAction::Quit,
+        Ok(Some(value)) if value == WINDOW_CLOSE_ACTION_TRAY => WindowCloseAction::Tray,
+        Ok(Some(value)) => {
+            log::warn!("发现未知关闭窗口行为设置，回退为托盘模式: {value}");
+            WindowCloseAction::Tray
+        }
+        Ok(None) => WindowCloseAction::Tray,
+        Err(error) => {
+            log::warn!("读取关闭窗口行为设置失败，回退为托盘模式: {error}");
+            WindowCloseAction::Tray
+        }
+    }
 }
 
 #[cfg(all(desktop))]

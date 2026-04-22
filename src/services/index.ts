@@ -352,6 +352,7 @@ export const settingsService = {
         autostart: 'false',
         token_keepalive_enabled: 'false',
         auto_update_enabled: 'false',
+        window_close_action: 'tray',
       }
     }
     return invoke<AppSettings>('get_settings')

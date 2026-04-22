@@ -48,6 +48,12 @@ pub async fn get_settings(state: State<'_, AppState>) -> Result<Value, AppError>
             Value::String("false".to_string()),
         );
     }
+    if !map.contains_key("window_close_action") {
+        map.insert(
+            "window_close_action".to_string(),
+            Value::String("tray".to_string()),
+        );
+    }
     Ok(Value::Object(map))
 }
 

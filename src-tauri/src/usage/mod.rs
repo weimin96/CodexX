@@ -27,6 +27,7 @@ pub struct UsageSummary {
     pub account_id: String,
     pub period: String,
     pub total_input_tokens: i64,
+    pub total_cached_input_tokens: i64,
     pub total_output_tokens: i64,
     pub total_requests: i64,
     pub total_cost: f64,
@@ -36,6 +37,7 @@ pub struct UsageSummary {
 pub struct ChartDataPoint {
     pub date: String,
     pub input_tokens: i64,
+    pub cached_input_tokens: i64,
     pub output_tokens: i64,
     pub request_count: i64,
     pub cost: f64,
@@ -110,6 +112,7 @@ struct UsageDateScope {
 struct ApiUsageEventSummary {
     completed_at: String,
     input_tokens: i64,
+    cached_input_tokens: i64,
     output_tokens: i64,
     estimated_cost: f64,
 }
@@ -117,6 +120,7 @@ struct ApiUsageEventSummary {
 #[derive(Debug, Clone, Default)]
 struct UsagePointAccumulator {
     input_tokens: i64,
+    cached_input_tokens: i64,
     output_tokens: i64,
     request_count: i64,
     cost: f64,
@@ -307,6 +311,7 @@ impl<'a> UsageRepository<'a> {
             UsagePointAccumulator::default(),
             |mut accumulator, point| {
                 accumulator.input_tokens += point.input_tokens;
+                accumulator.cached_input_tokens += point.cached_input_tokens;
                 accumulator.output_tokens += point.output_tokens;
                 accumulator.request_count += point.request_count;
                 accumulator.cost += point.cost;
@@ -318,6 +323,7 @@ impl<'a> UsageRepository<'a> {
             account_id: query.account_id.clone(),
             period: scope.period,
             total_input_tokens: total.input_tokens,
+            total_cached_input_tokens: total.cached_input_tokens,
             total_output_tokens: total.output_tokens,
             total_requests: total.request_count,
             total_cost: total.cost,
@@ -342,6 +348,7 @@ impl<'a> UsageRepository<'a> {
             .map(|(date, accumulator)| ChartDataPoint {
                 date,
                 input_tokens: accumulator.input_tokens,
+                cached_input_tokens: accumulator.cached_input_tokens,
                 output_tokens: accumulator.output_tokens,
                 request_count: accumulator.request_count,
                 cost: accumulator.cost,
@@ -408,6 +415,7 @@ impl<'a> UsageRepository<'a> {
 
             let accumulator = point_map.entry(format_date_key(local_date)).or_default();
             accumulator.input_tokens += event.input_tokens;
+            accumulator.cached_input_tokens += event.cached_input_tokens;
             accumulator.output_tokens += event.output_tokens;
             accumulator.request_count += 1;
             accumulator.cost += event.estimated_cost;
@@ -423,7 +431,7 @@ impl<'a> UsageRepository<'a> {
     ) -> AppResult<Vec<ApiUsageEventSummary>> {
         let conn = self.db.get_conn();
         let mut stmt = conn.prepare(
-            "SELECT completed_at, input_tokens, output_tokens, estimated_cost
+            "SELECT completed_at, input_tokens, COALESCE(cached_input_tokens, 0), output_tokens, estimated_cost
              FROM api_usage_events
              WHERE account_id = ?1
                AND completed_at >= ?2",
@@ -433,8 +441,9 @@ impl<'a> UsageRepository<'a> {
                 Ok(ApiUsageEventSummary {
                     completed_at: row.get(0)?,
                     input_tokens: row.get(1)?,
-                    output_tokens: row.get(2)?,
-                    estimated_cost: row.get(3)?,
+                    cached_input_tokens: row.get(2)?,
+                    output_tokens: row.get(3)?,
+                    estimated_cost: row.get(4)?,
                 })
             })?
             .collect::<Result<Vec<_>, _>>()?;
@@ -814,7 +823,7 @@ mod tests {
             input_tokens: 12,
             output_tokens: 5,
             total_tokens: 17,
-            cached_input_tokens: None,
+            cached_input_tokens: Some(3),
             reasoning_tokens: None,
             estimated_cost: 0.0,
             raw_usage_json: None,
@@ -837,9 +846,11 @@ mod tests {
         assert_eq!(points.len(), 1);
         assert_eq!(points[0].date, format_date_key(local_today));
         assert_eq!(points[0].input_tokens, 12);
+        assert_eq!(points[0].cached_input_tokens, 3);
         assert_eq!(points[0].output_tokens, 5);
         assert_eq!(points[0].request_count, 1);
         assert_eq!(summary.total_input_tokens, 12);
+        assert_eq!(summary.total_cached_input_tokens, 3);
         assert_eq!(summary.total_output_tokens, 5);
         assert_eq!(summary.total_requests, 1);
         let _ = std::fs::remove_dir_all(isolated_data_dir);

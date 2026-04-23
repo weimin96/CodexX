@@ -10,6 +10,10 @@
           <span>活跃天数</span>
           <strong>{{ activeDayCount.toLocaleString() }}</strong>
         </div>
+        <div class="heatmap-stat-card">
+          <span>缓存命中</span>
+          <strong>{{ formatTokens(cachedInputTokenTotal) }}</strong>
+        </div>
         <div class="heatmap-stat-card heatmap-peak-card">
           <span>峰值日</span>
           <strong>{{ peakDayLabel }}</strong>
@@ -96,6 +100,7 @@ interface HeatmapCell {
   date: string
   total_tokens: number
   input_tokens: number
+  cached_input_tokens: number
   output_tokens: number
   request_count: number
   in_range: boolean
@@ -173,6 +178,7 @@ const heatmapWeeks = computed<HeatmapWeek[]>(() => {
         date: currentKey,
         total_tokens: totalTokens,
         input_tokens: point?.input_tokens ?? 0,
+        cached_input_tokens: point?.cached_input_tokens ?? 0,
         output_tokens: point?.output_tokens ?? 0,
         request_count: point?.request_count ?? 0,
         in_range: inRange,
@@ -251,6 +257,10 @@ const activeDayCount = computed(() =>
   props.dailyData.filter((point) => point.input_tokens + point.output_tokens > 0).length,
 )
 
+const cachedInputTokenTotal = computed(() =>
+  props.dailyData.reduce((total, point) => total + point.cached_input_tokens, 0),
+)
+
 const peakDay = computed<HeatmapCell | null>(() => {
   let candidate: HeatmapCell | null = null
 
@@ -286,6 +296,7 @@ function buildCellTitle(cell: HeatmapCell): string {
     cell.date,
     `总 Token：${formatTokens(cell.total_tokens)}`,
     `输入：${formatTokens(cell.input_tokens)}`,
+    `缓存命中：${formatTokens(cell.cached_input_tokens)}`,
     `输出：${formatTokens(cell.output_tokens)}`,
     `请求：${cell.request_count.toLocaleString()}`,
   ].join('\n')

@@ -110,6 +110,7 @@ export const useUsageStore = defineStore('usage', () => {
 
         hasLoadedSummary = true
         current.total_input_tokens += summary.total_input_tokens
+        current.total_cached_input_tokens += summary.total_cached_input_tokens
         current.total_output_tokens += summary.total_output_tokens
         current.total_requests += summary.total_requests
         current.total_cost += summary.total_cost
@@ -119,6 +120,7 @@ export const useUsageStore = defineStore('usage', () => {
         account_id: 'all',
         period: p,
         total_input_tokens: 0,
+        total_cached_input_tokens: 0,
         total_output_tokens: 0,
         total_requests: 0,
         total_cost: 0,
@@ -139,6 +141,7 @@ export const useUsageStore = defineStore('usage', () => {
         const existingPoint = pointMap.get(point.date)
         if (existingPoint) {
           existingPoint.input_tokens += point.input_tokens
+          existingPoint.cached_input_tokens += point.cached_input_tokens
           existingPoint.output_tokens += point.output_tokens
           existingPoint.request_count += point.request_count
           existingPoint.cost += point.cost

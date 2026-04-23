@@ -81,10 +81,10 @@
           </div>
           <button class="detail-link" type="button" @click="goToUsage">查看统计</button>
         </div>
-        <div v-if="usageLoading" class="panel-loading">
+        <div v-if="shouldShowUsageLoading" class="panel-loading">
           <n-spin size="small" />
         </div>
-        <div v-else-if="usageError" class="usage-empty usage-error">
+        <div v-else-if="shouldShowUsageError" class="usage-empty usage-error">
           <p>{{ usageError }}</p>
         </div>
         <div v-else class="detail-usage-period-grid">
@@ -99,13 +99,13 @@
               <small>总 Token</small>
             </div>
             <div class="detail-usage-breakdown">
-              <div>
-                <span>输入</span>
-                <strong>{{ formatTokens(usageCard.input_tokens) }}</strong>
-              </div>
-              <div>
-                <span>输出</span>
-                <strong>{{ formatTokens(usageCard.output_tokens) }}</strong>
+              <div
+                v-for="metric in usageCard.breakdown_items"
+                :key="metric.key"
+                class="detail-usage-breakdown-item"
+              >
+                <span>{{ metric.label }}</span>
+                <strong>{{ formatTokens(metric.value) }}</strong>
               </div>
             </div>
           </article>
@@ -197,6 +197,19 @@ interface UsagePeriodDefinition {
   period: UsagePeriod
 }
 
+interface UsageBreakdownMetric {
+  key: string
+  label: string
+  value: number
+}
+
+interface UsagePeriodCard {
+  key: string
+  label: string
+  total_tokens: number
+  breakdown_items: UsageBreakdownMetric[]
+}
+
 const usagePeriodDefinitions: UsagePeriodDefinition[] = [
   { key: 'today', label: '今日', period: 'day' },
   { key: 'current-month', label: '本月', period: 'current_month' },
@@ -226,23 +239,49 @@ const statusDiagnostic = computed(() => resolveAccountStatusDiagnostic(account.v
 const planLabel = computed(() => formatAccountPlanType(account.value?.codex_plan_type))
 const planTone = computed(() => resolveAccountPlanTone(account.value?.codex_plan_type))
 const showFiveHourQuota = computed(() => supportsFiveHourQuota(account.value?.codex_plan_type))
-
-const usageLoading = ref(false)
+const usageInitialLoading = ref(true)
 const usageError = ref('')
-const usagePeriodCards = computed(() =>
+const usagePeriodCards = computed<UsagePeriodCard[]>(() =>
   usagePeriodDefinitions.map((definition) => {
     const summary = usageStore.getSummary(accountId.value, definition.period)
     const inputTokens = summary?.total_input_tokens ?? 0
+    const cachedInputTokens = summary?.total_cached_input_tokens ?? 0
     const outputTokens = summary?.total_output_tokens ?? 0
 
     return {
       key: definition.key,
       label: definition.label,
-      input_tokens: inputTokens,
-      output_tokens: outputTokens,
       total_tokens: inputTokens + outputTokens,
+      breakdown_items: [
+        {
+          key: 'input-tokens',
+          label: '输入',
+          value: inputTokens,
+        },
+        {
+          key: 'cached-input-tokens',
+          label: '缓存命中',
+          value: cachedInputTokens,
+        },
+        {
+          key: 'output-tokens',
+          label: '输出',
+          value: outputTokens,
+        },
+      ],
     }
   }),
+)
+const hasUsageSummaryCache = computed(() =>
+  usagePeriodDefinitions.some(
+    (definition) => usageStore.getSummary(accountId.value, definition.period) !== null,
+  ),
+)
+const shouldShowUsageLoading = computed(
+  () => usageInitialLoading.value && !hasUsageSummaryCache.value,
+)
+const shouldShowUsageError = computed(
+  () => Boolean(usageError.value) && !hasUsageSummaryCache.value,
 )
 const hasCodexUsage = computed(() =>
   Boolean(account.value?.codex_usage_5h || account.value?.codex_usage_week),
@@ -252,8 +291,41 @@ const nextUsageResetAt = computed(() =>
 )
 
 onMounted(async () => {
-  usageLoading.value = true
+  await loadUsagePanel()
+})
+
+async function loadUsagePanel() {
+  usageInitialLoading.value = true
   usageError.value = ''
+  try {
+    // 先读取本地缓存，让详情页在已有历史数据时直接可见，再由后台刷新覆盖。
+    await preloadUsageSummaries()
+    void refreshUsageSummariesInBackground()
+  } catch (error) {
+    console.warn('加载 Token 用量失败', error)
+    usageError.value = 'Token 用量加载失败，请稍后重试。'
+  } finally {
+    usageInitialLoading.value = false
+  }
+}
+
+async function preloadUsageSummaries() {
+  const missingPeriods = usagePeriodDefinitions.filter(
+    (definition) => usageStore.getSummary(accountId.value, definition.period) === null,
+  )
+
+  if (missingPeriods.length === 0) {
+    return
+  }
+
+  await Promise.all(
+    missingPeriods.map((definition) =>
+      usageStore.loadCachedUsageForAccounts([accountId.value], definition.period),
+    ),
+  )
+}
+
+async function refreshUsageSummariesInBackground() {
   try {
     await usageStore.refreshUsageForAccounts([accountId.value], 'day')
     await Promise.all(
@@ -263,13 +335,14 @@ onMounted(async () => {
           usageStore.loadCachedUsageForAccounts([accountId.value], definition.period),
         ),
     )
+    usageError.value = ''
   } catch (error) {
-    console.warn('加载 Token 用量失败', error)
-    usageError.value = 'Token 用量加载失败，请稍后重试。'
-  } finally {
-    usageLoading.value = false
+    console.warn('后台刷新 Token 用量失败', error)
+    if (!hasUsageSummaryCache.value) {
+      usageError.value = 'Token 用量加载失败，请稍后重试。'
+    }
   }
-})
+}
 
 function formatDate(iso: string) {
   try {
@@ -588,17 +661,23 @@ function goToUsage() {
 
 .detail-usage-breakdown {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: 1fr;
   gap: 8px;
 }
 
-.detail-usage-breakdown div {
+.detail-usage-breakdown-item {
   min-width: 0;
-  display: grid;
-  gap: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
   padding: 8px 10px;
   border-radius: 14px;
   background: var(--app-surface);
+}
+
+.detail-usage-breakdown-item span {
+  flex-shrink: 0;
 }
 
 .detail-usage-breakdown strong {
@@ -606,6 +685,8 @@ function goToUsage() {
   font-family: var(--font-display);
   font-size: 14px;
   line-height: 1.24;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
 }
 
 .panel-loading,

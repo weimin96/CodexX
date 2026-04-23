@@ -20,7 +20,7 @@
             <strong class="metric-value">{{ (summary?.total_requests ?? 0).toLocaleString() }}</strong>
           </div>
         </div>
-        <div class="dashboard-summary-row">
+        <div class="dashboard-summary-row dashboard-token-summary-row">
           <div class="dashboard-summary-card metric-today-card">
             <span class="metric-label">今日 Token</span>
             <strong class="metric-value">{{ formatTokens(todayTotalTokens) }}</strong>
@@ -28,6 +28,10 @@
           <div class="dashboard-summary-card metric-input-card">
             <span class="metric-label">近一年输入 Token</span>
             <strong class="metric-value">{{ formatTokens(summary?.total_input_tokens ?? 0) }}</strong>
+          </div>
+          <div class="dashboard-summary-card metric-cached-card">
+            <span class="metric-label">近一年缓存命中</span>
+            <strong class="metric-value">{{ formatTokens(summary?.total_cached_input_tokens ?? 0) }}</strong>
           </div>
           <div class="dashboard-summary-card metric-output-card">
             <span class="metric-label">近一年输出 Token</span>
@@ -90,6 +94,10 @@
               <strong>{{ formatTokens(row.output_tokens) }}</strong>
             </div>
             <div class="account-detail-metric">
+              <span>缓存命中</span>
+              <strong>{{ formatTokens(row.cached_input_tokens) }}</strong>
+            </div>
+            <div class="account-detail-metric">
               <span>请求次数</span>
               <strong>{{ row.request_count.toLocaleString() }}</strong>
             </div>
@@ -118,6 +126,7 @@ interface UsageSummaryRow {
   account_name: string
   total_tokens: number
   input_tokens: number
+  cached_input_tokens: number
   output_tokens: number
   request_count: number
 }
@@ -204,6 +213,7 @@ const summaryRows = computed<UsageSummaryRow[]>(() =>
         account_name: resolveAccountDisplayName(account),
         total_tokens: totalTokens,
         input_tokens: accountSummary.total_input_tokens,
+        cached_input_tokens: accountSummary.total_cached_input_tokens,
         output_tokens: accountSummary.total_output_tokens,
         request_count: accountSummary.total_requests,
       }
@@ -339,6 +349,10 @@ onMounted(async () => {
   gap: 12px;
 }
 
+.dashboard-token-summary-row {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
 .dashboard-summary-card {
   --card-accent: var(--app-blue);
   --card-border: rgba(0, 113, 227, 0.14);
@@ -379,6 +393,11 @@ onMounted(async () => {
 .metric-output-card {
   --card-accent: #06b6d4;
   --card-border: rgba(6, 182, 212, 0.2);
+}
+
+.metric-cached-card {
+  --card-accent: #c2410c;
+  --card-border: rgba(194, 65, 12, 0.18);
 }
 
 .metric-request-card {
@@ -536,7 +555,7 @@ onMounted(async () => {
 
 .account-detail-metric-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 6px;
 }
 

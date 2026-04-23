@@ -202,6 +202,7 @@ export const usageService = {
         account_id: query.account_id,
         period: query.period,
         total_input_tokens: 0,
+        total_cached_input_tokens: 0,
         total_output_tokens: 0,
         total_requests: 0,
         total_cost: 0,

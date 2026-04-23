@@ -90,6 +90,7 @@ export interface UsageSummary {
   account_id: string
   period: string
   total_input_tokens: number
+  total_cached_input_tokens: number
   total_output_tokens: number
   total_requests: number
   total_cost: number
@@ -98,6 +99,7 @@ export interface UsageSummary {
 export interface ChartDataPoint {
   date: string
   input_tokens: number
+  cached_input_tokens: number
   output_tokens: number
   request_count: number
   cost: number

@@ -16,14 +16,7 @@ if (!releaseNotes) {
   throw new Error(`在 CHANGELOG.md 中未找到版本 ${normalizedVersion} 的更新说明。`)
 }
 
-const releaseBody = [
-  releaseNotes,
-  '',
-  '稳定更新入口：',
-  'https://github.com/weimin96/CodexX/releases/latest/download/latest.json',
-  '',
-  '请在下方 Assets 中下载对应平台的安装包。',
-].join('\n')
+const releaseBody = releaseNotes
 
 writeMultilineOutput('release_body', releaseBody)
 process.stdout.write(releaseBody)

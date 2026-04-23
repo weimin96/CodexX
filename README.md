@@ -41,3 +41,7 @@ CodexX 是一个基于 Tauri 2、Vue 3 和 Rust 的桌面应用，用于管理 C
 pnpm install
 pnpm tauri dev
 ```
+
+## 开源协议
+
+本项目基于 Apache-2.0 协议开源，完整协议文本见 [LICENSE](./LICENSE)。

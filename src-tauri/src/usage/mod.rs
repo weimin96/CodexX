@@ -1,9 +1,9 @@
 use crate::error::{AppError, AppResult};
 use crate::storage::Database;
 use chrono::{DateTime, Datelike, Duration, FixedOffset, Local, NaiveDate, Offset, TimeZone, Utc};
-use rusqlite::params;
+use rusqlite::{params, OptionalExtension};
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::path::Path;
 
 const MIN_TIMEZONE_OFFSET_MINUTES: i32 = -14 * 60;
@@ -251,6 +251,93 @@ impl<'a> UsageRepository<'a> {
             params![session_id, imported_count, Utc::now().to_rfc3339()],
         )?;
         Ok(())
+    }
+
+    pub fn replace_launch_session_usage_count(
+        &self,
+        session_id: &str,
+        usage_event_count: i64,
+    ) -> AppResult<()> {
+        let normalized_count = usage_event_count.max(0);
+        self.db.get_conn().execute(
+            "UPDATE codex_launch_sessions
+             SET usage_event_count = ?2,
+                 status = CASE
+                    WHEN ?2 > 0 AND status = 'launched' THEN 'completed'
+                    ELSE status
+                 END,
+                 completed_at = CASE
+                    WHEN ?2 > 0 THEN COALESCE(completed_at, ?3)
+                    ELSE completed_at
+                 END
+             WHERE id = ?1",
+            params![session_id, normalized_count, Utc::now().to_rfc3339()],
+        )?;
+        Ok(())
+    }
+
+    pub fn reconcile_session_log_usage_events(
+        &self,
+        session_id: &str,
+        retained_event_ids: &HashSet<String>,
+    ) -> AppResult<usize> {
+        let existing_event_ids = {
+            let mut stmt = self.db.get_conn().prepare(
+                "SELECT id
+                 FROM api_usage_events
+                 WHERE session_id = ?1
+                   AND source IN (
+                    'codex_interactive_terminal_session_log',
+                    'codex_cli_terminal_session_log',
+                    'codex_codex_app_session_log'
+                   )",
+            )?;
+            let event_ids = stmt
+                .query_map(params![session_id], |row| row.get::<_, String>(0))?
+                .collect::<Result<Vec<_>, _>>()?;
+            event_ids
+        };
+
+        let mut deleted_count = 0;
+        for event_id in existing_event_ids {
+            if retained_event_ids.contains(&event_id) {
+                continue;
+            }
+
+            if self.delete_api_usage_event(&event_id)? {
+                deleted_count += 1;
+            }
+        }
+
+        Ok(deleted_count)
+    }
+
+    pub fn find_session_log_owner_id(
+        &self,
+        file_started_at: DateTime<Utc>,
+        ownership_backtrack: Duration,
+        ownership_forward: Duration,
+    ) -> AppResult<Option<String>> {
+        let earliest_started_at = (file_started_at - ownership_forward).to_rfc3339();
+        let latest_started_at = (file_started_at + ownership_backtrack).to_rfc3339();
+        let owner_id = self
+            .db
+            .get_conn()
+            .query_row(
+                "SELECT id
+             FROM codex_launch_sessions
+             WHERE started_at >= ?1
+               AND started_at <= ?2
+               AND launch_mode IN ('interactive_terminal', 'cli_terminal', 'codex_app')
+               AND status <> 'failed'
+             ORDER BY started_at DESC
+             LIMIT 1",
+                params![earliest_started_at, latest_started_at],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?;
+
+        Ok(owner_id)
     }
 
     pub fn list_session_log_import_candidates(
@@ -601,6 +688,7 @@ mod tests {
     use crate::storage::Database;
     use chrono::{Datelike, Duration, FixedOffset, TimeZone, Utc};
     use rusqlite::params;
+    use std::collections::HashSet;
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -853,6 +941,73 @@ mod tests {
         assert_eq!(summary.total_cached_input_tokens, 3);
         assert_eq!(summary.total_output_tokens, 5);
         assert_eq!(summary.total_requests, 1);
+        let _ = std::fs::remove_dir_all(isolated_data_dir);
+    }
+
+    #[test]
+    fn reconciliation_removes_session_log_events_not_retained() {
+        let isolated_data_dir = unique_temp_dir();
+        std::fs::create_dir_all(&isolated_data_dir).unwrap();
+
+        let db = Database::new(isolated_data_dir.join("codexX.db")).unwrap();
+        seed_account(&db, "account-a");
+        let repo = UsageRepository::new(&db);
+        repo.insert_launch_session(&CodexLaunchSessionRecord {
+            id: "session-account-a".to_string(),
+            account_id: "account-a".to_string(),
+            launch_mode: "cli_terminal".to_string(),
+            executable: None,
+            working_directory: None,
+            prompt_preview: None,
+            status: "completed".to_string(),
+            started_at: "2026-04-26T08:00:00Z".to_string(),
+            completed_at: Some("2026-04-26T08:10:00Z".to_string()),
+            exit_code: None,
+            usage_event_count: 1,
+            error_message: None,
+        })
+        .unwrap();
+        repo.insert_api_usage_event(&ApiUsageEventRecord {
+            id: "misattributed-session-log-event".to_string(),
+            account_id: "account-a".to_string(),
+            session_id: Some("session-account-a".to_string()),
+            source: "codex_cli_terminal_session_log".to_string(),
+            endpoint: Some("~/.codex/sessions".to_string()),
+            model: None,
+            response_id: None,
+            request_id: None,
+            status_code: None,
+            input_tokens: 20,
+            output_tokens: 5,
+            total_tokens: 25,
+            cached_input_tokens: Some(0),
+            reasoning_tokens: None,
+            estimated_cost: 0.0,
+            raw_usage_json: None,
+            is_complete: true,
+            error_message: None,
+            started_at: "2026-04-26T08:00:00Z".to_string(),
+            completed_at: Utc::now().to_rfc3339(),
+            created_at: Utc::now().to_rfc3339(),
+        })
+        .unwrap();
+
+        let deleted_count = repo
+            .reconcile_session_log_usage_events("session-account-a", &HashSet::new())
+            .unwrap();
+        repo.replace_launch_session_usage_count("session-account-a", 0)
+            .unwrap();
+        let summary = repo
+            .get_summary(&UsageQuery {
+                account_id: "account-a".to_string(),
+                period: "day".to_string(),
+                timezone_offset_minutes: Some(8 * 60),
+            })
+            .unwrap();
+
+        assert_eq!(deleted_count, 1);
+        assert_eq!(summary.total_input_tokens, 0);
+        assert_eq!(summary.total_output_tokens, 0);
         let _ = std::fs::remove_dir_all(isolated_data_dir);
     }
 

@@ -5,7 +5,7 @@ use crate::codex_token_usage::{
 };
 use crate::error::{AppError, AppResult};
 use crate::usage::{ApiUsageEventRecord, UsageImportSession, UsageRepository};
-use chrono::{DateTime, Duration, Utc};
+use chrono::{DateTime, Duration, TimeZone, Utc};
 use serde::Serialize;
 use serde_json::{Map, Value};
 use std::collections::HashSet;
@@ -13,9 +13,12 @@ use std::fs::File;
 use std::hash::Hasher;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
-use std::time::SystemTime;
 
 const LEGACY_TOKEN_COUNT_ITEM_SCAN_LIMIT: usize = 4;
+// Codex 会话日志会在整个对话过程中持续改写；用修改时间归属会让旧账号扫描到新账号日志。
+// 归属窗口基于日志创建或命名时间，并用最近一次启动记录确定账号边界。
+const SESSION_LOG_DISCOVERY_BACKTRACK_MINUTES: i64 = 5;
+const SESSION_LOG_DISCOVERY_FORWARD_HOURS: i64 = 24;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct CodexSessionUsageImportResult {
@@ -60,19 +63,21 @@ pub fn import_codex_session_usage_for_account(
     let mut ignored_line_count = 0;
 
     for session in &sessions {
-        let candidate_files = collect_candidate_session_files(&sessions_dir, &session.started_at)?;
+        let candidate_files = collect_candidate_session_files(usage_repo, &sessions_dir, session)?;
         let mut imported_for_session = 0;
+        let mut retained_event_ids = HashSet::new();
         for file_path in candidate_files {
             scanned_files.insert(file_path.clone());
             let import_result = import_session_file(usage_repo, account_id, session, &file_path)?;
             imported_for_session += import_result.imported_count;
             ignored_line_count += import_result.ignored_line_count;
+            retained_event_ids.extend(import_result.retained_event_ids);
         }
 
-        if imported_for_session > 0 {
-            usage_repo.add_launch_session_usage_count(&session.id, imported_for_session as i64)?;
-            imported_count += imported_for_session;
-        }
+        usage_repo.reconcile_session_log_usage_events(&session.id, &retained_event_ids)?;
+        usage_repo
+            .replace_launch_session_usage_count(&session.id, retained_event_ids.len() as i64)?;
+        imported_count += imported_for_session;
     }
 
     Ok(CodexSessionUsageImportResult {
@@ -87,6 +92,7 @@ pub fn import_codex_session_usage_for_account(
 struct SessionFileImportResult {
     imported_count: usize,
     ignored_line_count: usize,
+    retained_event_ids: Vec<String>,
 }
 
 fn import_session_file(
@@ -105,6 +111,7 @@ fn import_session_file(
     let reader = BufReader::new(file);
     let mut imported_count = 0;
     let mut ignored_line_count = 0;
+    let mut retained_event_ids = Vec::new();
     let mut token_count_state = CodexTokenCountState::default();
 
     for (line_index, line) in reader.lines().enumerate() {
@@ -133,6 +140,7 @@ fn import_session_file(
         for (item_index, parsed_item) in parsed_items.into_iter().enumerate() {
             let event_id =
                 build_session_usage_event_id(&session.id, file_path, line_index, item_index);
+            retained_event_ids.push(event_id.clone());
             let record = ApiUsageEventRecord {
                 id: event_id,
                 account_id: account_id.to_string(),
@@ -165,6 +173,7 @@ fn import_session_file(
     Ok(SessionFileImportResult {
         imported_count,
         ignored_line_count,
+        retained_event_ids,
     })
 }
 
@@ -185,22 +194,35 @@ fn delete_legacy_token_count_items(
 }
 
 fn collect_candidate_session_files(
+    usage_repo: &UsageRepository<'_>,
     sessions_dir: &Path,
-    started_at: &str,
+    session: &UsageImportSession,
 ) -> AppResult<Vec<PathBuf>> {
-    let started_at = DateTime::parse_from_rfc3339(started_at)
+    let started_at = DateTime::parse_from_rfc3339(&session.started_at)
         .map_err(|error| AppError::Other(format!("解析 Codex 启动时间失败: {error}")))?
         .with_timezone(&Utc);
-    let min_modified_at: SystemTime = (started_at - Duration::minutes(5)).into();
+    let min_file_started_at =
+        started_at - Duration::minutes(SESSION_LOG_DISCOVERY_BACKTRACK_MINUTES);
+    let max_file_started_at = started_at + Duration::hours(SESSION_LOG_DISCOVERY_FORWARD_HOURS);
     let mut files = Vec::new();
-    collect_jsonl_files_since(sessions_dir, min_modified_at, &mut files)?;
+    collect_owned_jsonl_files(
+        usage_repo,
+        sessions_dir,
+        session,
+        min_file_started_at,
+        max_file_started_at,
+        &mut files,
+    )?;
     files.sort();
     Ok(files)
 }
 
-fn collect_jsonl_files_since(
+fn collect_owned_jsonl_files(
+    usage_repo: &UsageRepository<'_>,
     directory: &Path,
-    min_modified_at: SystemTime,
+    session: &UsageImportSession,
+    min_file_started_at: DateTime<Utc>,
+    max_file_started_at: DateTime<Utc>,
     files: &mut Vec<PathBuf>,
 ) -> AppResult<()> {
     for entry in std::fs::read_dir(directory)? {
@@ -208,7 +230,14 @@ fn collect_jsonl_files_since(
         let path = entry.path();
         let metadata = entry.metadata()?;
         if metadata.is_dir() {
-            collect_jsonl_files_since(&path, min_modified_at, files)?;
+            collect_owned_jsonl_files(
+                usage_repo,
+                &path,
+                session,
+                min_file_started_at,
+                max_file_started_at,
+                files,
+            )?;
             continue;
         }
 
@@ -216,15 +245,82 @@ fn collect_jsonl_files_since(
             continue;
         }
 
-        if metadata
-            .modified()
-            .map(|modified| modified >= min_modified_at)
-            .unwrap_or(false)
-        {
+        let Some(file_started_at) = resolve_session_file_started_at(&path, &metadata) else {
+            continue;
+        };
+        if file_started_at < min_file_started_at || file_started_at > max_file_started_at {
+            continue;
+        }
+
+        let owner_id = usage_repo.find_session_log_owner_id(
+            file_started_at,
+            Duration::minutes(SESSION_LOG_DISCOVERY_BACKTRACK_MINUTES),
+            Duration::hours(SESSION_LOG_DISCOVERY_FORWARD_HOURS),
+        )?;
+        if owner_id.as_deref() == Some(session.id.as_str()) {
             files.push(path);
         }
     }
     Ok(())
+}
+
+fn resolve_session_file_started_at(
+    file_path: &Path,
+    metadata: &std::fs::Metadata,
+) -> Option<DateTime<Utc>> {
+    parse_session_file_timestamp(file_path)
+        .or_else(|| metadata.created().ok().map(DateTime::<Utc>::from))
+        .or_else(|| metadata.modified().ok().map(DateTime::<Utc>::from))
+}
+
+fn parse_session_file_timestamp(file_path: &Path) -> Option<DateTime<Utc>> {
+    let file_name = file_path.file_name()?.to_str()?;
+    let bytes = file_name.as_bytes();
+    if bytes.len() < 19 {
+        return None;
+    }
+
+    for start in 0..=(bytes.len() - 19) {
+        let Some(timestamp) = parse_timestamp_at(bytes, start) else {
+            continue;
+        };
+        return Some(timestamp);
+    }
+
+    None
+}
+
+fn parse_timestamp_at(bytes: &[u8], start: usize) -> Option<DateTime<Utc>> {
+    if bytes.get(start + 4) != Some(&b'-')
+        || bytes.get(start + 7) != Some(&b'-')
+        || !matches!(bytes.get(start + 10), Some(b'T') | Some(b'_'))
+        || !matches!(bytes.get(start + 13), Some(b'-') | Some(b':'))
+        || !matches!(bytes.get(start + 16), Some(b'-') | Some(b':'))
+    {
+        return None;
+    }
+
+    let year = parse_digits(bytes, start, 4)? as i32;
+    let month = parse_digits(bytes, start + 5, 2)?;
+    let day = parse_digits(bytes, start + 8, 2)?;
+    let hour = parse_digits(bytes, start + 11, 2)?;
+    let minute = parse_digits(bytes, start + 14, 2)?;
+    let second = parse_digits(bytes, start + 17, 2)?;
+
+    Utc.with_ymd_and_hms(year, month, day, hour, minute, second)
+        .single()
+}
+
+fn parse_digits(bytes: &[u8], start: usize, length: usize) -> Option<u32> {
+    let mut value = 0;
+    for index in start..start + length {
+        let byte = *bytes.get(index)?;
+        if !byte.is_ascii_digit() {
+            return None;
+        }
+        value = value * 10 + u32::from(byte - b'0');
+    }
+    Some(value)
 }
 
 fn read_event_timestamp(value: &Value) -> Option<DateTime<Utc>> {
@@ -438,7 +534,11 @@ impl Hasher for Fnv1a64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::storage::Database;
+    use crate::usage::CodexLaunchSessionRecord;
+    use rusqlite::params;
     use serde_json::json;
+    use std::time::{SystemTime, UNIX_EPOCH};
 
     #[test]
     fn parses_usage_object_without_prompt_text() {
@@ -481,6 +581,59 @@ mod tests {
             build_session_usage_event_id("session-a", file_path, 7, 1),
             build_session_usage_event_id("session-a", file_path, 7, 1)
         );
+    }
+
+    #[test]
+    fn parses_codex_rollout_file_timestamp() {
+        let file_path = Path::new(
+            r"C:\Users\pwm\.codex\sessions\2026\04\26\rollout-2026-04-26T08-10-00-000Z.jsonl",
+        );
+
+        let timestamp = parse_session_file_timestamp(file_path).unwrap();
+
+        assert_eq!(timestamp.to_rfc3339(), "2026-04-26T08:10:00+00:00");
+    }
+
+    #[test]
+    fn candidate_session_files_use_nearest_launch_owner() {
+        let isolated_data_dir = unique_isolated_data_dir();
+        let sessions_dir = isolated_data_dir.join("sessions");
+        std::fs::create_dir_all(&sessions_dir).unwrap();
+
+        let db = Database::new(isolated_data_dir.join("codexX.db")).unwrap();
+        seed_import_account(&db, "account-a");
+        seed_import_account(&db, "account-b");
+        let repo = UsageRepository::new(&db);
+        let session_a = UsageImportSession {
+            id: "session-account-a".to_string(),
+            account_id: "account-a".to_string(),
+            launch_mode: "cli_terminal".to_string(),
+            started_at: "2026-04-26T08:00:00Z".to_string(),
+        };
+        let session_b = UsageImportSession {
+            id: "session-account-b".to_string(),
+            account_id: "account-b".to_string(),
+            launch_mode: "cli_terminal".to_string(),
+            started_at: "2026-04-26T08:09:00Z".to_string(),
+        };
+        seed_launch_session(&repo, &session_a);
+        seed_launch_session(&repo, &session_b);
+
+        let session_file = sessions_dir.join("rollout-2026-04-26T08-10-00-000Z.jsonl");
+        std::fs::write(
+            &session_file,
+            r#"{"timestamp":"2026-04-26T08:10:30Z","usage":{"input_tokens":8,"output_tokens":2}}"#,
+        )
+        .unwrap();
+
+        let account_a_files =
+            collect_candidate_session_files(&repo, &sessions_dir, &session_a).unwrap();
+        let account_b_files =
+            collect_candidate_session_files(&repo, &sessions_dir, &session_b).unwrap();
+
+        assert!(account_a_files.is_empty());
+        assert_eq!(account_b_files, vec![session_file]);
+        let _ = std::fs::remove_dir_all(isolated_data_dir);
     }
 
     #[test]
@@ -569,5 +722,42 @@ mod tests {
 
         assert_eq!(parse_usage_items(&value, &mut token_count_state).len(), 1);
         assert!(parse_usage_items(&value, &mut token_count_state).is_empty());
+    }
+
+    fn seed_import_account(db: &Database, account_id: &str) {
+        db.get_conn()
+            .execute(
+                "INSERT INTO accounts (
+                    id, name, auth_type, is_default, is_active, created_at, updated_at, status, color
+                 ) VALUES (?1, ?2, 'oauth_token', 0, 1, ?3, ?3, 'unknown', '#18a058')",
+                params![account_id, "导入测试账号", "2026-04-26T08:00:00Z"],
+            )
+            .unwrap();
+    }
+
+    fn seed_launch_session(repo: &UsageRepository, session: &UsageImportSession) {
+        repo.insert_launch_session(&CodexLaunchSessionRecord {
+            id: session.id.clone(),
+            account_id: session.account_id.clone(),
+            launch_mode: session.launch_mode.clone(),
+            executable: None,
+            working_directory: None,
+            prompt_preview: None,
+            status: "launched".to_string(),
+            started_at: session.started_at.clone(),
+            completed_at: None,
+            exit_code: None,
+            usage_event_count: 0,
+            error_message: None,
+        })
+        .unwrap();
+    }
+
+    fn unique_isolated_data_dir() -> PathBuf {
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        std::env::temp_dir().join(format!("codexx-session-import-tests-{suffix}"))
     }
 }

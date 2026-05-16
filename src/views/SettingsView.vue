@@ -163,6 +163,38 @@
         </div>
       </div>
 
+      <div class="setting-list">
+        <div class="setting-item setting-item-stacked">
+          <div class="setting-copy">
+            <div class="setting-title">重建账号历史用量</div>
+            <div class="setting-description">覆盖所选账号从本机 Codex 会话日志导入的历史用量，不影响其他账号。</div>
+          </div>
+          <div class="usage-rebuild-controls">
+            <n-select
+              v-model:value="usageRebuildAccountId"
+              :options="usageRebuildAccountOptions"
+              :loading="accountStore.loading"
+              :disabled="usageRebuildAccountOptions.length === 0 || rebuildingUsage"
+              filterable
+              placeholder="选择账号"
+            />
+            <n-select
+              v-model:value="usageRebuildScope"
+              :options="usageRebuildScopeOptions"
+              :disabled="rebuildingUsage"
+            />
+            <n-button
+              secondary
+              :loading="rebuildingUsage"
+              :disabled="!usageRebuildAccountId"
+              @click="handleRebuildUsage"
+            >
+              重建用量
+            </n-button>
+          </div>
+        </div>
+      </div>
+
       <n-alert type="error" :show-icon="false" style="margin-top: 14px;">
         清除后将删除全部账号历史用量。
       </n-alert>
@@ -186,8 +218,10 @@ import { useDialog, useMessage } from 'naive-ui'
 import packageJson from '../../package.json'
 import changelogMarkdown from '../../CHANGELOG.md?raw'
 import { usageService } from '@/services'
+import { useAccountStore } from '@/stores/account'
 import { useSettingsStore } from '@/stores/settings'
-import type { AppSettings } from '@/types'
+import { useUsageStore } from '@/stores/usage'
+import type { AppSettings, UsageRebuildScope } from '@/types'
 import { checkAppUpdate } from '@/utils/app-updater'
 import {
   renderUpdateChangelogDialogContent,
@@ -199,15 +233,26 @@ import {
 
 const message = useMessage()
 const dialog = useDialog()
+const accountStore = useAccountStore()
 const settingsStore = useSettingsStore()
+const usageStore = useUsageStore()
 const appVersion = packageJson.version
 const githubRepositoryUrl = 'https://github.com/weimin96/CodexX'
 const githubReleasesUrl = `${githubRepositoryUrl}/releases`
 
 const autosaveState = ref<'idle' | 'saving' | 'saved' | 'error'>('idle')
 const checkingUpdate = ref(false)
+const rebuildingUsage = ref(false)
+const usageRebuildAccountId = ref<string | null>(null)
+const usageRebuildScope = ref<UsageRebuildScope>('account')
 let autosaveResetTimer: ReturnType<typeof setTimeout> | null = null
 const recentChangelog = computed(() => extractLatestChangelogSections(changelogMarkdown, 3))
+const usageRebuildAccountOptions = computed(() =>
+  accountStore.accounts.map((account) => ({
+    label: formatAccountOptionLabel(account),
+    value: account.id,
+  })),
+)
 
 const intervalOptions = [
   { label: '1 分钟', value: '60' },
@@ -215,6 +260,11 @@ const intervalOptions = [
   { label: '15 分钟', value: '900' },
   { label: '30 分钟', value: '1800' },
   { label: '1 小时', value: '3600' },
+]
+
+const usageRebuildScopeOptions: Array<{ label: string; value: UsageRebuildScope }> = [
+  { label: '全部历史会话', value: 'account' },
+  { label: '最近会话', value: 'recent_session' },
 ]
 
 const autosaveStatusLabel = computed(() => {
@@ -232,7 +282,9 @@ const autosaveStatusLabel = computed(() => {
 
 onMounted(async () => {
   try {
-    await settingsStore.loadSettings()
+    await Promise.all([settingsStore.loadSettings(), accountStore.loadAccounts()])
+    usageRebuildAccountId.value =
+      accountStore.activeAccountId ?? accountStore.defaultAccount?.id ?? null
   } catch (error) {
     console.warn('读取设置失败', error)
     message.error('读取设置失败')
@@ -366,6 +418,7 @@ function handleClearUsage() {
     onPositiveClick: async () => {
       try {
         await usageService.clearUsageData()
+        usageStore.clearUsageCache()
         message.success('用量数据已清除')
       } catch (error) {
         console.warn('清除用量数据失败', error)
@@ -373,6 +426,48 @@ function handleClearUsage() {
       }
     },
   })
+}
+
+function handleRebuildUsage() {
+  const accountId = usageRebuildAccountId.value
+  if (!accountId) {
+    message.warning('请选择账号')
+    return
+  }
+
+  const accountLabel = usageRebuildAccountOptions.value.find(
+    (option) => option.value === accountId,
+  )?.label
+  const scopeLabel = usageRebuildScopeOptions.find(
+    (option) => option.value === usageRebuildScope.value,
+  )?.label
+
+  dialog.warning({
+    title: '重建历史用量',
+    content: `将覆盖 ${accountLabel ?? '所选账号'} 的${scopeLabel ?? '历史会话'}导入结果，其他账号不受影响。`,
+    positiveText: '确认重建',
+    negativeText: '取消',
+    onPositiveClick: async () => {
+      rebuildingUsage.value = true
+      try {
+        const result = await usageService.rebuildAccountUsage(accountId, usageRebuildScope.value)
+        usageStore.clearUsageCacheForAccount(accountId)
+        message.success(
+          `重建完成：扫描 ${result.scanned_file_count} 个文件，导入 ${result.imported_count} 条记录`,
+        )
+      } catch (error) {
+        console.warn('重建历史用量失败', error)
+        message.error('重建历史用量失败')
+      } finally {
+        rebuildingUsage.value = false
+      }
+    },
+  })
+}
+
+function formatAccountOptionLabel(account: { name: string; email?: string; auth_type: string }) {
+  const identity = account.email?.trim() || account.name
+  return `${identity} · ${account.auth_type}`
 }
 
 function showCurrentChangelogDialog() {
@@ -559,11 +654,27 @@ function showRecentChangelogDialog(body?: string) {
   word-break: break-all;
 }
 
+.setting-item-stacked {
+  align-items: flex-start;
+}
+
+.usage-rebuild-controls {
+  width: min(100%, 620px);
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) 150px auto;
+  gap: 10px;
+}
+
 @media (max-width: 640px) {
   .settings-section-head,
   .setting-item {
     flex-direction: column;
     align-items: flex-start;
+  }
+
+  .usage-rebuild-controls {
+    width: 100%;
+    grid-template-columns: 1fr;
   }
 }
 </style>

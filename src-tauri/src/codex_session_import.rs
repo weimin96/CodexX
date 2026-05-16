@@ -29,6 +29,23 @@ pub struct CodexSessionUsageImportResult {
     pub ignored_line_count: usize,
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct CodexSessionUsageRebuildResult {
+    pub account_id: String,
+    pub scope: String,
+    pub session_count: usize,
+    pub scanned_file_count: usize,
+    pub deleted_count: usize,
+    pub imported_count: usize,
+    pub ignored_line_count: usize,
+}
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub enum CodexSessionUsageRebuildScope {
+    Account,
+    RecentSession,
+}
+
 #[derive(Debug, Clone)]
 struct ParsedSessionUsage {
     model: Option<String>,
@@ -47,6 +64,104 @@ pub fn import_codex_session_usage_for_account(
     account_id: &str,
 ) -> AppResult<CodexSessionUsageImportResult> {
     let sessions = usage_repo.list_session_log_import_candidates(account_id)?;
+    import_codex_session_usage_for_sessions(usage_repo, account_id, sessions)
+}
+
+pub fn import_codex_session_usage_for_session(
+    usage_repo: &UsageRepository<'_>,
+    account_id: &str,
+    session: UsageImportSession,
+) -> AppResult<CodexSessionUsageImportResult> {
+    import_codex_session_usage_for_sessions(usage_repo, account_id, vec![session])
+}
+
+pub fn rebuild_codex_session_usage_for_account(
+    usage_repo: &UsageRepository<'_>,
+    account_id: &str,
+    scope: CodexSessionUsageRebuildScope,
+) -> AppResult<CodexSessionUsageRebuildResult> {
+    if !usage_repo.account_exists(account_id)? {
+        return Err(AppError::InvalidInput("目标账号不存在".to_string()));
+    }
+
+    let sessions = match scope {
+        CodexSessionUsageRebuildScope::Account => {
+            usage_repo.list_session_log_rebuild_candidates(account_id)?
+        }
+        CodexSessionUsageRebuildScope::RecentSession => usage_repo
+            .find_recent_session_log_rebuild_candidate(account_id)?
+            .into_iter()
+            .collect(),
+    };
+    let session_ids = sessions
+        .iter()
+        .map(|session| session.id.clone())
+        .collect::<Vec<_>>();
+    let sessions_dir = resolve_codex_home()?.join("sessions");
+    if !sessions_dir.exists() {
+        return Err(AppError::InvalidInput(
+            "未找到 Codex 会话日志目录，历史用量未重建".to_string(),
+        ));
+    }
+
+    usage_repo.begin_rebuild_transaction()?;
+    let rebuild_result = (|| -> AppResult<CodexSessionUsageRebuildResult> {
+        let deleted_count = usage_repo
+            .delete_session_log_usage_events_for_account_sessions(account_id, &session_ids)?;
+        let import_result =
+            import_codex_session_usage_for_sessions(usage_repo, account_id, sessions)?;
+
+        Ok(CodexSessionUsageRebuildResult {
+            account_id: import_result.account_id,
+            scope: scope.as_str().to_string(),
+            session_count: import_result.session_count,
+            scanned_file_count: import_result.scanned_file_count,
+            deleted_count,
+            imported_count: import_result.imported_count,
+            ignored_line_count: import_result.ignored_line_count,
+        })
+    })();
+
+    match rebuild_result {
+        Ok(result) => {
+            usage_repo.commit_rebuild_transaction()?;
+            Ok(result)
+        }
+        Err(error) => {
+            if let Err(rollback_error) = usage_repo.rollback_rebuild_transaction() {
+                return Err(AppError::Other(format!(
+                    "重建历史用量失败且回滚失败: {rollback_error}; 原始错误: {error}"
+                )));
+            }
+            Err(error)
+        }
+    }
+}
+
+impl CodexSessionUsageRebuildScope {
+    pub fn from_str(value: &str) -> AppResult<Self> {
+        match value {
+            "account" => Ok(Self::Account),
+            "recent_session" => Ok(Self::RecentSession),
+            other => Err(AppError::InvalidInput(format!(
+                "不支持的历史用量重建范围: {other}"
+            ))),
+        }
+    }
+
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Account => "account",
+            Self::RecentSession => "recent_session",
+        }
+    }
+}
+
+fn import_codex_session_usage_for_sessions(
+    usage_repo: &UsageRepository<'_>,
+    account_id: &str,
+    sessions: Vec<UsageImportSession>,
+) -> AppResult<CodexSessionUsageImportResult> {
     let sessions_dir = resolve_codex_home()?.join("sessions");
     if !sessions_dir.exists() {
         return Ok(CodexSessionUsageImportResult {

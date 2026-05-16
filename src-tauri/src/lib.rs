@@ -14,11 +14,11 @@ pub mod status_sync;
 pub mod storage;
 pub mod usage;
 
+use rusqlite::OptionalExtension;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::Sender;
 use std::sync::Arc;
 use std::thread::JoinHandle;
-use rusqlite::OptionalExtension;
 use storage::Database;
 use tauri::{Emitter, Manager};
 use tokio::sync::Mutex;
@@ -160,6 +160,7 @@ pub fn run() {
             commands::usage::fetch_usage,
             commands::usage::get_usage_stats,
             commands::usage::get_usage_chart_data,
+            commands::usage::rebuild_account_usage,
             commands::usage::clear_usage_data,
             // 设置命令
             commands::settings::get_settings,

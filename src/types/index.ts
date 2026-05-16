@@ -157,6 +157,13 @@ export interface UsageImportResult {
   ignored_line_count: number
 }
 
+export type UsageRebuildScope = 'account' | 'recent_session'
+
+export interface UsageRebuildResult extends UsageImportResult {
+  scope: UsageRebuildScope
+  deleted_count: number
+}
+
 export interface CodexModelOption {
   label: string
   value: string
@@ -202,6 +209,17 @@ export interface CodexShortConversationResult extends CodexLaunchResult {
   model: string
   working_directory?: string
   working_directory_source: 'recent_session' | 'trusted_project' | 'process_cwd'
+}
+
+export interface CodexSessionUsageImportEvent {
+  account_id: string
+  session_id: string
+  status: 'completed' | 'failed'
+  imported_count: number
+  usage_event_count?: number
+  scanned_file_count: number
+  ignored_line_count: number
+  message?: string
 }
 
 // ============================================================

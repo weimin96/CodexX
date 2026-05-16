@@ -1,7 +1,10 @@
 use chrono::Utc;
 use serde::Serialize;
 use serde_json::Value;
+use std::sync::Arc;
+use std::time::Duration as StdDuration;
 use tauri::{AppHandle, Emitter, State};
+use tokio::sync::Mutex;
 use uuid::Uuid;
 
 use crate::account::{Account, AccountRepository};
@@ -11,10 +14,12 @@ use crate::codex_runtime::{
     read_existing_trusted_project_paths, run_codex_exec, CodexAppLaunchInput, CodexCliLaunchInput,
     CodexCommandTarget, CodexExecInput, CodexInteractiveInput, CodexLaunchResult,
 };
+use crate::codex_session_import::import_codex_session_usage_for_session;
 use crate::error::AppError;
 use crate::local_sync::LocalAuthSyncService;
 use crate::status_sync;
-use crate::usage::{CodexLaunchSessionRecord, UsageRepository};
+use crate::storage::Database;
+use crate::usage::{CodexLaunchSessionRecord, UsageImportSession, UsageRepository};
 use crate::AppState;
 
 const SHORT_CONVERSATION_PROMPT: &str = "hi";
@@ -24,6 +29,8 @@ const LOW_REASONING_OVERRIDE: &str = "model_reasoning_effort=\"low\"";
 const WARMUP_QUOTA_EPSILON: f64 = 0.000_001;
 const FIVE_HOUR_WINDOW_LABEL: &str = "5 小时";
 const ONE_WEEK_WINDOW_LABEL: &str = "7 天";
+const SESSION_USAGE_IMPORT_ATTEMPTS: usize = 12;
+const SESSION_USAGE_IMPORT_INTERVAL_SECONDS: u64 = 15;
 
 #[derive(Debug, Clone, Copy, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -391,7 +398,10 @@ fn resolve_account_usage_window<'a>(
     }
 }
 
-fn is_usage_window_executable(usage: &crate::account::CodexUsageWindow, now_timestamp: i64) -> bool {
+fn is_usage_window_executable(
+    usage: &crate::account::CodexUsageWindow,
+    now_timestamp: i64,
+) -> bool {
     if usage.used_percent > WARMUP_QUOTA_EPSILON {
         return false;
     }
@@ -435,6 +445,7 @@ fn resolve_warmup_workspace(
 
 #[tauri::command]
 pub async fn open_codex_interactive_session(
+    app: AppHandle,
     state: State<'_, AppState>,
     input: CodexInteractiveInput,
 ) -> Result<Value, AppError> {
@@ -462,13 +473,24 @@ pub async fn open_codex_interactive_session(
             working_directory: input.working_directory.clone(),
             prompt_preview: prompt_preview(input.prompt.as_deref()),
             status: "launched".to_string(),
-            started_at,
+            started_at: started_at.clone(),
             completed_at: None,
             exit_code: None,
             usage_event_count: 0,
-            error_message: Some("交互会话已启动，Token 用量需通过后续日志导入".to_string()),
+            error_message: Some("等待从 Codex 会话日志导入 Token 用量".to_string()),
         })?;
     }
+    schedule_session_usage_import(
+        app,
+        state.inner().db.clone(),
+        input.account_id.clone(),
+        UsageImportSession {
+            id: session_id.clone(),
+            account_id: input.account_id.clone(),
+            launch_mode: "interactive_terminal".to_string(),
+            started_at: started_at.clone(),
+        },
+    );
 
     Ok(serde_json::to_value(CodexLaunchResult {
         session_id,
@@ -482,6 +504,7 @@ pub async fn open_codex_interactive_session(
 
 #[tauri::command]
 pub async fn launch_codex_cli(
+    app: AppHandle,
     state: State<'_, AppState>,
     input: CodexCliLaunchInput,
 ) -> Result<Value, AppError> {
@@ -489,6 +512,8 @@ pub async fn launch_codex_cli(
     let session_id = Uuid::new_v4().to_string();
     let started_at = Utc::now().to_rfc3339();
     let selected_account = prepare_launch_account(&state, input.account_id.as_deref()).await?;
+    open_codex_cli_terminal(&target, &input)?;
+
     if let Some(account) = selected_account.as_ref() {
         let db = state.db.lock().await;
         let usage_repo = UsageRepository::new(&db);
@@ -506,9 +531,18 @@ pub async fn launch_codex_cli(
             usage_event_count: 0,
             error_message: Some("等待从 Codex 会话日志导入 Token 用量".to_string()),
         })?;
+        schedule_session_usage_import(
+            app,
+            state.inner().db.clone(),
+            account.id.clone(),
+            UsageImportSession {
+                id: session_id.clone(),
+                account_id: account.id.clone(),
+                launch_mode: "cli_terminal".to_string(),
+                started_at: started_at.clone(),
+            },
+        );
     }
-
-    open_codex_cli_terminal(&target, &input)?;
 
     Ok(serde_json::to_value(CodexLaunchResult {
         session_id,
@@ -527,12 +561,15 @@ pub async fn get_codex_launcher_config() -> Result<Value, AppError> {
 
 #[tauri::command]
 pub async fn launch_codex_app(
+    app: AppHandle,
     state: State<'_, AppState>,
     input: CodexAppLaunchInput,
 ) -> Result<Value, AppError> {
     let session_id = Uuid::new_v4().to_string();
     let started_at = Utc::now().to_rfc3339();
     let selected_account = prepare_launch_account(&state, input.account_id.as_deref()).await?;
+    open_codex_desktop_app()?;
+
     if let Some(account) = selected_account.as_ref() {
         let db = state.db.lock().await;
         let usage_repo = UsageRepository::new(&db);
@@ -544,15 +581,24 @@ pub async fn launch_codex_app(
             working_directory: None,
             prompt_preview: None,
             status: "launched".to_string(),
-            started_at,
+            started_at: started_at.clone(),
             completed_at: None,
             exit_code: None,
             usage_event_count: 0,
             error_message: Some("等待从 Codex 会话日志导入 Token 用量".to_string()),
         })?;
+        schedule_session_usage_import(
+            app,
+            state.inner().db.clone(),
+            account.id.clone(),
+            UsageImportSession {
+                id: session_id.clone(),
+                account_id: account.id.clone(),
+                launch_mode: "codex_app".to_string(),
+                started_at: started_at.clone(),
+            },
+        );
     }
-
-    open_codex_desktop_app()?;
 
     Ok(serde_json::to_value(CodexLaunchResult {
         session_id,
@@ -597,6 +643,113 @@ async fn prepare_launch_account(
     }
 
     Ok(selected_account)
+}
+
+fn schedule_session_usage_import(
+    app: AppHandle,
+    db: Arc<Mutex<Database>>,
+    account_id: String,
+    session: UsageImportSession,
+) {
+    tauri::async_runtime::spawn(async move {
+        let mut last_error_message = None;
+
+        for attempt in 1..=SESSION_USAGE_IMPORT_ATTEMPTS {
+            if attempt > 1 {
+                tokio::time::sleep(StdDuration::from_secs(
+                    SESSION_USAGE_IMPORT_INTERVAL_SECONDS,
+                ))
+                .await;
+            }
+
+            let import_result = {
+                let db = db.lock().await;
+                let usage_repo = UsageRepository::new(&db);
+                if let Err(error) = usage_repo.update_launch_session_usage_import_status(
+                    &session.id,
+                    "usage_importing",
+                    Some("正在从 Codex 会话日志导入 Token 用量"),
+                ) {
+                    log::warn!("更新会话用量补采状态失败: {error}");
+                }
+                import_codex_session_usage_for_session(&usage_repo, &account_id, session.clone())
+                    .and_then(|result| {
+                        let usage_event_count =
+                            usage_repo.get_launch_session_usage_event_count(&session.id)?;
+                        Ok((result, usage_event_count))
+                    })
+            };
+
+            match import_result {
+                Ok((result, usage_event_count)) if usage_event_count > 0 => {
+                    {
+                        let db = db.lock().await;
+                        let usage_repo = UsageRepository::new(&db);
+                        if let Err(error) = usage_repo.update_launch_session_usage_import_status(
+                            &session.id,
+                            "completed",
+                            None,
+                        ) {
+                            log::warn!("标记会话用量补采完成失败: {error}");
+                        }
+                    }
+                    let _ = app.emit(
+                        "codex-session-usage-imported",
+                        serde_json::json!({
+                            "account_id": account_id.clone(),
+                            "session_id": session.id.clone(),
+                            "status": "completed",
+                            "imported_count": result.imported_count,
+                            "usage_event_count": usage_event_count,
+                            "scanned_file_count": result.scanned_file_count,
+                            "ignored_line_count": result.ignored_line_count,
+                        }),
+                    );
+                    return;
+                }
+                Ok((result, _usage_event_count)) => {
+                    last_error_message = Some(format!(
+                        "第 {attempt}/{SESSION_USAGE_IMPORT_ATTEMPTS} 次补采未发现可导入 Token 用量，已扫描 {} 个日志文件",
+                        result.scanned_file_count
+                    ));
+                }
+                Err(error) => {
+                    last_error_message = Some(format!(
+                        "第 {attempt}/{SESSION_USAGE_IMPORT_ATTEMPTS} 次补采失败: {error}"
+                    ));
+                }
+            }
+
+            let status = if attempt == SESSION_USAGE_IMPORT_ATTEMPTS {
+                "usage_import_failed"
+            } else {
+                "usage_import_waiting"
+            };
+            let message = last_error_message.as_deref();
+            let db = db.lock().await;
+            let usage_repo = UsageRepository::new(&db);
+            if let Err(error) =
+                usage_repo.update_launch_session_usage_import_status(&session.id, status, message)
+            {
+                log::warn!("记录会话用量补采失败路径失败: {error}");
+            }
+        }
+
+        let message =
+            last_error_message.unwrap_or_else(|| "会话用量补采未产生可导入结果".to_string());
+        let _ = app.emit(
+            "codex-session-usage-imported",
+            serde_json::json!({
+                "account_id": account_id,
+                "session_id": session.id,
+                "status": "failed",
+                "message": message,
+                "imported_count": 0,
+                "scanned_file_count": 0,
+                "ignored_line_count": 0,
+            }),
+        );
+    });
 }
 
 async fn refresh_quota_after_codex_task(app: &AppHandle, state: &AppState, account_id: &str) {

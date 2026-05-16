@@ -159,6 +159,24 @@ export const useUsageStore = defineStore('usage', () => {
     period.value = p
   }
 
+  function clearUsageCacheForAccount(accountId: string) {
+    for (const key of [...summaries.value.keys()]) {
+      if (key.startsWith(`${accountId}:`)) {
+        summaries.value.delete(key)
+      }
+    }
+    for (const key of [...chartData.value.keys()]) {
+      if (key.startsWith(`${accountId}:`)) {
+        chartData.value.delete(key)
+      }
+    }
+  }
+
+  function clearUsageCache() {
+    summaries.value.clear()
+    chartData.value.clear()
+  }
+
   function buildUsageQuery(accountId: string, p: UsagePeriod): UsageQuery {
     return {
       account_id: accountId,
@@ -184,5 +202,7 @@ export const useUsageStore = defineStore('usage', () => {
     getChartDataForAccounts,
     hasCachedUsageForAccounts,
     setPeriod,
+    clearUsageCacheForAccount,
+    clearUsageCache,
   }
 })

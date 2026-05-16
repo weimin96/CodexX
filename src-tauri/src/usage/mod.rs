@@ -233,6 +233,23 @@ impl<'a> UsageRepository<'a> {
         Ok(changed > 0)
     }
 
+    pub fn begin_rebuild_transaction(&self) -> AppResult<()> {
+        self.db
+            .get_conn()
+            .execute_batch("BEGIN IMMEDIATE TRANSACTION")?;
+        Ok(())
+    }
+
+    pub fn commit_rebuild_transaction(&self) -> AppResult<()> {
+        self.db.get_conn().execute_batch("COMMIT")?;
+        Ok(())
+    }
+
+    pub fn rollback_rebuild_transaction(&self) -> AppResult<()> {
+        self.db.get_conn().execute_batch("ROLLBACK")?;
+        Ok(())
+    }
+
     pub fn add_launch_session_usage_count(
         &self,
         session_id: &str,
@@ -276,6 +293,33 @@ impl<'a> UsageRepository<'a> {
         Ok(())
     }
 
+    pub fn update_launch_session_usage_import_status(
+        &self,
+        session_id: &str,
+        status: &str,
+        error_message: Option<&str>,
+    ) -> AppResult<()> {
+        self.db.get_conn().execute(
+            "UPDATE codex_launch_sessions
+             SET status = ?2,
+                 error_message = ?3
+             WHERE id = ?1",
+            params![session_id, status, error_message],
+        )?;
+        Ok(())
+    }
+
+    pub fn get_launch_session_usage_event_count(&self, session_id: &str) -> AppResult<i64> {
+        let usage_event_count = self.db.get_conn().query_row(
+            "SELECT usage_event_count
+             FROM codex_launch_sessions
+             WHERE id = ?1",
+            params![session_id],
+            |row| row.get::<_, i64>(0),
+        )?;
+        Ok(usage_event_count)
+    }
+
     pub fn reconcile_session_log_usage_events(
         &self,
         session_id: &str,
@@ -310,6 +354,43 @@ impl<'a> UsageRepository<'a> {
         }
 
         Ok(deleted_count)
+    }
+
+    pub fn delete_session_log_usage_events_for_account_sessions(
+        &self,
+        account_id: &str,
+        session_ids: &[String],
+    ) -> AppResult<usize> {
+        let mut deleted_count = 0;
+        for session_id in session_ids {
+            let changed = self.db.get_conn().execute(
+                "DELETE FROM api_usage_events
+                 WHERE account_id = ?1
+                   AND session_id = ?2
+                   AND source IN (
+                    'codex_interactive_terminal_session_log',
+                    'codex_cli_terminal_session_log',
+                    'codex_codex_app_session_log'
+                   )",
+                params![account_id, session_id],
+            )?;
+            deleted_count += changed;
+        }
+        Ok(deleted_count)
+    }
+
+    pub fn account_exists(&self, account_id: &str) -> AppResult<bool> {
+        let exists = self
+            .db
+            .get_conn()
+            .query_row(
+                "SELECT 1 FROM accounts WHERE id = ?1 LIMIT 1",
+                params![account_id],
+                |_| Ok(()),
+            )
+            .optional()?
+            .is_some();
+        Ok(exists)
     }
 
     pub fn find_session_log_owner_id(
@@ -365,6 +446,64 @@ impl<'a> UsageRepository<'a> {
                 })
             })?
             .collect::<Result<Vec<_>, _>>()?;
+
+        Ok(sessions)
+    }
+
+    pub fn list_session_log_rebuild_candidates(
+        &self,
+        account_id: &str,
+    ) -> AppResult<Vec<UsageImportSession>> {
+        self.list_session_log_candidates(account_id, None, None)
+    }
+
+    pub fn find_recent_session_log_rebuild_candidate(
+        &self,
+        account_id: &str,
+    ) -> AppResult<Option<UsageImportSession>> {
+        Ok(self
+            .list_session_log_candidates(account_id, None, Some(1))?
+            .into_iter()
+            .next())
+    }
+
+    fn list_session_log_candidates(
+        &self,
+        account_id: &str,
+        since: Option<String>,
+        limit: Option<usize>,
+    ) -> AppResult<Vec<UsageImportSession>> {
+        let mut sql = String::from(
+            "SELECT id, account_id, launch_mode, started_at
+             FROM codex_launch_sessions
+             WHERE account_id = ?1
+               AND launch_mode IN ('interactive_terminal', 'cli_terminal', 'codex_app')
+               AND status <> 'failed'",
+        );
+        if since.is_some() {
+            sql.push_str(" AND started_at >= ?2");
+        }
+        sql.push_str(" ORDER BY started_at DESC");
+        if let Some(limit) = limit {
+            sql.push_str(&format!(" LIMIT {}", limit.max(1)));
+        }
+
+        let mut stmt = self.db.get_conn().prepare(&sql)?;
+        let map_row = |row: &rusqlite::Row<'_>| {
+            Ok(UsageImportSession {
+                id: row.get(0)?,
+                account_id: row.get(1)?,
+                launch_mode: row.get(2)?,
+                started_at: row.get(3)?,
+            })
+        };
+        let sessions = if let Some(since) = since {
+            stmt.query_map(params![account_id, since], map_row)?
+                .collect::<Result<Vec<_>, _>>()?
+        } else {
+            stmt.query_map(params![account_id], map_row)?
+                .collect::<Result<Vec<_>, _>>()?
+        };
 
         Ok(sessions)
     }
@@ -1011,6 +1150,81 @@ mod tests {
         let _ = std::fs::remove_dir_all(isolated_data_dir);
     }
 
+    #[test]
+    fn account_rebuild_delete_preserves_other_account_session_log_events() {
+        let isolated_data_dir = unique_temp_dir();
+        std::fs::create_dir_all(&isolated_data_dir).unwrap();
+
+        let db = Database::new(isolated_data_dir.join("codexX.db")).unwrap();
+        seed_account(&db, "account-a");
+        seed_account(&db, "account-b");
+        let repo = UsageRepository::new(&db);
+        seed_completed_launch_session(&repo, "session-a", "account-a");
+        seed_completed_launch_session(&repo, "session-b", "account-b");
+        seed_session_log_event(&repo, "event-a", "account-a", "session-a", 12);
+        seed_session_log_event(&repo, "event-b", "account-b", "session-b", 30);
+
+        let deleted_count = repo
+            .delete_session_log_usage_events_for_account_sessions(
+                "account-a",
+                &["session-a".to_string()],
+            )
+            .unwrap();
+
+        let account_a_summary = repo
+            .get_summary(&UsageQuery {
+                account_id: "account-a".to_string(),
+                period: "day".to_string(),
+                timezone_offset_minutes: Some(8 * 60),
+            })
+            .unwrap();
+        let account_b_summary = repo
+            .get_summary(&UsageQuery {
+                account_id: "account-b".to_string(),
+                period: "day".to_string(),
+                timezone_offset_minutes: Some(8 * 60),
+            })
+            .unwrap();
+
+        assert_eq!(deleted_count, 1);
+        assert_eq!(account_a_summary.total_input_tokens, 0);
+        assert_eq!(account_b_summary.total_input_tokens, 30);
+        let _ = std::fs::remove_dir_all(isolated_data_dir);
+    }
+
+    #[test]
+    fn launch_session_usage_import_status_records_failure_message() {
+        let isolated_data_dir = unique_temp_dir();
+        std::fs::create_dir_all(&isolated_data_dir).unwrap();
+
+        let db = Database::new(isolated_data_dir.join("codexX.db")).unwrap();
+        seed_account(&db, "account-a");
+        let repo = UsageRepository::new(&db);
+        seed_completed_launch_session(&repo, "session-a", "account-a");
+
+        repo.update_launch_session_usage_import_status(
+            "session-a",
+            "usage_import_failed",
+            Some("未发现可导入 Token 用量"),
+        )
+        .unwrap();
+
+        let (status, error_message) = db
+            .get_conn()
+            .query_row(
+                "SELECT status, error_message
+                 FROM codex_launch_sessions
+                 WHERE id = ?1",
+                params!["session-a"],
+                |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?)),
+            )
+            .unwrap();
+
+        assert_eq!(status, "usage_import_failed");
+        assert_eq!(error_message.as_deref(), Some("未发现可导入 Token 用量"));
+        let _ = std::fs::remove_dir_all(isolated_data_dir);
+    }
+
     fn seed_account(db: &Database, account_id: &str) {
         db.get_conn()
             .execute(
@@ -1020,6 +1234,57 @@ mod tests {
                 params![account_id, "测试账号", "2026-04-21T00:00:00Z"],
             )
             .unwrap();
+    }
+
+    fn seed_completed_launch_session(repo: &UsageRepository, session_id: &str, account_id: &str) {
+        repo.insert_launch_session(&CodexLaunchSessionRecord {
+            id: session_id.to_string(),
+            account_id: account_id.to_string(),
+            launch_mode: "cli_terminal".to_string(),
+            executable: None,
+            working_directory: None,
+            prompt_preview: None,
+            status: "completed".to_string(),
+            started_at: "2026-04-26T08:00:00Z".to_string(),
+            completed_at: Some("2026-04-26T08:10:00Z".to_string()),
+            exit_code: None,
+            usage_event_count: 1,
+            error_message: None,
+        })
+        .unwrap();
+    }
+
+    fn seed_session_log_event(
+        repo: &UsageRepository,
+        event_id: &str,
+        account_id: &str,
+        session_id: &str,
+        input_tokens: i64,
+    ) {
+        repo.insert_api_usage_event(&ApiUsageEventRecord {
+            id: event_id.to_string(),
+            account_id: account_id.to_string(),
+            session_id: Some(session_id.to_string()),
+            source: "codex_cli_terminal_session_log".to_string(),
+            endpoint: Some("~/.codex/sessions".to_string()),
+            model: None,
+            response_id: None,
+            request_id: None,
+            status_code: None,
+            input_tokens,
+            output_tokens: 0,
+            total_tokens: input_tokens,
+            cached_input_tokens: Some(0),
+            reasoning_tokens: None,
+            estimated_cost: 0.0,
+            raw_usage_json: None,
+            is_complete: true,
+            error_message: None,
+            started_at: "2026-04-26T08:00:00Z".to_string(),
+            completed_at: Utc::now().to_rfc3339(),
+            created_at: Utc::now().to_rfc3339(),
+        })
+        .unwrap();
     }
 
     fn unique_temp_dir() -> PathBuf {

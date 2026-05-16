@@ -10,6 +10,8 @@ import type {
   CodexAppLaunchInput,
   UsageQuery,
   UsageImportResult,
+  UsageRebuildResult,
+  UsageRebuildScope,
   CodexCliLaunchInput,
   CodexConfigSnapshot,
   CodexConfigFieldUpdate,
@@ -288,6 +290,24 @@ export const usageService = {
   async clearUsageData(): Promise<void> {
     if (!isTauri) return
     return invoke('clear_usage_data')
+  },
+
+  async rebuildAccountUsage(
+    accountId: string,
+    scope: UsageRebuildScope,
+  ): Promise<UsageRebuildResult> {
+    if (!isTauri) {
+      return {
+        account_id: accountId,
+        scope,
+        session_count: 0,
+        scanned_file_count: 0,
+        deleted_count: 0,
+        imported_count: 0,
+        ignored_line_count: 0,
+      }
+    }
+    return invoke<UsageRebuildResult>('rebuild_account_usage', { accountId, scope })
   },
 }
 

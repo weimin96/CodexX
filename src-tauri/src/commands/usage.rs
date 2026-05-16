@@ -1,7 +1,10 @@
 use serde_json::Value;
 use tauri::State;
 
-use crate::codex_session_import::import_codex_session_usage_for_account;
+use crate::codex_session_import::{
+    import_codex_session_usage_for_account, rebuild_codex_session_usage_for_account,
+    CodexSessionUsageRebuildScope,
+};
 use crate::error::AppError;
 use crate::usage::{UsageQuery, UsageRepository};
 use crate::AppState;
@@ -45,4 +48,18 @@ pub async fn clear_usage_data(state: State<'_, AppState>) -> Result<(), AppError
     let repo = UsageRepository::new(&db);
     repo.clear_all_usage()?;
     Ok(())
+}
+
+#[tauri::command]
+pub async fn rebuild_account_usage(
+    state: State<'_, AppState>,
+    account_id: String,
+    scope: String,
+) -> Result<Value, AppError> {
+    let db = state.db.lock().await;
+    let repo = UsageRepository::new(&db);
+    let rebuild_scope = CodexSessionUsageRebuildScope::from_str(scope.as_str())?;
+    let rebuild_result =
+        rebuild_codex_session_usage_for_account(&repo, &account_id, rebuild_scope)?;
+    Ok(serde_json::to_value(rebuild_result)?)
 }

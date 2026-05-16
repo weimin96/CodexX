@@ -229,7 +229,9 @@ import type { MenuOption } from 'naive-ui'
 import { NIcon, useDialog, useMessage } from 'naive-ui'
 import { useAccountStore } from '@/stores/account'
 import { useSettingsStore } from '@/stores/settings'
+import { useUsageStore } from '@/stores/usage'
 import { AUTH_TYPE_LABELS } from '@/types'
+import type { CodexSessionUsageImportEvent } from '@/types'
 import StatusDot from '@/components/common/StatusDot.vue'
 import { usageService } from '@/services'
 import { resolveAccountAvatarText, resolveAccountDisplayName } from '@/utils/account-display'
@@ -249,6 +251,7 @@ const dialog = useDialog()
 const message = useMessage()
 const accountStore = useAccountStore()
 const settingsStore = useSettingsStore()
+const usageStore = useUsageStore()
 const { activeAccount } = storeToRefs(accountStore)
 const { availableAppUpdate, hasAvailableAppUpdate } = useAvailableAppUpdate()
 let startupAccountRefreshStarted = false
@@ -407,6 +410,12 @@ onMounted(async () => {
       await listen<{ account_id: string }>('default-account-updated', () => {
         void accountStore.loadAccounts()
       })
+      await listen<CodexSessionUsageImportEvent>(
+        'codex-session-usage-imported',
+        ({ payload }) => {
+          void handleSessionUsageImportEvent(payload)
+        },
+      )
     } catch (error) {
       console.warn('状态事件监听失败', error)
     }
@@ -455,6 +464,22 @@ async function refreshAccountsOnFirstStartup() {
   } catch (error) {
     console.warn('首次启动刷新账号信息失败', error)
   }
+}
+
+async function handleSessionUsageImportEvent(payload: CodexSessionUsageImportEvent) {
+  if (payload.status === 'completed') {
+    try {
+      usageStore.clearUsageCacheForAccount(payload.account_id)
+      await usageStore.loadCachedUsageForAccounts([payload.account_id], usageStore.period)
+    } catch (error) {
+      console.warn('刷新会话补采用量缓存失败', error)
+    }
+    message.success(`会话用量已补采 ${payload.usage_event_count ?? payload.imported_count} 条`)
+    return
+  }
+
+  console.warn('会话用量补采失败', payload)
+  message.warning(payload.message ?? '会话用量补采未完成')
 }
 </script>
 

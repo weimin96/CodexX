@@ -210,7 +210,7 @@ impl<'a> AccountRepository<'a> {
         )?;
 
         let account = stmt
-            .query_row(params![id], |row| Self::map_row(row))
+            .query_row(params![id], Self::map_row)
             .map_err(|_| AppError::AccountNotFound(id.to_string()))?;
 
         Ok(account)
@@ -229,7 +229,7 @@ impl<'a> AccountRepository<'a> {
         )?;
 
         let accounts = stmt
-            .query_map([], |row| Self::map_row(row))?
+            .query_map([], Self::map_row)?
             .collect::<Result<Vec<_>, _>>()?;
 
         Ok(accounts)
@@ -327,7 +327,7 @@ impl<'a> AccountRepository<'a> {
         let account_exists = self.get_by_id(&stable_id).is_ok();
         let should_be_default = !account_exists && self.list_all()?.is_empty();
         let profile_present = if codex_profile.is_some() { 1 } else { 0 };
-        let profile = codex_profile.unwrap_or_else(|| CodexAccountProfile {
+        let profile = codex_profile.unwrap_or(CodexAccountProfile {
             plan_type: None,
             fetched_at: None,
             five_hour: None,

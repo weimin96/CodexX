@@ -26,9 +26,7 @@ const SHORT_CONVERSATION_PROMPT: &str = "hi";
 const SHORT_CONVERSATION_MODEL: &str = "gpt-5.2";
 const SHORT_CONVERSATION_MODEL_LABEL: &str = "GPT-5.2";
 const LOW_REASONING_OVERRIDE: &str = "model_reasoning_effort=\"low\"";
-const WARMUP_QUOTA_EPSILON: f64 = 0.000_001;
-const FIVE_HOUR_WINDOW_LABEL: &str = "5 小时";
-const ONE_WEEK_WINDOW_LABEL: &str = "7 天";
+const PERIOD_WARMUP_LABEL: &str = "周期";
 const SESSION_USAGE_IMPORT_ATTEMPTS: usize = 12;
 const SESSION_USAGE_IMPORT_INTERVAL_SECONDS: u64 = 15;
 
@@ -47,27 +45,25 @@ struct WarmupWorkspaceSelection {
 }
 
 #[derive(Debug, Clone, Copy)]
-enum WarmupQuotaWindow {
-    FiveHour,
-    OneWeek,
+enum WarmupScope {
+    Period,
 }
 
-impl WarmupQuotaWindow {
+impl WarmupScope {
     fn parse(value: Option<&str>) -> Result<Self, AppError> {
         match value.map(str::trim).filter(|value| !value.is_empty()) {
-            None => Ok(Self::FiveHour),
-            Some("five_hour") => Ok(Self::FiveHour),
-            Some("one_week") => Ok(Self::OneWeek),
+            None | Some("period") => Ok(Self::Period),
+            // 历史版本曾按单个额度窗口传参；统一按周期预热处理，避免旧前端调用直接失效。
+            Some("five_hour") | Some("one_week") => Ok(Self::Period),
             Some(other) => Err(AppError::InvalidInput(format!(
-                "预热窗口参数不合法: {other}"
+                "预热范围参数不合法: {other}"
             ))),
         }
     }
 
     fn label(self) -> &'static str {
         match self {
-            Self::FiveHour => FIVE_HOUR_WINDOW_LABEL,
-            Self::OneWeek => ONE_WEEK_WINDOW_LABEL,
+            Self::Period => PERIOD_WARMUP_LABEL,
         }
     }
 }
@@ -187,7 +183,7 @@ pub async fn trigger_codex_short_conversation(
     account_id: Option<String>,
     warmup_window: Option<String>,
 ) -> Result<Value, AppError> {
-    let warmup_window = WarmupQuotaWindow::parse(warmup_window.as_deref())?;
+    let warmup_scope = WarmupScope::parse(warmup_window.as_deref())?;
     let target = CodexCommandTarget::discover()?;
     let session_id = Uuid::new_v4().to_string();
     let started_at = Utc::now().to_rfc3339();
@@ -200,7 +196,7 @@ pub async fn trigger_codex_short_conversation(
         let selected_account = select_warmup_ready_account(
             &accounts,
             account_id.as_deref(),
-            warmup_window,
+            warmup_scope,
             now_timestamp,
         )?;
         LocalAuthSyncService::write_account_to_default_auth_file(
@@ -287,7 +283,7 @@ pub async fn trigger_codex_short_conversation(
                 "usage_event_count": outcome.usage_events.len(),
                 "working_directory": warmup_workspace.working_directory,
                 "working_directory_source": warmup_workspace.source,
-                "warmup_window": warmup_window.label(),
+                "warmup_window": warmup_scope.label(),
                 "message": outcome.message,
                 "stderr_preview": outcome.stderr_preview,
             }))?)
@@ -319,7 +315,7 @@ pub async fn trigger_codex_short_conversation(
 fn select_warmup_ready_account(
     accounts: &[Account],
     requested_account_id: Option<&str>,
-    warmup_window: WarmupQuotaWindow,
+    warmup_scope: WarmupScope,
     now_timestamp: i64,
 ) -> Result<Account, AppError> {
     if let Some(account_id) = requested_account_id {
@@ -327,84 +323,57 @@ fn select_warmup_ready_account(
             .iter()
             .find(|account| account.id == account_id)
             .ok_or_else(|| AppError::AccountNotFound(account_id.to_string()))?;
-        validate_warmup_window_executable(account, warmup_window, now_timestamp)?;
+        validate_warmup_scope_executable(account, warmup_scope, now_timestamp)?;
         return Ok(account.clone());
     }
 
     accounts
         .iter()
-        .find(|account| is_warmup_window_executable(account, warmup_window, now_timestamp))
+        .find(|account| is_warmup_scope_executable(account, warmup_scope, now_timestamp))
         .cloned()
         .ok_or_else(|| {
             AppError::InvalidInput(format!(
-                "没有找到 {}剩余额度 100% 且未进入倒计时的账号",
-                warmup_window.label()
+                "没有找到可执行{}预热且未进入倒计时的账号",
+                warmup_scope.label()
             ))
         })
 }
 
-fn is_warmup_window_executable(
+fn is_warmup_scope_executable(
     account: &Account,
-    warmup_window: WarmupQuotaWindow,
+    warmup_scope: WarmupScope,
     now_timestamp: i64,
 ) -> bool {
-    resolve_account_usage_window(account, warmup_window)
-        .is_some_and(|usage| is_usage_window_executable(usage, now_timestamp))
+    match warmup_scope {
+        WarmupScope::Period => {
+            is_usage_window_executable(account.codex_usage_5h.as_ref(), now_timestamp)
+                || is_usage_window_executable(account.codex_usage_week.as_ref(), now_timestamp)
+        }
+    }
 }
 
-fn validate_warmup_window_executable(
+fn validate_warmup_scope_executable(
     account: &Account,
-    warmup_window: WarmupQuotaWindow,
+    warmup_scope: WarmupScope,
     now_timestamp: i64,
 ) -> Result<(), AppError> {
-    let usage = resolve_account_usage_window(account, warmup_window).ok_or_else(|| {
-        AppError::InvalidInput(format!(
-            "该账号缺少 {}额度窗口数据，无法预热",
-            warmup_window.label()
-        ))
-    })?;
-
-    if usage.used_percent > WARMUP_QUOTA_EPSILON {
+    if !is_warmup_scope_executable(account, warmup_scope, now_timestamp) {
         return Err(AppError::InvalidInput(format!(
-            "该账号 {}剩余额度不是 100%，无需预热",
-            warmup_window.label()
-        )));
-    }
-
-    let reset_at = usage.reset_at.ok_or_else(|| {
-        AppError::InvalidInput(format!(
-            "该账号 {}额度缺少下次重置时间，无法判断是否需要预热",
-            warmup_window.label()
-        ))
-    })?;
-
-    if reset_at - now_timestamp < usage.window_seconds {
-        return Err(AppError::InvalidInput(format!(
-            "该账号 {}额度已进入倒计时，无需预热",
-            warmup_window.label()
+            "该账号当前没有可执行的{}预热额度",
+            warmup_scope.label()
         )));
     }
 
     Ok(())
 }
 
-fn resolve_account_usage_window<'a>(
-    account: &'a Account,
-    warmup_window: WarmupQuotaWindow,
-) -> Option<&'a crate::account::CodexUsageWindow> {
-    match warmup_window {
-        WarmupQuotaWindow::FiveHour => account.codex_usage_5h.as_ref(),
-        WarmupQuotaWindow::OneWeek => account.codex_usage_week.as_ref(),
-    }
-}
-
 fn is_usage_window_executable(
-    usage: &crate::account::CodexUsageWindow,
+    usage: Option<&crate::account::CodexUsageWindow>,
     now_timestamp: i64,
 ) -> bool {
-    if usage.used_percent > WARMUP_QUOTA_EPSILON {
+    let Some(usage) = usage else {
         return false;
-    }
+    };
 
     let reset_at = match usage.reset_at {
         Some(value) => value,
@@ -790,4 +759,94 @@ fn account_email_or_name(account: &Account) -> String {
         .filter(|email| !email.is_empty())
         .unwrap_or(&account.name)
         .to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::account::{AccountStatus, AuthType, CodexUsageWindow};
+
+    fn account_with_windows(
+        five_hour: Option<CodexUsageWindow>,
+        one_week: Option<CodexUsageWindow>,
+    ) -> Account {
+        Account {
+            id: "account-1".to_string(),
+            name: "周期预热账号".to_string(),
+            auth_type: AuthType::OAuthToken,
+            email: Some("user@example.com".to_string()),
+            organization: None,
+            is_default: false,
+            is_active: true,
+            created_at: "2026-05-16T00:00:00Z".to_string(),
+            updated_at: "2026-05-16T00:00:00Z".to_string(),
+            last_checked_at: None,
+            status: AccountStatus::Normal,
+            status_message: None,
+            color: "#18a058".to_string(),
+            avatar_text: None,
+            codex_plan_type: None,
+            codex_usage_fetched_at: None,
+            codex_usage_5h: five_hour,
+            codex_usage_week: one_week,
+            codex_usage_error: None,
+        }
+    }
+
+    fn usage_window(used_percent: f64, window_seconds: i64, reset_at: i64) -> CodexUsageWindow {
+        CodexUsageWindow {
+            used_percent,
+            window_seconds,
+            reset_at: Some(reset_at),
+        }
+    }
+
+    #[test]
+    fn period_warmup_does_not_require_full_remaining_quota() {
+        let now_timestamp = 1_800_000_000;
+        let account = account_with_windows(
+            Some(usage_window(47.5, 5 * 60 * 60, now_timestamp + 5 * 60 * 60)),
+            None,
+        );
+
+        assert!(is_warmup_scope_executable(
+            &account,
+            WarmupScope::Period,
+            now_timestamp
+        ));
+    }
+
+    #[test]
+    fn period_warmup_uses_any_period_window_not_in_countdown() {
+        let now_timestamp = 1_800_000_000;
+        let account = account_with_windows(
+            Some(usage_window(0.0, 5 * 60 * 60, now_timestamp + 60)),
+            Some(usage_window(
+                82.0,
+                7 * 24 * 60 * 60,
+                now_timestamp + 7 * 24 * 60 * 60,
+            )),
+        );
+
+        assert!(is_warmup_scope_executable(
+            &account,
+            WarmupScope::Period,
+            now_timestamp
+        ));
+    }
+
+    #[test]
+    fn period_warmup_rejects_account_already_in_countdown() {
+        let now_timestamp = 1_800_000_000;
+        let account = account_with_windows(
+            Some(usage_window(0.0, 5 * 60 * 60, now_timestamp + 60)),
+            Some(usage_window(0.0, 7 * 24 * 60 * 60, now_timestamp + 60)),
+        );
+
+        assert!(!is_warmup_scope_executable(
+            &account,
+            WarmupScope::Period,
+            now_timestamp
+        ));
+    }
 }

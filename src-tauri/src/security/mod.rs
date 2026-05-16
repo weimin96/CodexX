@@ -144,7 +144,7 @@ fn parse_env_master_key(value: &str) -> AppResult<Vec<u8>> {
         return Ok(decoded);
     }
 
-    if value.as_bytes().len() == 32 {
+    if value.len() == 32 {
         return Ok(value.as_bytes().to_vec());
     }
 

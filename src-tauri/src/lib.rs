@@ -14,10 +14,10 @@ pub mod status_sync;
 pub mod storage;
 pub mod usage;
 
-use rusqlite::OptionalExtension;
+use chrono::Utc;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::Sender;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 use std::thread::JoinHandle;
 use storage::Database;
 use tauri::{Emitter, Manager};
@@ -28,22 +28,22 @@ use crate::auth::PendingOAuthLogin;
 use crate::codex_runtime::{close_codex_desktop_app, open_codex_desktop_app};
 use crate::local_sync::LocalAuthSyncService;
 
-#[cfg(all(desktop))]
+#[cfg(desktop)]
 const TRAY_ICON_BYTES: &[u8] = include_bytes!("../icons/64x64.png");
-#[cfg(all(desktop))]
+#[cfg(desktop)]
 const MAIN_TRAY_ID: &str = "main";
 const MAIN_WINDOW_LABEL: &str = "main";
-#[cfg(all(desktop))]
+#[cfg(desktop)]
 const TRAY_MENU_OPEN_ID: &str = "open";
-#[cfg(all(desktop))]
+#[cfg(desktop)]
 const TRAY_MENU_RESTART_CODEX_APP_ID: &str = "restart-codex-app";
-#[cfg(all(desktop))]
+#[cfg(desktop)]
 const TRAY_MENU_QUIT_ID: &str = "quit";
-#[cfg(all(desktop))]
+#[cfg(desktop)]
 const TRAY_MENU_SWITCH_ACCOUNT_PREFIX: &str = "switch-account::";
-#[cfg(all(desktop))]
+#[cfg(desktop)]
 const TRAY_DEFAULT_ACCOUNT_UPDATED_EVENT: &str = "default-account-updated";
-#[cfg(all(desktop))]
+#[cfg(desktop)]
 const TRAY_REMAINING_QUOTA_EPSILON: f64 = 0.000_001;
 const WINDOW_CLOSE_ACTION_SETTING_KEY: &str = "window_close_action";
 const WINDOW_CLOSE_ACTION_TRAY: &str = "tray";
@@ -57,6 +57,7 @@ pub struct OAuthCallbackListenerHandle {
 
 pub struct AppState {
     pub db: Arc<Mutex<Database>>,
+    pub window_close_action: Arc<RwLock<String>>,
     pub oauth_flow_lock: Arc<Mutex<()>>,
     pub pending_oauth_login: Mutex<Option<PendingOAuthLogin>>,
     pub oauth_listener: Mutex<Option<OAuthCallbackListenerHandle>>,
@@ -84,11 +85,39 @@ pub fn run() {
         })
         .setup(|app| {
             // 数据库跟随 Codex 主目录，便于账号管理数据和 Codex 本地状态一起备份。
-            let legacy_app_dir = app.path().app_data_dir().expect("无法获取旧应用数据目录");
-            let legacy_db_path = legacy_app_dir.join("codexX.db");
-            let db_path = resolve_codex_manager_db_path().expect("无法解析数据库目录");
-            migrate_legacy_database(&legacy_db_path, &db_path).expect("迁移旧数据库失败");
-            let db = Database::new(&db_path).expect("初始化数据库失败");
+            let legacy_app_dir = match app.path().app_data_dir() {
+                Ok(path) => Some(path),
+                Err(error) => {
+                    log::warn!("无法获取旧应用数据目录，跳过旧库迁移: {error}");
+                    None
+                }
+            };
+            let (db_path, using_fallback_db_path) = match resolve_codex_manager_db_path() {
+                Ok(path) => (path, false),
+                Err(error) => {
+                    log::warn!("无法解析 CodexX 主数据库目录，将回退到应用数据目录: {error}");
+                    (resolve_app_data_db_path(app)?, true)
+                }
+            };
+            if let Some(legacy_app_dir) = legacy_app_dir.as_ref() {
+                let legacy_db_path = legacy_app_dir.join("codexX.db");
+                if let Err(error) = migrate_legacy_database(&legacy_db_path, &db_path) {
+                    log::warn!("迁移旧数据库失败，继续使用目标数据库路径: {error}");
+                }
+            }
+            let db = match open_database_with_recovery(&db_path) {
+                Ok(db) => db,
+                Err(error) if !using_fallback_db_path => {
+                    let fallback_db_path = resolve_app_data_db_path(app)?;
+                    log::warn!(
+                        "主数据库初始化失败，将回退到应用数据目录数据库 {}: {error}",
+                        fallback_db_path.display()
+                    );
+                    open_database_with_recovery(&fallback_db_path)?
+                }
+                Err(error) => return Err(Box::new(error)),
+            };
+            let initial_window_close_action = load_window_close_action_from_database(&db);
             let initial_tray_accounts =
                 AccountRepository::new(&db)
                     .list_all()
@@ -99,13 +128,14 @@ pub fn run() {
 
             app.manage(AppState {
                 db: Arc::new(Mutex::new(db)),
+                window_close_action: Arc::new(RwLock::new(initial_window_close_action)),
                 oauth_flow_lock: Arc::new(Mutex::new(())),
                 pending_oauth_login: Mutex::new(None),
                 oauth_listener: Mutex::new(None),
             });
 
             // 初始化系统托盘，保持主窗口关闭后的基础可达性。
-            #[cfg(all(desktop))]
+            #[cfg(desktop)]
             {
                 let handle = app.handle().clone();
                 setup_tray(handle, &initial_tray_accounts)?;
@@ -180,6 +210,73 @@ fn resolve_codex_manager_db_path() -> std::io::Result<PathBuf> {
     Ok(app_dir.join("codexX.db"))
 }
 
+fn resolve_app_data_db_path<R: tauri::Runtime>(app: &tauri::App<R>) -> tauri::Result<PathBuf> {
+    let app_dir = app.path().app_data_dir()?;
+    std::fs::create_dir_all(&app_dir)?;
+    Ok(app_dir.join("codexX.db"))
+}
+
+fn open_database_with_recovery(db_path: &Path) -> Result<Database, crate::error::AppError> {
+    match Database::new(db_path) {
+        Ok(db) => Ok(db),
+        Err(error) => {
+            log::error!(
+                "初始化数据库失败，准备备份疑似损坏数据库后重建 {}: {error}",
+                db_path.display()
+            );
+            backup_sqlite_database_files(db_path)?;
+            Database::new(db_path).map_err(|retry_error| {
+                crate::error::AppError::Other(format!(
+                    "数据库重建失败: {retry_error}; 原始初始化错误: {error}"
+                ))
+            })
+        }
+    }
+}
+
+fn backup_sqlite_database_files(db_path: &Path) -> std::io::Result<()> {
+    let backup_suffix = format!("corrupt-{}", Utc::now().format("%Y%m%d%H%M%S"));
+    backup_existing_file(db_path, &backup_suffix)?;
+    backup_existing_file(&db_path.with_extension("db-wal"), &backup_suffix)?;
+    backup_existing_file(&db_path.with_extension("db-shm"), &backup_suffix)?;
+    Ok(())
+}
+
+fn backup_existing_file(path: &Path, backup_suffix: &str) -> std::io::Result<()> {
+    if !path.exists() {
+        return Ok(());
+    }
+
+    let backup_path = path.with_file_name(format!(
+        "{}.{backup_suffix}",
+        path.file_name()
+            .map(|value| value.to_string_lossy())
+            .unwrap_or_else(|| "codexX.db".into())
+    ));
+    std::fs::rename(path, backup_path)?;
+    Ok(())
+}
+
+fn load_window_close_action_from_database(db: &Database) -> String {
+    let conn = db.get_conn();
+    match conn.query_row(
+        "SELECT value FROM settings WHERE key = ?1",
+        [WINDOW_CLOSE_ACTION_SETTING_KEY],
+        |row| row.get::<_, String>(0),
+    ) {
+        Ok(value) if is_known_window_close_action(&value) => value,
+        Ok(value) => {
+            log::warn!("发现未知关闭窗口行为设置，回退为托盘模式: {value}");
+            WINDOW_CLOSE_ACTION_TRAY.to_string()
+        }
+        Err(rusqlite::Error::QueryReturnedNoRows) => WINDOW_CLOSE_ACTION_TRAY.to_string(),
+        Err(error) => {
+            log::warn!("读取关闭窗口行为设置失败，回退为托盘模式: {error}");
+            WINDOW_CLOSE_ACTION_TRAY.to_string()
+        }
+    }
+}
+
 #[cfg(windows)]
 fn resolve_user_home_dir() -> Option<std::ffi::OsString> {
     std::env::var_os("USERPROFILE").or_else(|| std::env::var_os("HOME"))
@@ -221,7 +318,7 @@ fn copy_sqlite_sidecar_file(
     Ok(())
 }
 
-#[cfg(all(desktop))]
+#[cfg(desktop)]
 fn setup_tray(handle: tauri::AppHandle, accounts: &[Account]) -> tauri::Result<()> {
     use tauri::image::Image;
     use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
@@ -265,7 +362,7 @@ fn setup_tray(handle: tauri::AppHandle, accounts: &[Account]) -> tauri::Result<(
     Ok(())
 }
 
-#[cfg(all(desktop))]
+#[cfg(desktop)]
 pub async fn refresh_tray_menu(app: &tauri::AppHandle, db: &Arc<Mutex<Database>>) {
     let accounts = {
         let db = db.lock().await;
@@ -287,7 +384,7 @@ pub async fn refresh_tray_menu(app: &tauri::AppHandle, db: &Arc<Mutex<Database>>
 #[cfg(not(all(desktop)))]
 pub async fn refresh_tray_menu(_app: &tauri::AppHandle, _db: &Arc<Mutex<Database>>) {}
 
-#[cfg(all(desktop))]
+#[cfg(desktop)]
 fn apply_tray_menu(app: &tauri::AppHandle, accounts: &[Account]) -> tauri::Result<()> {
     let Some(tray) = app.tray_by_id(MAIN_TRAY_ID) else {
         return Ok(());
@@ -298,7 +395,7 @@ fn apply_tray_menu(app: &tauri::AppHandle, accounts: &[Account]) -> tauri::Resul
     Ok(())
 }
 
-#[cfg(all(desktop))]
+#[cfg(desktop)]
 fn build_tray_menu<R: tauri::Runtime, M: tauri::Manager<R>>(
     manager: &M,
     accounts: &[Account],
@@ -365,7 +462,7 @@ fn build_tray_menu<R: tauri::Runtime, M: tauri::Manager<R>>(
     )
 }
 
-#[cfg(all(desktop))]
+#[cfg(desktop)]
 fn tray_account_menu_label(account: &Account) -> String {
     let display_name = account
         .email
@@ -383,7 +480,7 @@ fn tray_account_menu_label(account: &Account) -> String {
     )
 }
 
-#[cfg(all(desktop))]
+#[cfg(desktop)]
 fn is_tray_switchable_account(account: &Account) -> bool {
     let Some(five_hour) = account.codex_usage_5h.as_ref() else {
         return false;
@@ -401,7 +498,7 @@ fn is_tray_switchable_account(account: &Account) -> bool {
         && remaining_one_week > TRAY_REMAINING_QUOTA_EPSILON
 }
 
-#[cfg(all(desktop))]
+#[cfg(desktop)]
 fn resolve_tray_plan_label(account: &Account) -> &'static str {
     let normalized = account
         .codex_plan_type
@@ -420,26 +517,26 @@ fn resolve_tray_plan_label(account: &Account) -> &'static str {
     }
 }
 
-#[cfg(all(desktop))]
+#[cfg(desktop)]
 fn resolve_remaining_percent(window: Option<&crate::account::CodexUsageWindow>) -> i64 {
     let Some(window) = window else {
         return 0;
     };
 
     let used_percent = normalize_percent(window.used_percent);
-    let remaining = (100.0 - used_percent).max(0.0).min(100.0);
+    let remaining = (100.0 - used_percent).clamp(0.0, 100.0);
     remaining.round() as i64
 }
 
-#[cfg(all(desktop))]
+#[cfg(desktop)]
 fn normalize_percent(value: f64) -> f64 {
     if !value.is_finite() {
         return 0.0;
     }
-    value.max(0.0).min(100.0)
+    value.clamp(0.0, 100.0)
 }
 
-#[cfg(all(desktop))]
+#[cfg(desktop)]
 fn switch_account_from_tray(app: tauri::AppHandle, account_id: String) {
     let db = app.state::<AppState>().db.clone();
     tauri::async_runtime::spawn(async move {
@@ -464,7 +561,7 @@ fn switch_account_from_tray(app: tauri::AppHandle, account_id: String) {
     });
 }
 
-#[cfg(all(desktop))]
+#[cfg(desktop)]
 fn restart_codex_app_from_tray() {
     std::thread::spawn(|| {
         match close_codex_desktop_app() {
@@ -483,7 +580,7 @@ fn restart_codex_app_from_tray() {
     });
 }
 
-#[cfg(all(desktop))]
+#[cfg(desktop)]
 fn open_main_window(app: &tauri::AppHandle) {
     let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) else {
         log::warn!("无法打开主窗口: main 窗口不存在");
@@ -493,7 +590,7 @@ fn open_main_window(app: &tauri::AppHandle) {
     restore_main_window(&window);
 }
 
-#[cfg(all(desktop))]
+#[cfg(desktop)]
 fn restore_main_window(window: &tauri::WebviewWindow) {
     log_window_operation("取消主窗口最小化", window.unminimize());
     log_window_operation("显示主窗口", window.show());
@@ -530,32 +627,32 @@ enum WindowCloseAction {
 
 fn resolve_window_close_action<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> WindowCloseAction {
     let state = app.state::<AppState>();
-    let db = state.db.blocking_lock();
-    let conn = db.get_conn();
-
-    match conn
-        .query_row(
-            "SELECT value FROM settings WHERE key = ?1",
-            [WINDOW_CLOSE_ACTION_SETTING_KEY],
-            |row| row.get::<_, String>(0),
-        )
-        .optional()
-    {
-        Ok(Some(value)) if value == WINDOW_CLOSE_ACTION_QUIT => WindowCloseAction::Quit,
-        Ok(Some(value)) if value == WINDOW_CLOSE_ACTION_TRAY => WindowCloseAction::Tray,
-        Ok(Some(value)) => {
-            log::warn!("发现未知关闭窗口行为设置，回退为托盘模式: {value}");
+    let action = match state.window_close_action.read() {
+        Ok(value) => parse_window_close_action(&value),
+        Err(error) => {
+            log::warn!("读取关闭窗口行为缓存失败，回退为托盘模式: {error}");
             WindowCloseAction::Tray
         }
-        Ok(None) => WindowCloseAction::Tray,
-        Err(error) => {
-            log::warn!("读取关闭窗口行为设置失败，回退为托盘模式: {error}");
+    };
+    action
+}
+
+fn parse_window_close_action(value: &str) -> WindowCloseAction {
+    match value {
+        WINDOW_CLOSE_ACTION_QUIT => WindowCloseAction::Quit,
+        WINDOW_CLOSE_ACTION_TRAY => WindowCloseAction::Tray,
+        other => {
+            log::warn!("发现未知关闭窗口行为设置，回退为托盘模式: {other}");
             WindowCloseAction::Tray
         }
     }
 }
 
-#[cfg(all(desktop))]
+fn is_known_window_close_action(value: &str) -> bool {
+    matches!(value, WINDOW_CLOSE_ACTION_TRAY | WINDOW_CLOSE_ACTION_QUIT)
+}
+
+#[cfg(desktop)]
 fn log_window_operation(action: &str, result: tauri::Result<()>) {
     if let Err(error) = result {
         log::warn!("{action}失败: {error}");

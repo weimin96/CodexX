@@ -16,8 +16,6 @@
     "core:window:allow-start-resize-dragging",
     "shell:allow-open",
     "dialog:default",
-    "fs:default",
-    "notification:default",
     "autostart:allow-enable",
     "autostart:allow-disable",
     "autostart:allow-is-enabled",

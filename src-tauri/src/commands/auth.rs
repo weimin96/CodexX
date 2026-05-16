@@ -15,6 +15,17 @@ use crate::local_sync::LocalAuthSyncService;
 use crate::{AppState, OAuthCallbackListenerHandle};
 
 const OAUTH_CALLBACK_FINISHED_EVENT: &str = "oauth-callback-finished";
+const MAX_OAUTH_CALLBACK_PATH_BYTES: usize = 2048;
+const MAX_OAUTH_CALLBACK_REQUEST_BYTES: usize = 8192;
+const OAUTH_CALLBACK_ALLOWED_QUERY_KEYS: &[&str] = &[
+    "code",
+    "state",
+    "error",
+    "error_description",
+    "error_uri",
+    "error_code",
+    "iss",
+];
 
 #[tauri::command]
 pub async fn refresh_token(
@@ -106,6 +117,7 @@ pub async fn prepare_oauth_login(
 
     let (listener, redirect_port) = bind_oauth_callback_listener(auth::oauth_redirect_port())?;
     let (pending, prepared) = auth::prepare_oauth_login(redirect_port)?;
+    log::info!("OAuth 登录已准备，本地回调端口: {redirect_port}");
     {
         let mut pending_guard = state.pending_oauth_login.lock().await;
         *pending_guard = Some(pending.clone());
@@ -145,6 +157,7 @@ pub async fn complete_oauth_callback_login(
     let result = complete_oauth_login_internal(&app, state.inner(), &callback_url).await?;
     clear_pending_oauth_if_matches(state.inner(), &pending.state).await;
     stop_oauth_callback_listener(state.inner()).await;
+    log::info!("OAuth 登录已通过手动回调完成");
     Ok(serde_json::to_value(result)?)
 }
 
@@ -156,6 +169,7 @@ pub async fn cancel_oauth_login(state: State<'_, AppState>) -> Result<(), AppErr
         *pending_guard = None;
     }
     stop_oauth_callback_listener(state.inner()).await;
+    log::info!("OAuth 登录已取消");
     Ok(())
 }
 
@@ -298,6 +312,7 @@ fn run_oauth_callback_listener(
         }
 
         if oauth_login_expired(pending.expires_at) {
+            log::warn!("OAuth 登录已超时，本地回调监听结束");
             tauri::async_runtime::block_on(async {
                 let state = app.state::<AppState>();
                 clear_pending_oauth_if_matches(state.inner(), &pending.state).await;
@@ -315,7 +330,7 @@ fn run_oauth_callback_listener(
 
         match listener.accept() {
             Ok((mut stream, _)) => {
-                let path = match read_oauth_request_path(&mut stream) {
+                let path = match read_oauth_request_path(&mut stream, &pending.redirect_uri) {
                     Ok(path) => path,
                     Err(error) => {
                         write_oauth_html_response(
@@ -469,33 +484,56 @@ fn bind_oauth_callback_listener(preferred_port: u16) -> Result<(TcpListener, u16
     }
 }
 
-fn read_oauth_request_path(stream: &mut std::net::TcpStream) -> Result<String, String> {
+fn read_oauth_request_path(
+    stream: &mut std::net::TcpStream,
+    redirect_uri: &str,
+) -> Result<String, String> {
     stream
         .set_read_timeout(Some(Duration::from_secs(4)))
         .map_err(|error| format!("设置 OAuth 回调读取超时失败: {error}"))?;
-    let mut buffer = [0_u8; 8192];
+    let mut buffer = [0_u8; MAX_OAUTH_CALLBACK_REQUEST_BYTES];
     let bytes_read = stream
         .read(&mut buffer)
         .map_err(|error| format!("读取 OAuth 回调请求失败: {error}"))?;
     if bytes_read == 0 {
         return Err("OAuth 回调连接已关闭".to_string());
     }
+    if bytes_read == MAX_OAUTH_CALLBACK_REQUEST_BYTES {
+        return Err("OAuth 回调请求过长".to_string());
+    }
 
-    let request = String::from_utf8_lossy(&buffer[..bytes_read]);
+    let request = std::str::from_utf8(&buffer[..bytes_read])
+        .map_err(|_| "OAuth 回调请求不是有效 UTF-8".to_string())?;
     let request_line = request
         .lines()
         .next()
         .ok_or_else(|| "OAuth 回调请求为空".to_string())?;
+    if contains_forbidden_ascii_control(request_line) {
+        return Err("OAuth 回调请求行包含非法控制字符".to_string());
+    }
     let mut parts = request_line.split_whitespace();
     let method = parts.next().unwrap_or_default();
     if method != "GET" {
         return Err(format!("不支持的 OAuth 回调请求方法: {method}"));
     }
 
-    parts
+    let path = parts
         .next()
         .map(ToString::to_string)
-        .ok_or_else(|| "OAuth 回调请求缺少路径".to_string())
+        .ok_or_else(|| "OAuth 回调请求缺少路径".to_string())?;
+    let http_version = parts
+        .next()
+        .ok_or_else(|| "OAuth 回调请求缺少 HTTP 版本".to_string())?;
+    if !matches!(http_version, "HTTP/1.0" | "HTTP/1.1") {
+        return Err("OAuth 回调 HTTP 版本不受支持".to_string());
+    }
+    if parts.next().is_some() {
+        return Err("OAuth 回调请求行格式无效".to_string());
+    }
+
+    validate_oauth_request_host(request, redirect_uri)?;
+    validate_oauth_callback_path(&path)?;
+    Ok(path)
 }
 
 fn build_oauth_callback_url(redirect_uri: &str, path: &str) -> Result<String, String> {
@@ -507,6 +545,63 @@ fn build_oauth_callback_url(redirect_uri: &str, path: &str) -> Result<String, St
     callback_url.set_query(request_url.query());
     callback_url.set_fragment(request_url.fragment());
     Ok(callback_url.to_string())
+}
+
+fn validate_oauth_request_host(request: &str, redirect_uri: &str) -> Result<(), String> {
+    let expected_port = reqwest::Url::parse(redirect_uri)
+        .map_err(|error| format!("OAuth redirect_uri 无效: {error}"))?
+        .port()
+        .ok_or_else(|| "OAuth redirect_uri 缺少端口".to_string())?;
+    let host = request
+        .lines()
+        .skip(1)
+        .find_map(|line| {
+            let (name, value) = line.split_once(':')?;
+            if name.eq_ignore_ascii_case("host") {
+                Some(value.trim().to_ascii_lowercase())
+            } else {
+                None
+            }
+        })
+        .ok_or_else(|| "OAuth 回调请求缺少 Host 头".to_string())?;
+    let expected_localhost = format!("localhost:{expected_port}");
+    let expected_loopback = format!("127.0.0.1:{expected_port}");
+    if host == expected_localhost || host == expected_loopback {
+        return Ok(());
+    }
+
+    Err("OAuth 回调 Host 与本地监听端口不匹配".to_string())
+}
+
+fn validate_oauth_callback_path(path: &str) -> Result<(), String> {
+    if path.len() > MAX_OAUTH_CALLBACK_PATH_BYTES {
+        return Err("OAuth 回调 URL 过长".to_string());
+    }
+    if !path.starts_with('/') {
+        return Err("OAuth 回调路径必须以 / 开头".to_string());
+    }
+    if contains_forbidden_ascii_control(path) {
+        return Err("OAuth 回调路径包含非法控制字符".to_string());
+    }
+    if path == "/cancel" {
+        return Ok(());
+    }
+    if !path.starts_with("/auth/callback") {
+        return Ok(());
+    }
+
+    let request_url = reqwest::Url::parse(&format!("http://localhost{path}"))
+        .map_err(|error| format!("OAuth 回调路径无效: {error}"))?;
+    for (key, _) in request_url.query_pairs() {
+        if !OAUTH_CALLBACK_ALLOWED_QUERY_KEYS.contains(&key.as_ref()) {
+            return Err(format!("OAuth 回调包含不支持的查询参数: {key}"));
+        }
+    }
+    Ok(())
+}
+
+fn contains_forbidden_ascii_control(value: &str) -> bool {
+    value.chars().any(|character| character.is_ascii_control())
 }
 
 fn oauth_login_expired(expires_at: i64) -> bool {
@@ -523,14 +618,14 @@ fn write_oauth_html_response(
     detail: &str,
 ) {
     let body = format!(
-        "<!doctype html><html lang=\"zh-CN\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>{}</title><style>body{{margin:0;padding:32px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f4f7fb;color:#152033}}main{{max-width:560px;margin:0 auto;padding:24px;border-radius:20px;background:#fff;box-shadow:0 14px 34px rgba(21,32,51,.08)}}h1{{margin:0 0 10px;font-size:24px}}p{{margin:0;color:#52627b;line-height:1.6;word-break:break-word}}</style></head><body><main><h1>{}</h1><p>{}</p></main></body></html>",
+        "<!doctype html><html lang=\"zh-CN\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>{}</title><style>body{{margin:0;padding:32px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f4f7fb;color:#152033}}main{{max-width:560px;margin:0 auto;padding:24px;border-radius:8px;background:#fff;box-shadow:0 14px 34px rgba(21,32,51,.08)}}h1{{margin:0 0 10px;font-size:24px}}p{{margin:0 0 18px;color:#52627b;line-height:1.6;word-break:break-word}}button{{height:36px;padding:0 14px;border:0;border-radius:6px;background:#1f6feb;color:#fff;font:inherit;cursor:pointer}}</style></head><body><main><h1>{}</h1><p>{}</p><button type=\"button\" onclick=\"window.close()\">返回应用</button></main></body></html>",
         escape_html(title),
         escape_html(title),
         escape_html(detail)
     );
     let response = format!(
         "HTTP/1.1 {status_line}\r\nContent-Type: text/html; charset=utf-8\r\nCache-Control: no-store\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
-        body.as_bytes().len(),
+        body.len(),
         body
     );
     let _ = stream.write_all(response.as_bytes());
@@ -585,5 +680,42 @@ fn open_url_with_system_browser(url: &str) -> Result<(), AppError> {
     {
         Command::new("xdg-open").arg(url).spawn()?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const REDIRECT_URI: &str = "http://localhost:1455/auth/callback";
+
+    #[test]
+    fn oauth_host_must_match_redirect_port() {
+        let request =
+            "GET /auth/callback?code=abc&state=state HTTP/1.1\r\nHost: localhost:1455\r\n\r\n";
+
+        assert!(validate_oauth_request_host(request, REDIRECT_URI).is_ok());
+    }
+
+    #[test]
+    fn oauth_host_rejects_unexpected_port() {
+        let request =
+            "GET /auth/callback?code=abc&state=state HTTP/1.1\r\nHost: localhost:9999\r\n\r\n";
+
+        assert!(validate_oauth_request_host(request, REDIRECT_URI).is_err());
+    }
+
+    #[test]
+    fn oauth_callback_query_rejects_unknown_keys() {
+        let result = validate_oauth_callback_path("/auth/callback?code=abc&state=state&token=bad");
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn oauth_callback_path_rejects_control_characters() {
+        let result = validate_oauth_callback_path("/auth/callback?code=abc\n&state=state");
+
+        assert!(result.is_err());
     }
 }

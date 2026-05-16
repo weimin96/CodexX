@@ -75,6 +75,18 @@ pub async fn save_settings(state: State<'_, AppState>, settings: Value) -> Resul
                 params![key, val_str, now],
             )?;
         }
+
+        if let Some(window_close_action) = obj.get("window_close_action").and_then(Value::as_str) {
+            let normalized_action = match window_close_action {
+                "quit" => "quit",
+                _ => "tray",
+            };
+            let mut cached_action = state
+                .window_close_action
+                .write()
+                .map_err(|error| AppError::Other(format!("更新关闭窗口行为缓存失败: {error}")))?;
+            *cached_action = normalized_action.to_string();
+        }
     }
 
     Ok(())

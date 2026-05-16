@@ -58,7 +58,7 @@ pub async fn rebuild_account_usage(
 ) -> Result<Value, AppError> {
     let db = state.db.lock().await;
     let repo = UsageRepository::new(&db);
-    let rebuild_scope = CodexSessionUsageRebuildScope::from_str(scope.as_str())?;
+    let rebuild_scope = CodexSessionUsageRebuildScope::parse(scope.as_str())?;
     let rebuild_result =
         rebuild_codex_session_usage_for_account(&repo, &account_id, rebuild_scope)?;
     Ok(serde_json::to_value(rebuild_result)?)

@@ -155,7 +155,7 @@ fn display_config_value(value: &TomlValue) -> String {
 }
 
 fn normalize_config_text(raw_text: &str) -> String {
-    let trimmed = raw_text.trim_end_matches(|character| character == '\r' || character == '\n');
+    let trimmed = raw_text.trim_end_matches(['\r', '\n']);
     if trimmed.is_empty() {
         String::new()
     } else {

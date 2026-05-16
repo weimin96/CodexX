@@ -121,7 +121,7 @@ const emit = defineEmits<{
   'refresh-token': []
   'switch-account': []
   'export-auth': []
-  'trigger-warmup': [window: 'five_hour' | 'one_week']
+  'trigger-warmup': []
   delete: []
 }>()
 
@@ -129,8 +129,7 @@ type CardActionKey =
   | 'detail'
   | 'check'
   | 'refresh-token'
-  | 'warmup-five-hour'
-  | 'warmup-one-week'
+  | 'warmup-period'
   | 'switch-account'
   | 'export-auth'
   | 'delete'
@@ -145,8 +144,11 @@ const displayUsageError = computed(() => formatUsageError(props.account.codex_us
 const statusDisplay = computed(() => resolveAccountStatusDisplay(props.account))
 const displayStatusMessage = computed(() => resolveAccountStatusMessage(props.account))
 const statusDiagnostic = computed(() => resolveAccountStatusDiagnostic(props.account))
-const canWarmupFiveHour = computed(() => isWarmupExecutableWindow(props.account.codex_usage_5h))
-const canWarmupOneWeek = computed(() => isWarmupExecutableWindow(props.account.codex_usage_week))
+const canWarmupPeriod = computed(
+  () =>
+    isWarmupExecutableWindow(props.account.codex_usage_5h) ||
+    isWarmupExecutableWindow(props.account.codex_usage_week),
+)
 const planLabel = computed(() => formatAccountPlanType(props.account.codex_plan_type))
 const planTone = computed(() => resolveAccountPlanTone(props.account.codex_plan_type))
 const cardActionOptions = computed<DropdownOption[]>(() => {
@@ -197,25 +199,11 @@ const cardActionOptions = computed<DropdownOption[]>(() => {
       icon: () => renderActionIcon('M21 12a9 9 0 1 1-2.64-6.36M21 3v6h-6'),
     },
     {
-      label: '5 小时预热',
-      key: 'warmup-five-hour',
-      disabled:
-        props.triggeringConversation || props.warmupDisabled || !canWarmupFiveHour.value,
+      label: '周期预热',
+      key: 'warmup-period',
+      disabled: props.triggeringConversation || props.warmupDisabled || !canWarmupPeriod.value,
       props: {
-        title: '触发5小时倒计时',
-      },
-      icon: () =>
-        renderActionIcon(
-          'M21 15a4 4 0 0 1-4 4H7l-4 4V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4v8z',
-        ),
-    },
-    {
-      label: '7 天预热',
-      key: 'warmup-one-week',
-      disabled:
-        props.triggeringConversation || props.warmupDisabled || !canWarmupOneWeek.value,
-      props: {
-        title: '触发7天倒计时',
+        title: '触发周期额度倒计时',
       },
       icon: () =>
         renderActionIcon(
@@ -270,10 +258,6 @@ function isWarmupExecutableWindow(window: CodexUsageWindow | undefined): boolean
     return false
   }
 
-  if (window.used_percent > 0.000_001) {
-    return false
-  }
-
   if (!Number.isFinite(window.reset_at) || !window.reset_at) {
     return false
   }
@@ -313,11 +297,8 @@ function handleCardActionSelect(key: string | number) {
     case 'refresh-token':
       emit('refresh-token')
       break
-    case 'warmup-five-hour':
-      emit('trigger-warmup', 'five_hour')
-      break
-    case 'warmup-one-week':
-      emit('trigger-warmup', 'one_week')
+    case 'warmup-period':
+      emit('trigger-warmup')
       break
     case 'switch-account':
       emit('switch-account')

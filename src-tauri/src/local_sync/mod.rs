@@ -724,7 +724,7 @@ impl LocalAuthSyncService {
         }
     }
 
-    fn non_empty_text<'a>(value: Option<&'a str>) -> Option<&'a str> {
+    fn non_empty_text(value: Option<&str>) -> Option<&str> {
         value.map(str::trim).filter(|text| !text.is_empty())
     }
 }

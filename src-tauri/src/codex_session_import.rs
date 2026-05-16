@@ -139,7 +139,7 @@ pub fn rebuild_codex_session_usage_for_account(
 }
 
 impl CodexSessionUsageRebuildScope {
-    pub fn from_str(value: &str) -> AppResult<Self> {
+    pub fn parse(value: &str) -> AppResult<Self> {
         match value {
             "account" => Ok(Self::Account),
             "recent_session" => Ok(Self::RecentSession),

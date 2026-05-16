@@ -6,7 +6,11 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "typecheck": "vue-tsc --noEmit",
     "build": "vue-tsc --noEmit && vite build",
+    "lint:rust": "cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings",
+    "test:rust": "cargo test --manifest-path src-tauri/Cargo.toml --no-default-features",
+    "check:rust": "cargo check --manifest-path src-tauri/Cargo.toml --no-default-features",
     "preview": "vite preview",
     "tauri": "tauri"
   },

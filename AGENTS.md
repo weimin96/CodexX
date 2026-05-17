@@ -198,16 +198,16 @@ codexx
 pnpm install
 ```
 
+启动桌面开发环境：
+
+```powershell
+npm run dev
+```
+
 启动前端开发服务：
 
 ```powershell
-pnpm dev
-```
-
-启动 Tauri 开发环境：
-
-```powershell
-pnpm tauri dev
+npm run dev:web
 ```
 
 前端构建：

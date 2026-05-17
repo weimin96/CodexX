@@ -98,7 +98,13 @@ Codex App 启停当前仅支持 Windows，并依赖本机已经安装 Codex App�
 
 ```powershell
 pnpm install
-pnpm tauri dev
+npm run dev
+```
+
+仅调试前端页面时使用：
+
+```powershell
+npm run dev:web
 ```
 
 ### 最小验证命令

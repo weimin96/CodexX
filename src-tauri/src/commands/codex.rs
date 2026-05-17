@@ -190,10 +190,14 @@ pub async fn trigger_codex_short_conversation(
     let started_at = Utc::now().to_rfc3339();
     let now_timestamp = Utc::now().timestamp();
     let executable_label = target.executable_label();
-    let (selected_account, warmup_workspace) = {
+    let (selected_account, warmup_workspace, previous_default_account_id) = {
         let db = state.db.lock().await;
         let account_repo = AccountRepository::new(&db);
         let accounts = account_repo.list_all()?;
+        let previous_default_account_id = accounts
+            .iter()
+            .find(|account| account.is_default)
+            .map(|account| account.id.clone());
         let selected_account = select_warmup_ready_account(
             &accounts,
             account_id.as_deref(),
@@ -222,7 +226,11 @@ pub async fn trigger_codex_short_conversation(
             error_message: None,
         })?;
 
-        (selected_account, warmup_workspace)
+        (
+            selected_account,
+            warmup_workspace,
+            previous_default_account_id,
+        )
     };
     let input = CodexExecInput {
         account_id: selected_account.id.clone(),
@@ -272,6 +280,12 @@ pub async fn trigger_codex_short_conversation(
             if status == "completed" {
                 refresh_quota_after_codex_task(&app, state.inner(), &selected_account.id).await;
             }
+            restore_warmup_default_account(
+                state.inner(),
+                previous_default_account_id.as_deref(),
+                &selected_account.id,
+            )
+            .await?;
 
             let selected_account_name = account_email_or_name(&selected_account);
             Ok(serde_json::to_value(serde_json::json!({
@@ -308,9 +322,38 @@ pub async fn trigger_codex_short_conversation(
                     error_message: Some(error.to_string()),
                 })?;
             }
+            restore_warmup_default_account(
+                state.inner(),
+                previous_default_account_id.as_deref(),
+                &selected_account.id,
+            )
+            .await?;
             Err(error)
         }
     }
+}
+
+async fn restore_warmup_default_account(
+    state: &AppState,
+    previous_default_account_id: Option<&str>,
+    warmup_account_id: &str,
+) -> Result<(), AppError> {
+    let Some(previous_default_account_id) = previous_default_account_id else {
+        return Ok(());
+    };
+
+    if previous_default_account_id == warmup_account_id {
+        return Ok(());
+    }
+
+    let db = state.db.lock().await;
+    let account_repo = AccountRepository::new(&db);
+    LocalAuthSyncService::write_account_to_default_auth_file(
+        &account_repo,
+        previous_default_account_id,
+    )
+    .map(|_| ())
+    .map_err(|error| AppError::Other(format!("周期预热已结束，但恢复原默认账号失败: {error}")))
 }
 
 fn select_warmup_ready_account(
@@ -767,7 +810,11 @@ fn account_email_or_name(account: &Account) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::account::{AccountStatus, AuthType, CodexUsageWindow};
+    use crate::account::{AccountStatus, AuthType, CodexUsageWindow, CreateAccountInput};
+    use crate::auth::PendingOAuthLogin;
+    use std::path::PathBuf;
+    use std::sync::{Arc, RwLock};
+    use tokio::sync::Mutex;
 
     fn account_with_windows(
         five_hour: Option<CodexUsageWindow>,
@@ -794,6 +841,24 @@ mod tests {
             codex_usage_week: one_week,
             codex_usage_error: None,
         }
+    }
+
+    fn create_api_key_account(repo: &AccountRepository, name: &str, api_key: &str) -> Account {
+        repo.create(CreateAccountInput {
+            name: Some(name.to_string()),
+            auth_type: "api_key".to_string(),
+            email: None,
+            organization: None,
+            color: None,
+            credential_value: api_key.to_string(),
+            credential_type: None,
+        })
+        .unwrap()
+    }
+
+    fn unique_temp_dir() -> PathBuf {
+        let suffix = format!("{}-{}", std::process::id(), Uuid::new_v4().as_simple());
+        std::env::temp_dir().join(format!("codexx-warmup-restore-tests-{suffix}"))
     }
 
     fn usage_window(used_percent: f64, window_seconds: i64, reset_at: i64) -> CodexUsageWindow {
@@ -847,5 +912,56 @@ mod tests {
             WarmupScope::Period,
             now_timestamp
         ));
+    }
+
+    #[tokio::test]
+    async fn warmup_restore_writes_previous_default_account_back() {
+        std::env::set_var(
+            "CODEX_MANAGER_MASTER_KEY",
+            "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+        );
+        let temp_dir = unique_temp_dir();
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        std::env::set_var("CODEX_HOME", &temp_dir);
+
+        let db = Database::new(temp_dir.join("codexX.db")).unwrap();
+        let previous_account_id;
+        let warmup_account_id;
+        {
+            let repo = AccountRepository::new(&db);
+            let previous_account =
+                create_api_key_account(&repo, "原默认账号", "previous-default-api-key");
+            let warmup_account =
+                create_api_key_account(&repo, "预热账号", "warmup-account-api-key");
+            previous_account_id = previous_account.id.clone();
+            warmup_account_id = warmup_account.id.clone();
+            LocalAuthSyncService::write_account_to_default_auth_file(&repo, &warmup_account_id)
+                .unwrap();
+        }
+
+        let state = AppState {
+            db: Arc::new(Mutex::new(db)),
+            window_close_action: Arc::new(RwLock::new("tray".to_string())),
+            oauth_flow_lock: Arc::new(Mutex::new(())),
+            pending_oauth_login: Mutex::new(None::<PendingOAuthLogin>),
+            oauth_listener: Mutex::new(None),
+        };
+
+        restore_warmup_default_account(&state, Some(&previous_account_id), &warmup_account_id)
+            .await
+            .unwrap();
+
+        {
+            let db = state.db.lock().await;
+            let repo = AccountRepository::new(&db);
+            assert!(repo.get_by_id(&previous_account_id).unwrap().is_default);
+            assert!(!repo.get_by_id(&warmup_account_id).unwrap().is_default);
+        }
+
+        let auth_text = std::fs::read_to_string(temp_dir.join("auth.json")).unwrap();
+        assert!(auth_text.contains("previous-default-api-key"));
+        assert!(!auth_text.contains("warmup-account-api-key"));
+
+        let _ = std::fs::remove_dir_all(temp_dir);
     }
 }

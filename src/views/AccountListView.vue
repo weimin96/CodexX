@@ -469,24 +469,19 @@ function navigateToDetail(id: string) {
   router.push({ name: 'AccountDetail', params: { id } })
 }
 
-function isWarmupWindowExecutable(usageWindow: Account['codex_usage_5h']): boolean {
+function hasWarmupWindowRemainingQuota(usageWindow: Account['codex_usage_5h']): boolean {
   if (!usageWindow) {
     return false
   }
 
-  if (!Number.isFinite(usageWindow.reset_at) || !usageWindow.reset_at) {
-    return false
-  }
-
-  const nowSeconds = Math.floor(Date.now() / 1000)
-  const secondsUntilReset = usageWindow.reset_at - nowSeconds
-  return secondsUntilReset >= usageWindow.window_seconds
+  const usedPercent = Number.isFinite(usageWindow.used_percent) ? usageWindow.used_percent : 0
+  return 100 - Math.min(Math.max(usedPercent, 0), 100) > 0.000001
 }
 
 function isWarmupExecutable(account: Account): boolean {
   return (
-    isWarmupWindowExecutable(account.codex_usage_5h) ||
-    isWarmupWindowExecutable(account.codex_usage_week)
+    hasWarmupWindowRemainingQuota(account.codex_usage_5h) &&
+    hasWarmupWindowRemainingQuota(account.codex_usage_week)
   )
 }
 

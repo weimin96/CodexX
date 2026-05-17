@@ -27,6 +27,7 @@ const SHORT_CONVERSATION_MODEL: &str = "gpt-5.2";
 const SHORT_CONVERSATION_MODEL_LABEL: &str = "GPT-5.2";
 const LOW_REASONING_OVERRIDE: &str = "model_reasoning_effort=\"low\"";
 const PERIOD_WARMUP_LABEL: &str = "周期";
+const PERIOD_WARMUP_REMAINING_QUOTA_EPSILON: f64 = 0.000_001;
 const SESSION_USAGE_IMPORT_ATTEMPTS: usize = 12;
 const SESSION_USAGE_IMPORT_INTERVAL_SECONDS: u64 = 15;
 
@@ -333,7 +334,7 @@ fn select_warmup_ready_account(
         .cloned()
         .ok_or_else(|| {
             AppError::InvalidInput(format!(
-                "没有找到可执行{}预热且未进入倒计时的账号",
+                "没有找到两个周期都有剩余额度的{}预热账号",
                 warmup_scope.label()
             ))
         })
@@ -347,7 +348,7 @@ fn is_warmup_scope_executable(
     match warmup_scope {
         WarmupScope::Period => {
             is_usage_window_executable(account.codex_usage_5h.as_ref(), now_timestamp)
-                || is_usage_window_executable(account.codex_usage_week.as_ref(), now_timestamp)
+                && is_usage_window_executable(account.codex_usage_week.as_ref(), now_timestamp)
         }
     }
 }
@@ -369,18 +370,20 @@ fn validate_warmup_scope_executable(
 
 fn is_usage_window_executable(
     usage: Option<&crate::account::CodexUsageWindow>,
-    now_timestamp: i64,
+    _now_timestamp: i64,
 ) -> bool {
     let Some(usage) = usage else {
         return false;
     };
 
-    let reset_at = match usage.reset_at {
-        Some(value) => value,
-        None => return false,
+    let used_percent = if usage.used_percent.is_finite() {
+        usage.used_percent.clamp(0.0, 100.0)
+    } else {
+        0.0
     };
+    let remaining_percent = 100.0 - used_percent;
 
-    reset_at - now_timestamp >= usage.window_seconds
+    remaining_percent > PERIOD_WARMUP_REMAINING_QUOTA_EPSILON
 }
 
 fn resolve_warmup_workspace(
@@ -805,11 +808,26 @@ mod tests {
     fn period_warmup_does_not_require_full_remaining_quota() {
         let now_timestamp = 1_800_000_000;
         let account = account_with_windows(
-            Some(usage_window(47.5, 5 * 60 * 60, now_timestamp + 5 * 60 * 60)),
+            Some(usage_window(47.5, 5 * 60 * 60, now_timestamp + 60)),
+            Some(usage_window(82.0, 7 * 24 * 60 * 60, now_timestamp + 60)),
+        );
+
+        assert!(is_warmup_scope_executable(
+            &account,
+            WarmupScope::Period,
+            now_timestamp
+        ));
+    }
+
+    #[test]
+    fn period_warmup_requires_both_period_windows_with_remaining_quota() {
+        let now_timestamp = 1_800_000_000;
+        let account = account_with_windows(
+            Some(usage_window(0.0, 5 * 60 * 60, now_timestamp + 60)),
             None,
         );
 
-        assert!(is_warmup_scope_executable(
+        assert!(!is_warmup_scope_executable(
             &account,
             WarmupScope::Period,
             now_timestamp
@@ -817,29 +835,10 @@ mod tests {
     }
 
     #[test]
-    fn period_warmup_uses_any_period_window_not_in_countdown() {
+    fn period_warmup_rejects_zero_remaining_quota() {
         let now_timestamp = 1_800_000_000;
         let account = account_with_windows(
-            Some(usage_window(0.0, 5 * 60 * 60, now_timestamp + 60)),
-            Some(usage_window(
-                82.0,
-                7 * 24 * 60 * 60,
-                now_timestamp + 7 * 24 * 60 * 60,
-            )),
-        );
-
-        assert!(is_warmup_scope_executable(
-            &account,
-            WarmupScope::Period,
-            now_timestamp
-        ));
-    }
-
-    #[test]
-    fn period_warmup_rejects_account_already_in_countdown() {
-        let now_timestamp = 1_800_000_000;
-        let account = account_with_windows(
-            Some(usage_window(0.0, 5 * 60 * 60, now_timestamp + 60)),
+            Some(usage_window(100.0, 5 * 60 * 60, now_timestamp + 60)),
             Some(usage_window(0.0, 7 * 24 * 60 * 60, now_timestamp + 60)),
         );
 

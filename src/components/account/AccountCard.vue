@@ -145,9 +145,7 @@ const statusDisplay = computed(() => resolveAccountStatusDisplay(props.account))
 const displayStatusMessage = computed(() => resolveAccountStatusMessage(props.account))
 const statusDiagnostic = computed(() => resolveAccountStatusDiagnostic(props.account))
 const canWarmupPeriod = computed(
-  () =>
-    isWarmupExecutableWindow(props.account.codex_usage_5h) ||
-    isWarmupExecutableWindow(props.account.codex_usage_week),
+  () => hasPeriodWarmupQuota(props.account),
 )
 const planLabel = computed(() => formatAccountPlanType(props.account.codex_plan_type))
 const planTone = computed(() => resolveAccountPlanTone(props.account.codex_plan_type))
@@ -253,18 +251,20 @@ function hasCodexUsage(account: Account): boolean {
   return Boolean(account.codex_usage_5h || account.codex_usage_week)
 }
 
-function isWarmupExecutableWindow(window: CodexUsageWindow | undefined): boolean {
+function hasPeriodWarmupQuota(account: Account): boolean {
+  return (
+    hasRemainingQuota(account.codex_usage_5h) &&
+    hasRemainingQuota(account.codex_usage_week)
+  )
+}
+
+function hasRemainingQuota(window: CodexUsageWindow | undefined): boolean {
   if (!window) {
     return false
   }
 
-  if (!Number.isFinite(window.reset_at) || !window.reset_at) {
-    return false
-  }
-
-  const nowSeconds = Math.floor(Date.now() / 1000)
-  const secondsUntilReset = window.reset_at - nowSeconds
-  return secondsUntilReset >= window.window_seconds
+  const usedPercent = Number.isFinite(window.used_percent) ? window.used_percent : 0
+  return 100 - Math.min(Math.max(usedPercent, 0), 100) > 0.000001
 }
 
 function renderActionIcon(path: string) {

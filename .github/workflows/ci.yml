@@ -89,7 +89,8 @@ jobs:
         run: cargo install cargo-audit --locked
 
       - name: 检查 Cargo 已知漏洞
-        run: cargo audit --manifest-path src-tauri/Cargo.toml
+        working-directory: src-tauri
+        run: cargo audit
 
   dependency-review:
     name: 依赖变更审查

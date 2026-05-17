@@ -217,13 +217,15 @@ fn decrypt_payload(master_key: &[u8], combined: &[u8]) -> AppResult<Vec<u8>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use keyring::credential::CredentialPersistence;
     use std::sync::Mutex;
 
     static KEYRING_BUILDER_GUARD: Mutex<()> = Mutex::new(());
 
+    #[cfg(any(target_os = "windows", target_os = "macos"))]
     #[test]
     fn system_store_backend_must_be_persistent_on_supported_platforms() {
+        use keyring::credential::CredentialPersistence;
+
         let persistence = keyring::default::default_credential_builder().persistence();
         assert!(
             matches!(persistence, CredentialPersistence::UntilDelete),

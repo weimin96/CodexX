@@ -28,7 +28,7 @@
     "date-fns": "^4.1.0",
     "echarts": "^5.5.0",
     "naive-ui": "^2.38.0",
-    "pinia": "^2.1.7",
+    "pinia": "^3.0.4",
     "vue": "^3.4.0",
     "vue-echarts": "^7.0.0",
     "vue-router": "^4.3.0"

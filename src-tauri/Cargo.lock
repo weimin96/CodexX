@@ -587,7 +587,7 @@ dependencies = [
 
 [[package]]
 name = "codexx"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
  "aes-gcm",
  "anyhow",
@@ -597,7 +597,7 @@ dependencies = [
  "keyring",
  "log",
  "once_cell",
- "rand 0.8.6",
+ "rand 0.9.4",
  "reqwest 0.12.28",
  "rusqlite",
  "serde",

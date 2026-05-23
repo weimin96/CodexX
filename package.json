@@ -37,7 +37,7 @@
     "@tauri-apps/cli": "^2.11.1",
     "@vitejs/plugin-vue": "^6.0.7",
     "png-to-ico": "^3.0.1",
-    "typescript": "^5.4.0",
+    "typescript": "^6.0.3",
     "unplugin-auto-import": "^21.0.0",
     "unplugin-vue-components": "^0.27.0",
     "vfonts": "^0.0.3",
